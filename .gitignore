@@ -1,0 +1,16 @@
+# Local credentials and environment
+.env
+.env.*
+!.env.example
+.secrets/
+*.pem
+*.key
+
+# Local development state
+.DS_Store
+.idea/
+.vscode/
+dist/
+bin/
+coverage/
+tmp/
