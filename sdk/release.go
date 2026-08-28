@@ -26,19 +26,28 @@ type ReleaseManifest struct {
 }
 
 type ObservedRelease struct {
-	SchemaVersion  string    `json:"schemaVersion"`
-	System         string    `json:"system"`
-	Phase          string    `json:"phase"`
-	DesiredVersion string    `json:"desiredVersion,omitempty"`
-	RunningVersion string    `json:"runningVersion,omitempty"`
-	PID            int       `json:"pid,omitempty"`
-	Restarts       int       `json:"restarts"`
-	PublicPort     int       `json:"publicPort"`
-	InternalPort   int       `json:"internalPort,omitempty"`
-	Healthy        bool      `json:"healthy"`
-	Message        string    `json:"message,omitempty"`
-	Node           string    `json:"node,omitempty"`
-	UpdatedAt      time.Time `json:"updatedAt"`
+	SchemaVersion  string            `json:"schemaVersion"`
+	System         string            `json:"system"`
+	Phase          string            `json:"phase"`
+	DesiredVersion string            `json:"desiredVersion,omitempty"`
+	RunningVersion string            `json:"runningVersion,omitempty"`
+	PID            int               `json:"pid,omitempty"`
+	Restarts       int               `json:"restarts"`
+	PublicPort     int               `json:"publicPort"`
+	InternalPort   int               `json:"internalPort,omitempty"`
+	Healthy        bool              `json:"healthy"`
+	Message        string            `json:"message,omitempty"`
+	Services       []ObservedService `json:"services,omitempty"`
+	Node           string            `json:"node,omitempty"`
+	UpdatedAt      time.Time         `json:"updatedAt"`
+}
+
+type ObservedService struct {
+	Name     string `json:"name"`
+	Kind     string `json:"kind"`
+	Engine   string `json:"engine"`
+	Phase    string `json:"phase"`
+	Endpoint string `json:"endpoint,omitempty"`
 }
 
 type RuntimeControl struct {
@@ -126,6 +135,13 @@ func (c *Client) BootstrapSystemHost(ctx context.Context, system System, nodeBin
 	host := system.Spec.Constraints.Host
 	if host.Count != 1 {
 		return ApplyResult{}, fmt.Errorf("node runtime experiment currently requires exactly one host")
+	}
+	runtimePlan, err := CompileRuntimePlan(system)
+	if err != nil {
+		return ApplyResult{}, err
+	}
+	if err := c.m1.PutJSON(ctx, strings.TrimRight(system.Spec.M1.Prefix, "/")+"/runtime-plan.json", runtimePlan); err != nil {
+		return ApplyResult{}, fmt.Errorf("persist runtime plan: %w", err)
 	}
 	sum := sha256.Sum256(nodeBinary)
 	digest := hex.EncodeToString(sum[:])
@@ -222,6 +238,10 @@ func (c *Client) DestroySystemHost(ctx context.Context, system System) (State, e
 		observed.InternalPort = 0
 		observed.Healthy = false
 		observed.Message = "compute host destroyed"
+		for index := range observed.Services {
+			observed.Services[index].Phase = "stopped"
+			observed.Services[index].Endpoint = ""
+		}
 		observed.UpdatedAt = time.Now().UTC()
 		if putErr := c.m1.PutJSON(ctx, observedKey(system), observed); putErr != nil {
 			return State{}, putErr

@@ -41,6 +41,7 @@ type SystemService struct {
 	Engine     string           `yaml:"engine,omitempty" json:"engine,omitempty"`
 	Isolation  string           `yaml:"isolation" json:"isolation"`
 	Instances  int              `yaml:"instances" json:"instances"`
+	DependsOn  []string         `yaml:"dependsOn,omitempty" json:"dependsOn,omitempty"`
 	Resources  ServiceResources `yaml:"resources" json:"resources"`
 	Readiness  Readiness        `yaml:"readiness" json:"readiness"`
 	Networking string           `yaml:"networking,omitempty" json:"networking,omitempty"`
@@ -174,6 +175,13 @@ func (s System) Validate() error {
 		}
 		guestMemory += service.Instances * service.Resources.MemoryMiB
 	}
+	for _, service := range s.Spec.Services {
+		for _, dependency := range service.DependsOn {
+			if dependency == service.Name || !seen[dependency] {
+				return fmt.Errorf("service %s has invalid dependency %q", service.Name, dependency)
+			}
+		}
+	}
 	available := host.Count * (host.MemoryMiB - host.SystemReserve)
 	if guestMemory > available {
 		return fmt.Errorf("guest memory %d MiB exceeds host capacity %d MiB after system reserve", guestMemory, available)
@@ -220,9 +228,13 @@ func CompileSystem(system System) (ExecutionGraph, error) {
 				workloadKind = "runtime.process-instance"
 			}
 			serviceID := fmt.Sprintf("service/%s-%d", service.Name, instance)
+			dependencies := []string{workloadID, "m1/system"}
+			for _, dependency := range service.DependsOn {
+				dependencies = append(dependencies, fmt.Sprintf("service/%s-1", dependency))
+			}
 			graph.Nodes = append(graph.Nodes,
 				GraphNode{ID: workloadID, Kind: workloadKind, DependsOn: []string{runtimeID}, Placement: hostID, Resources: service.Resources, Properties: map[string]string{"isolation": service.Isolation}},
-				GraphNode{ID: serviceID, Kind: service.Kind + "." + service.Engine, DependsOn: []string{workloadID, "m1/system"}, Placement: workloadID, Properties: map[string]string{"readiness": fmt.Sprintf("%s:%d", service.Readiness.Protocol, service.Readiness.Port), "networking": service.Networking}},
+				GraphNode{ID: serviceID, Kind: service.Kind + "." + service.Engine, DependsOn: dependencies, Placement: workloadID, Properties: map[string]string{"readiness": fmt.Sprintf("%s:%d", service.Readiness.Protocol, service.Readiness.Port), "networking": service.Networking}},
 			)
 			graph.Invariants = append(graph.Invariants,
 				Invariant{Kind: "resource.memory", Subject: workloadID, Value: fmt.Sprintf("%dMiB", service.Resources.MemoryMiB)},

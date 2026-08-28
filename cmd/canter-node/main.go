@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/canter0/canter/internal/provider/m1"
+	"github.com/canter0/canter/internal/runtime/driver"
 	"github.com/canter0/canter/sdk"
 )
 
@@ -47,6 +48,8 @@ type node struct {
 	prefix                  string
 	publicPort              int
 	target                  atomic.Value
+	routingMu               sync.Mutex
+	inflight                map[string]int
 	active                  *process
 	failedVersion           string
 	restarts                int
@@ -54,6 +57,11 @@ type node struct {
 	hostname                string
 	lastObservedFingerprint string
 	lastObservedAt          time.Time
+	drivers                 *driver.Registry
+	serviceBindings         map[string]string
+	services                []sdk.ObservedService
+	nextServiceCheck        time.Time
+	restartRequested        bool
 }
 
 func main() {
@@ -69,7 +77,10 @@ func main() {
 		log.Fatal(err)
 	}
 	hostname, _ := os.Hostname()
-	n := &node{store: store, system: *system, prefix: strings.TrimRight(*prefix, "/"), publicPort: *publicPort, hostname: hostname}
+	drivers := driver.NewRegistry()
+	drivers.Register("database", "postgres", driver.Postgres{})
+	drivers.Register("database", "postgresql", driver.Postgres{})
+	n := &node{store: store, system: *system, prefix: strings.TrimRight(*prefix, "/"), publicPort: *publicPort, hostname: hostname, drivers: drivers, inflight: make(map[string]int)}
 	n.target.Store("")
 	go func() {
 		addr := fmt.Sprintf(":%d", n.publicPort)
@@ -83,11 +94,12 @@ func main() {
 }
 
 func (n *node) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	target := n.target.Load().(string)
+	target, release := n.acquireTarget()
 	if target == "" {
 		http.Error(w, "canter release is not ready", http.StatusServiceUnavailable)
 		return
 	}
+	defer release()
 	u, _ := url.Parse(target)
 	proxy := httputil.NewSingleHostReverseProxy(u)
 	proxy.ErrorHandler = func(w http.ResponseWriter, _ *http.Request, err error) {
@@ -118,7 +130,7 @@ func (n *node) reconcile(ctx context.Context) error {
 			err := n.active.err()
 			log.Printf("release %s exited: %v", n.active.version, err)
 			n.active = nil
-			n.target.Store("")
+			n.setTarget("")
 			n.restarts++
 			n.failedVersion = ""
 			_ = n.writeObserved(ctx, sdk.ObservedRelease{Phase: "recovering", Restarts: n.restarts, Message: "application process exited"})
@@ -126,6 +138,10 @@ func (n *node) reconcile(ctx context.Context) error {
 		}
 	}
 	if err := n.applyControl(ctx); err != nil {
+		return err
+	}
+	if err := n.reconcileServices(ctx); err != nil {
+		_ = n.writeObserved(ctx, sdk.ObservedRelease{Phase: "provisioning-services", Restarts: n.restarts, Message: err.Error()})
 		return err
 	}
 	var desired sdk.ReleaseManifest
@@ -139,24 +155,35 @@ func (n *node) reconcile(ctx context.Context) error {
 	if desired.System != n.system || desired.SchemaVersion != "v1" {
 		return fmt.Errorf("desired release does not belong to node system")
 	}
-	if n.active != nil && n.active.version == desired.Version {
+	if n.active != nil && n.active.version == desired.Version && !n.restartRequested {
 		return n.writeObserved(ctx, n.observed(desired, "running", true, ""))
 	}
-	if n.failedVersion == desired.Version {
+	if n.failedVersion == desired.Version && !n.restartRequested {
 		return nil
 	}
 	old := n.active
 	candidate, err := n.startRelease(ctx, desired)
 	if err != nil {
+		if n.restartRequested && old != nil {
+			n.restartRequested = false
+			return n.writeObserved(ctx, n.observed(desired, "running", true, "requested replacement failed: "+err.Error()))
+		}
 		n.failedVersion = desired.Version
 		observed := n.observed(desired, "release-failed", old != nil, err.Error())
 		return n.writeObserved(ctx, observed)
 	}
 	n.active = candidate
-	n.target.Store(fmt.Sprintf("http://127.0.0.1:%d", candidate.port))
+	newTarget := fmt.Sprintf("http://127.0.0.1:%d", candidate.port)
+	n.setTarget(newTarget)
 	n.failedVersion = ""
 	if old != nil {
+		oldTarget := fmt.Sprintf("http://127.0.0.1:%d", old.port)
+		n.waitForDrain(ctx, oldTarget, 10*time.Second)
 		n.stop(old)
+	}
+	if n.restartRequested {
+		n.restarts++
+		n.restartRequested = false
 	}
 	return n.writeObserved(ctx, n.observed(desired, "running", true, ""))
 }
@@ -178,6 +205,9 @@ func (n *node) startRelease(ctx context.Context, desired sdk.ReleaseManifest) (*
 	cmd.Dir = dir
 	env := append(os.Environ(), "PORT="+strconv.Itoa(port), "CANTER_RELEASE_VERSION="+desired.Version)
 	for key, value := range desired.Environment {
+		env = append(env, key+"="+value)
+	}
+	for key, value := range n.serviceBindings {
 		env = append(env, key+"="+value)
 	}
 	cmd.Env = env
@@ -344,18 +374,12 @@ func (n *node) applyControl(ctx context.Context) error {
 	if control.Action != "restart" {
 		return fmt.Errorf("unsupported runtime control %q", control.Action)
 	}
-	if n.active != nil {
-		current := n.active
-		n.active = nil
-		n.target.Store("")
-		n.stop(current)
-		n.restarts++
-	}
+	n.restartRequested = true
 	return n.store.PutJSON(ctx, n.prefix+"/control-ack.json", map[string]any{"id": control.ID, "action": control.Action, "completedAt": time.Now().UTC()})
 }
 
 func (n *node) observed(desired sdk.ReleaseManifest, phase string, healthy bool, message string) sdk.ObservedRelease {
-	o := sdk.ObservedRelease{Phase: phase, DesiredVersion: desired.Version, Restarts: n.restarts, PublicPort: n.publicPort, Healthy: healthy, Message: message}
+	o := sdk.ObservedRelease{Phase: phase, DesiredVersion: desired.Version, Restarts: n.restarts, PublicPort: n.publicPort, Healthy: healthy, Message: message, Services: n.services}
 	if n.active != nil {
 		o.RunningVersion = n.active.version
 		o.PID = n.active.cmd.Process.Pid
@@ -365,7 +389,13 @@ func (n *node) observed(desired sdk.ReleaseManifest, phase string, healthy bool,
 }
 
 func (n *node) writeObserved(ctx context.Context, observed sdk.ObservedRelease) error {
-	fingerprint := fmt.Sprintf("%s|%s|%s|%d|%d|%d|%t|%s", observed.Phase, observed.DesiredVersion, observed.RunningVersion, observed.PID, observed.Restarts, observed.InternalPort, observed.Healthy, observed.Message)
+	if observed.PublicPort == 0 {
+		observed.PublicPort = n.publicPort
+	}
+	if observed.Services == nil {
+		observed.Services = n.services
+	}
+	fingerprint := fmt.Sprintf("%s|%s|%s|%d|%d|%d|%t|%s|%v", observed.Phase, observed.DesiredVersion, observed.RunningVersion, observed.PID, observed.Restarts, observed.InternalPort, observed.Healthy, observed.Message, observed.Services)
 	if fingerprint == n.lastObservedFingerprint && time.Since(n.lastObservedAt) < 30*time.Second {
 		return nil
 	}
@@ -378,5 +408,76 @@ func (n *node) writeObserved(ctx context.Context, observed sdk.ObservedRelease) 
 	}
 	n.lastObservedFingerprint = fingerprint
 	n.lastObservedAt = observed.UpdatedAt
+	return nil
+}
+
+func (n *node) acquireTarget() (string, func()) {
+	n.routingMu.Lock()
+	target := n.target.Load().(string)
+	if target == "" {
+		n.routingMu.Unlock()
+		return "", func() {}
+	}
+	n.inflight[target]++
+	n.routingMu.Unlock()
+	return target, func() {
+		n.routingMu.Lock()
+		n.inflight[target]--
+		n.routingMu.Unlock()
+	}
+}
+
+func (n *node) setTarget(target string) {
+	n.routingMu.Lock()
+	n.target.Store(target)
+	n.routingMu.Unlock()
+}
+
+func (n *node) waitForDrain(ctx context.Context, target string, timeout time.Duration) {
+	deadline := time.NewTimer(timeout)
+	ticker := time.NewTicker(25 * time.Millisecond)
+	defer deadline.Stop()
+	defer ticker.Stop()
+	for {
+		n.routingMu.Lock()
+		active := n.inflight[target]
+		n.routingMu.Unlock()
+		if active == 0 {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-deadline.C:
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+func (n *node) reconcileServices(ctx context.Context) error {
+	if time.Now().Before(n.nextServiceCheck) {
+		return nil
+	}
+	var plan sdk.RuntimePlan
+	found, err := n.store.GetOptional(ctx, n.prefix+"/runtime-plan.json", &plan)
+	if err != nil {
+		return err
+	}
+	if !found {
+		n.nextServiceCheck = time.Now().Add(10 * time.Second)
+		return nil
+	}
+	if err := plan.Validate(n.system); err != nil {
+		return err
+	}
+	bindings, services, err := n.drivers.Ensure(ctx, plan)
+	n.services = services
+	if err != nil {
+		n.nextServiceCheck = time.Now().Add(time.Second)
+		return err
+	}
+	n.serviceBindings = bindings
+	n.nextServiceCheck = time.Now().Add(10 * time.Second)
 	return nil
 }

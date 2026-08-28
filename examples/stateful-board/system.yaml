@@ -1,0 +1,40 @@
+apiVersion: canter.dev/v1alpha1
+kind: System
+metadata:
+  name: stateful-board
+spec:
+  intent: Run a stateful collaborative board under sustained user traffic with application releases independent from its database.
+  constraints:
+    host:
+      class: c1
+      count: 1
+      memoryMiB: 1024
+      systemReserveMiB: 384
+  services:
+    - name: database
+      kind: database
+      engine: postgres
+      isolation: process
+      instances: 1
+      resources:
+        vcpu: 1
+        memoryMiB: 256
+      readiness:
+        protocol: tcp
+        port: 5432
+    - name: web
+      kind: service
+      engine: http
+      isolation: process
+      instances: 1
+      dependsOn:
+        - database
+      resources:
+        vcpu: 1
+        memoryMiB: 192
+      readiness:
+        protocol: http
+        port: 8080
+      networking: public
+  m1:
+    prefix: systems/stateful-board
