@@ -60,6 +60,7 @@ type node struct {
 	drivers                 *driver.Registry
 	serviceBindings         map[string]string
 	services                []sdk.ObservedService
+	runtimePlan             sdk.RuntimePlan
 	nextServiceCheck        time.Time
 	restartRequested        bool
 }
@@ -143,6 +144,9 @@ func (n *node) reconcile(ctx context.Context) error {
 	if err := n.reconcileServices(ctx); err != nil {
 		_ = n.writeObserved(ctx, sdk.ObservedRelease{Phase: "provisioning-services", Restarts: n.restarts, Message: err.Error()})
 		return err
+	}
+	if err := n.reconcileRuntimeAction(ctx); err != nil {
+		log.Printf("runtime action: %v", err)
 	}
 	var desired sdk.ReleaseManifest
 	found, err := n.store.GetOptional(ctx, n.prefix+"/desired.json", &desired)
@@ -478,6 +482,44 @@ func (n *node) reconcileServices(ctx context.Context) error {
 		return err
 	}
 	n.serviceBindings = bindings
+	n.runtimePlan = plan
 	n.nextServiceCheck = time.Now().Add(10 * time.Second)
 	return nil
+}
+
+func (n *node) reconcileRuntimeAction(ctx context.Context) error {
+	var action sdk.RuntimeAction
+	found, err := n.store.GetOptional(ctx, n.prefix+"/runtime-actions/request.json", &action)
+	if err != nil || !found {
+		return err
+	}
+	if action.SchemaVersion != "v1" || action.System != n.system || action.ID == "" || action.Service == "" || action.Kind == "" {
+		return fmt.Errorf("invalid runtime action")
+	}
+	resultKey := n.prefix + "/runtime-actions/results/" + action.ID + ".json"
+	var prior sdk.RuntimeActionResult
+	if completed, getErr := n.store.GetOptional(ctx, resultKey, &prior); getErr != nil {
+		return getErr
+	} else if completed {
+		return nil
+	}
+	if !strings.HasPrefix(action.LeaseKey, n.prefix+"/changes/") {
+		return fmt.Errorf("runtime action has an invalid lease key")
+	}
+	var lease sdk.ChangeLease
+	if leaseFound, leaseErr := n.store.GetOptional(ctx, action.LeaseKey, &lease); leaseErr != nil {
+		return leaseErr
+	} else if !leaseFound || lease.FencingToken != action.FencingToken || !lease.ExpiresAt.After(time.Now().UTC()) || !strings.HasPrefix(action.ID, lease.ChangeID+"-") {
+		return nil
+	}
+	actionCtx, cancel := context.WithDeadline(ctx, lease.ExpiresAt)
+	defer cancel()
+	result, executeErr := n.drivers.Execute(actionCtx, n.runtimePlan, action)
+	if executeErr != nil {
+		result = sdk.RuntimeActionResult{SchemaVersion: "v1", ID: action.ID, System: n.system, Service: action.Service, Kind: action.Kind, Phase: "failed", Message: executeErr.Error(), CompletedAt: time.Now().UTC()}
+	}
+	if err := n.store.PutJSON(ctx, resultKey, result); err != nil {
+		return err
+	}
+	return executeErr
 }

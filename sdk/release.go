@@ -65,6 +65,19 @@ type PublishReleaseInput struct {
 }
 
 func (c *Client) PublishRelease(ctx context.Context, system System, input PublishReleaseInput) (ReleaseManifest, error) {
+	manifest, err := c.StageRelease(ctx, system, input)
+	if err != nil {
+		return ReleaseManifest{}, err
+	}
+	if err := c.m1.PutJSON(ctx, desiredKey(system), manifest); err != nil {
+		return ReleaseManifest{}, fmt.Errorf("set desired release: %w", err)
+	}
+	return manifest, nil
+}
+
+// StageRelease stores an immutable content-addressed release without changing
+// desired production state. Change planning uses this before authorization.
+func (c *Client) StageRelease(ctx context.Context, system System, input PublishReleaseInput) (ReleaseManifest, error) {
 	if err := system.Validate(); err != nil {
 		return ReleaseManifest{}, err
 	}
@@ -90,9 +103,6 @@ func (c *Client) PublishRelease(ctx context.Context, system System, input Publis
 	}
 	if err := c.m1.PutJSON(ctx, releaseKey(system, version), manifest); err != nil {
 		return ReleaseManifest{}, fmt.Errorf("persist release manifest: %w", err)
-	}
-	if err := c.m1.PutJSON(ctx, desiredKey(system), manifest); err != nil {
-		return ReleaseManifest{}, fmt.Errorf("set desired release: %w", err)
 	}
 	return manifest, nil
 }

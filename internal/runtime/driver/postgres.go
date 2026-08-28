@@ -78,6 +78,50 @@ func (p Postgres) Ensure(ctx context.Context, service sdk.RuntimeService) (Resul
 	return Result{URL: connection.String(), Endpoint: "127.0.0.1:5432"}, nil
 }
 
+func (p Postgres) Execute(ctx context.Context, service sdk.RuntimeService, action sdk.RuntimeAction) (sdk.RuntimeActionResult, error) {
+	result := sdk.RuntimeActionResult{SchemaVersion: "v1", ID: action.ID, System: action.System, Service: service.Name, Kind: action.Kind}
+	if action.Kind != "database.expand-migration" {
+		return result, fmt.Errorf("postgres driver does not support action %q", action.Kind)
+	}
+	migrationID := action.Parameters["migrationId"]
+	digest := action.Parameters["digest"]
+	sql := action.Parameters["sql"]
+	if migrationID == "" || digest == "" || sql == "" {
+		return result, fmt.Errorf("migration action is incomplete")
+	}
+	credentials, err := p.credentials(service.Name)
+	if err != nil {
+		return result, err
+	}
+	environment := append(os.Environ(), "PGPASSWORD="+credentials.Password)
+	queryArgs := []string{"-h", "127.0.0.1", "-U", credentials.User, "-d", credentials.Database, "-tAc"}
+	if err := runWithEnv(ctx, environment, "psql", append(queryArgs, `CREATE TABLE IF NOT EXISTS canter_schema_migrations (id TEXT PRIMARY KEY, digest TEXT NOT NULL, applied_at TIMESTAMPTZ NOT NULL DEFAULT now())`)...); err != nil {
+		return result, err
+	}
+	existing, err := outputWithEnv(ctx, environment, "psql", append(queryArgs, "SELECT digest FROM canter_schema_migrations WHERE id='"+migrationID+"'")...)
+	if err != nil {
+		return result, err
+	}
+	if existing = strings.TrimSpace(existing); existing != "" {
+		if existing != digest {
+			return result, fmt.Errorf("migration %s was already applied with a different digest", migrationID)
+		}
+		result.Phase = "completed"
+		result.Duplicate = true
+		result.Message = "migration was already applied"
+		result.CompletedAt = time.Now().UTC()
+		return result, nil
+	}
+	transaction := "BEGIN;\nSELECT pg_advisory_xact_lock(1128353364);\n" + sql + "\nINSERT INTO canter_schema_migrations(id,digest) VALUES('" + migrationID + "','" + digest + "');\nCOMMIT;\n"
+	if err := runInputWithEnv(ctx, environment, transaction, "psql", "-v", "ON_ERROR_STOP=1", "-h", "127.0.0.1", "-U", credentials.User, "-d", credentials.Database); err != nil {
+		return result, err
+	}
+	result.Phase = "completed"
+	result.Message = "expand-only migration committed"
+	result.CompletedAt = time.Now().UTC()
+	return result, nil
+}
+
 func (p Postgres) install(ctx context.Context) error {
 	if _, err := exec.LookPath("psql"); err == nil {
 		return nil
@@ -147,4 +191,33 @@ func output(ctx context.Context, name string, args ...string) (string, error) {
 		return "", fmt.Errorf("%s: %w: %s", name, err, strings.TrimSpace(string(payload)))
 	}
 	return string(payload), nil
+}
+
+func runWithEnv(ctx context.Context, environment []string, name string, args ...string) error {
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Env = environment
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("%s: %w: %s", name, err, strings.TrimSpace(string(output)))
+	}
+	return nil
+}
+
+func outputWithEnv(ctx context.Context, environment []string, name string, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Env = environment
+	payload, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("%s: %w: %s", name, err, strings.TrimSpace(string(payload)))
+	}
+	return string(payload), nil
+}
+
+func runInputWithEnv(ctx context.Context, environment []string, input, name string, args ...string) error {
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Env = environment
+	cmd.Stdin = strings.NewReader(input)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("%s: %w: %s", name, err, strings.TrimSpace(string(output)))
+	}
+	return nil
 }

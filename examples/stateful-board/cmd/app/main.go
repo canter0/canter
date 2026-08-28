@@ -67,9 +67,14 @@ func main() {
 	mux.HandleFunc("GET /api/feed", s.feed)
 	mux.HandleFunc("GET /api/search", s.search)
 	mux.HandleFunc("GET /api/stats", s.stats)
+	mux.HandleFunc("GET /api/change-proof", s.changeProof)
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
+	}
+	if delay, err := time.ParseDuration(os.Getenv("STARTUP_DELAY")); err == nil && delay > 0 {
+		log.Printf("delaying readiness by %s", delay)
+		time.Sleep(delay)
 	}
 	log.Printf("stateful board %s listening on %s", version, port)
 	log.Fatal(http.ListenAndServe("127.0.0.1:"+port, mux))
@@ -294,6 +299,17 @@ func (s *server) stats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, map[string]int64{"users": users, "sessions": sessions, "posts": posts, "likes": likes})
+}
+
+func (s *server) changeProof(w http.ResponseWriter, r *http.Request) {
+	var schemaExpanded bool
+	err := s.db.QueryRow(r.Context(), `SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='posts' AND column_name='archived_at')`).Scan(&schemaExpanded)
+	if err != nil {
+		problem(w, 500, err)
+		return
+	}
+	archivingEnabled := os.Getenv("ENABLE_ARCHIVING") == "true"
+	writeJSON(w, 200, map[string]any{"version": version, "archiving": archivingEnabled, "schemaExpanded": schemaExpanded, "ready": archivingEnabled && schemaExpanded})
 }
 
 func (s *server) authenticate(w http.ResponseWriter, r *http.Request) (user, bool) {

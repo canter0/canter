@@ -78,6 +78,43 @@ func (c *Client) PutJSON(ctx context.Context, key string, value any) error {
 	return c.Put(ctx, key, b, "application/json")
 }
 
+func (c *Client) PutJSONIfAbsent(ctx context.Context, key string, value any) (string, bool, error) {
+	b, err := json.MarshalIndent(value, "", "  ")
+	if err != nil {
+		return "", false, err
+	}
+	contentType := "application/json"
+	condition := "*"
+	out, err := c.s3.PutObject(ctx, &s3.PutObjectInput{
+		Bucket: &c.bucket, Key: &key, Body: bytes.NewReader(b), ContentType: &contentType, IfNoneMatch: &condition,
+	})
+	if isPrecondition(err) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return aws.ToString(out.ETag), true, nil
+}
+
+func (c *Client) PutJSONIfMatch(ctx context.Context, key, etag string, value any) (string, bool, error) {
+	b, err := json.MarshalIndent(value, "", "  ")
+	if err != nil {
+		return "", false, err
+	}
+	contentType := "application/json"
+	out, err := c.s3.PutObject(ctx, &s3.PutObjectInput{
+		Bucket: &c.bucket, Key: &key, Body: bytes.NewReader(b), ContentType: &contentType, IfMatch: &etag,
+	})
+	if isPrecondition(err) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return aws.ToString(out.ETag), true, nil
+}
+
 func (c *Client) Get(ctx context.Context, key string, target any) error {
 	b, err := c.GetBytes(ctx, key)
 	if err != nil {
@@ -87,16 +124,33 @@ func (c *Client) Get(ctx context.Context, key string, target any) error {
 }
 
 func (c *Client) GetBytes(ctx context.Context, key string) ([]byte, error) {
+	b, _, err := c.GetBytesVersion(ctx, key)
+	return b, err
+}
+
+func (c *Client) GetBytesVersion(ctx context.Context, key string) ([]byte, string, error) {
 	out, err := c.s3.GetObject(ctx, &s3.GetObjectInput{Bucket: &c.bucket, Key: &key})
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	defer out.Body.Close()
 	b, err := io.ReadAll(io.LimitReader(out.Body, 512<<20))
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	return b, nil
+	return b, aws.ToString(out.ETag), nil
+}
+
+func (c *Client) GetJSONVersion(ctx context.Context, key string, target any) (bool, string, error) {
+	b, etag, err := c.GetBytesVersion(ctx, key)
+	if err == nil {
+		return true, etag, json.Unmarshal(b, target)
+	}
+	var apiErr smithy.APIError
+	if errors.As(err, &apiErr) && (apiErr.ErrorCode() == "NoSuchKey" || apiErr.ErrorCode() == "NotFound") {
+		return false, "", nil
+	}
+	return false, "", err
 }
 
 func (c *Client) GetOptional(ctx context.Context, key string, target any) (bool, error) {
@@ -134,4 +188,12 @@ func (c *Client) PresignGet(ctx context.Context, key string, lifetime time.Durat
 		return "", err
 	}
 	return out.URL, nil
+}
+
+func isPrecondition(err error) bool {
+	if err == nil {
+		return false
+	}
+	var apiErr smithy.APIError
+	return errors.As(err, &apiErr) && (apiErr.ErrorCode() == "PreconditionFailed" || apiErr.ErrorCode() == "ConditionalRequestConflict")
 }
