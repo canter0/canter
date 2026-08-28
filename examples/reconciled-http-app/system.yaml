@@ -1,0 +1,27 @@
+apiVersion: canter.dev/v1alpha1
+kind: System
+metadata:
+  name: reconciled-http
+spec:
+  intent: Run a versioned HTTP application, keep it healthy, update it without replacing its host, and support rollback.
+  constraints:
+    host:
+      class: c1
+      count: 1
+      memoryMiB: 1024
+      systemReserveMiB: 512
+  services:
+    - name: web
+      kind: service
+      engine: http
+      isolation: process
+      instances: 1
+      resources:
+        vcpu: 1
+        memoryMiB: 128
+      readiness:
+        protocol: http
+        port: 8080
+      networking: public
+  m1:
+    prefix: systems/reconciled-http

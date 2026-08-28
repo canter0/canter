@@ -25,3 +25,5 @@ go build -o bin/canter ./cmd/canter
 ```
 
 The Firecracker/MySQL example uses the SDK to express one logical two-instance MySQL service. Its acceptance contract compiles to one 1 GiB `c1` host, a Firecracker runtime, two 250 MiB microVMs, two MySQL readiness invariants, and one `m1` namespace. See `examples/blackbox-firecracker-mysql/README.md` for the generated application and the recorded live capability result.
+
+The reconciled HTTP example exercises the complete versioned lifecycle: content-addressed artifacts, a host-independent desired release, node-reported observed state, health-gated updates, public proxying, process recovery, failed-release containment, rollback, and managed endpoint policy cleanup. See `examples/reconciled-http-app/README.md`.

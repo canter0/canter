@@ -50,16 +50,25 @@ type BootProof struct {
 }
 
 type State struct {
-	Sandbox     string     `json:"sandbox"`
-	Phase       string     `json:"phase"`
-	Class       string     `json:"class"`
-	Image       string     `json:"image"`
-	Resources   []Resource `json:"resources"`
-	Attempts    []Attempt  `json:"attempts,omitempty"`
-	ProofKeys   []string   `json:"proofKeys"`
-	CreatedAt   time.Time  `json:"createdAt"`
-	DestroyedAt *time.Time `json:"destroyedAt,omitempty"`
-	Failure     string     `json:"failure,omitempty"`
+	Sandbox         string          `json:"sandbox"`
+	Phase           string          `json:"phase"`
+	Class           string          `json:"class"`
+	Image           string          `json:"image"`
+	Resources       []Resource      `json:"resources"`
+	Attempts        []Attempt       `json:"attempts,omitempty"`
+	ProofKeys       []string        `json:"proofKeys"`
+	CreatedAt       time.Time       `json:"createdAt"`
+	DestroyedAt     *time.Time      `json:"destroyedAt,omitempty"`
+	Failure         string          `json:"failure,omitempty"`
+	NetworkPolicies []NetworkPolicy `json:"networkPolicies,omitempty"`
+}
+
+type NetworkPolicy struct {
+	ID       string `json:"id"`
+	PortID   string `json:"portId"`
+	RuleID   string `json:"ruleId"`
+	Protocol string `json:"protocol"`
+	Port     int    `json:"port"`
 }
 
 type Attempt struct {
@@ -69,9 +78,10 @@ type Attempt struct {
 }
 
 type Resource struct {
-	ID     string `json:"id"`
-	Name   string `json:"name"`
-	Status string `json:"status"`
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Status  string `json:"status"`
+	Address string `json:"address,omitempty"`
 }
 
 type ApplyResult struct {
@@ -233,6 +243,7 @@ func (c *Client) Apply(ctx context.Context, spec Spec) (ApplyResult, error) {
 			active, waitErr := c.compute.WaitActive(ctx, server.ID)
 			if waitErr == nil {
 				state.Resources[len(state.Resources)-1].Status = active.Status
+				state.Resources[len(state.Resources)-1].Address = active.IPv4()
 				ready = true
 				break
 			}
@@ -287,6 +298,7 @@ func (c *Client) Status(ctx context.Context, spec Spec) (State, error) {
 			return State{}, err
 		}
 		state.Resources[i].Status = server.Status
+		state.Resources[i].Address = server.IPv4()
 	}
 	return state, nil
 }
@@ -303,6 +315,11 @@ func (c *Client) Destroy(ctx context.Context, spec Spec) (State, error) {
 	for _, resource := range state.Resources {
 		if err := c.compute.Delete(ctx, resource.ID); err != nil {
 			return State{}, fmt.Errorf("delete compute %s: %w", resource.ID, err)
+		}
+	}
+	for _, policy := range state.NetworkPolicies {
+		if err := c.compute.DeleteSecurityPolicy(ctx, policy.ID); err != nil {
+			return State{}, fmt.Errorf("delete network policy %s: %w", policy.ID, err)
 		}
 	}
 	now := time.Now().UTC()

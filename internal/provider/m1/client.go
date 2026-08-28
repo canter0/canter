@@ -79,16 +79,24 @@ func (c *Client) PutJSON(ctx context.Context, key string, value any) error {
 }
 
 func (c *Client) Get(ctx context.Context, key string, target any) error {
-	out, err := c.s3.GetObject(ctx, &s3.GetObjectInput{Bucket: &c.bucket, Key: &key})
-	if err != nil {
-		return err
-	}
-	defer out.Body.Close()
-	b, err := io.ReadAll(io.LimitReader(out.Body, 1<<20))
+	b, err := c.GetBytes(ctx, key)
 	if err != nil {
 		return err
 	}
 	return json.Unmarshal(b, target)
+}
+
+func (c *Client) GetBytes(ctx context.Context, key string) ([]byte, error) {
+	out, err := c.s3.GetObject(ctx, &s3.GetObjectInput{Bucket: &c.bucket, Key: &key})
+	if err != nil {
+		return nil, err
+	}
+	defer out.Body.Close()
+	b, err := io.ReadAll(io.LimitReader(out.Body, 512<<20))
+	if err != nil {
+		return nil, err
+	}
+	return b, nil
 }
 
 func (c *Client) GetOptional(ctx context.Context, key string, target any) (bool, error) {
@@ -112,6 +120,16 @@ func (c *Client) PresignPut(ctx context.Context, key string, lifetime time.Durat
 	out, err := c.presign.PresignPutObject(ctx, &s3.PutObjectInput{
 		Bucket: &c.bucket, Key: &key, ContentType: aws.String("application/json"),
 	}, func(o *s3.PresignOptions) { o.Expires = lifetime })
+	if err != nil {
+		return "", err
+	}
+	return out.URL, nil
+}
+
+func (c *Client) PresignGet(ctx context.Context, key string, lifetime time.Duration) (string, error) {
+	out, err := c.presign.PresignGetObject(ctx, &s3.GetObjectInput{Bucket: &c.bucket, Key: &key}, func(o *s3.PresignOptions) {
+		o.Expires = lifetime
+	})
 	if err != nil {
 		return "", err
 	}

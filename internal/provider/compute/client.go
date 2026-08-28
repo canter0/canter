@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"sort"
 	"strings"
@@ -47,17 +48,40 @@ type Shape struct {
 }
 
 type Server struct {
-	ID       string            `json:"id"`
-	Name     string            `json:"name"`
-	Status   string            `json:"status"`
-	Metadata map[string]string `json:"metadata"`
-	Fault    *Fault            `json:"fault,omitempty"`
+	ID        string               `json:"id"`
+	Name      string               `json:"name"`
+	Status    string               `json:"status"`
+	Metadata  map[string]string    `json:"metadata"`
+	Fault     *Fault               `json:"fault,omitempty"`
+	Addresses map[string][]Address `json:"addresses,omitempty"`
+}
+
+type Address struct {
+	Addr    string `json:"addr"`
+	Version int    `json:"version"`
+	Type    string `json:"OS-EXT-IPS:type"`
+}
+
+func (s Server) IPv4() string {
+	for _, addresses := range s.Addresses {
+		for _, address := range addresses {
+			if address.Version == 4 && address.Addr != "" {
+				return address.Addr
+			}
+		}
+	}
+	return ""
 }
 
 type Fault struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
 	Details string `json:"details,omitempty"`
+}
+
+type SecurityPolicy struct {
+	ID, PortID, RuleID string
+	Port               int
 }
 
 func NewFromEnv() (*Client, error) {
@@ -268,6 +292,118 @@ func (c *Client) Delete(ctx context.Context, id string) error {
 		return fmt.Errorf("compute delete failed with HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
 	}
 	return nil
+}
+
+func (c *Client) ExposeTCP(ctx context.Context, serverID, name string, portNumber int) (SecurityPolicy, error) {
+	if portNumber < 1 || portNumber > 65535 {
+		return SecurityPolicy{}, fmt.Errorf("invalid TCP port")
+	}
+	s, err := c.authenticate(ctx)
+	if err != nil {
+		return SecurityPolicy{}, err
+	}
+	var ports struct {
+		Ports []struct {
+			ID             string   `json:"id"`
+			SecurityGroups []string `json:"security_groups"`
+		} `json:"ports"`
+	}
+	if err := c.get(ctx, s.NetworkURL+"/v2.0/ports?device_id="+url.QueryEscape(serverID), &ports); err != nil {
+		return SecurityPolicy{}, err
+	}
+	if len(ports.Ports) != 1 {
+		return SecurityPolicy{}, fmt.Errorf("expected one compute network port, found %d", len(ports.Ports))
+	}
+	var groups struct {
+		SecurityGroups []struct {
+			ID    string `json:"id"`
+			Name  string `json:"name"`
+			Rules []struct {
+				ID        string `json:"id"`
+				Direction string `json:"direction"`
+				Protocol  string `json:"protocol"`
+				Min       int    `json:"port_range_min"`
+				Max       int    `json:"port_range_max"`
+			} `json:"security_group_rules"`
+		} `json:"security_groups"`
+	}
+	if err := c.get(ctx, s.NetworkURL+"/v2.0/security-groups", &groups); err != nil {
+		return SecurityPolicy{}, err
+	}
+	groupID, ruleID := "", ""
+	for _, group := range groups.SecurityGroups {
+		if group.Name == name {
+			groupID = group.ID
+			for _, rule := range group.Rules {
+				if rule.Direction == "ingress" && rule.Protocol == "tcp" && rule.Min == portNumber && rule.Max == portNumber {
+					ruleID = rule.ID
+				}
+			}
+			break
+		}
+	}
+	if groupID == "" {
+		var created struct {
+			SecurityGroup struct {
+				ID string `json:"id"`
+			} `json:"security_group"`
+		}
+		payload := map[string]any{"security_group": map[string]string{"name": name, "description": "Canter-managed public endpoint policy"}}
+		if err := c.request(ctx, http.MethodPost, s.NetworkURL+"/v2.0/security-groups", payload, &created); err != nil {
+			return SecurityPolicy{}, err
+		}
+		groupID = created.SecurityGroup.ID
+	}
+	if ruleID == "" {
+		var created struct {
+			SecurityGroupRule struct {
+				ID string `json:"id"`
+			} `json:"security_group_rule"`
+		}
+		payload := map[string]any{"security_group_rule": map[string]any{"security_group_id": groupID, "direction": "ingress", "ethertype": "IPv4", "protocol": "tcp", "port_range_min": portNumber, "port_range_max": portNumber, "remote_ip_prefix": "0.0.0.0/0"}}
+		if err := c.request(ctx, http.MethodPost, s.NetworkURL+"/v2.0/security-group-rules", payload, &created); err != nil {
+			return SecurityPolicy{}, err
+		}
+		ruleID = created.SecurityGroupRule.ID
+	}
+	attached := append([]string(nil), ports.Ports[0].SecurityGroups...)
+	found := false
+	for _, id := range attached {
+		if id == groupID {
+			found = true
+		}
+	}
+	if !found {
+		attached = append(attached, groupID)
+		payload := map[string]any{"port": map[string]any{"security_groups": attached}}
+		if err := c.request(ctx, http.MethodPut, s.NetworkURL+"/v2.0/ports/"+ports.Ports[0].ID, payload, nil); err != nil {
+			return SecurityPolicy{}, err
+		}
+	}
+	return SecurityPolicy{ID: groupID, PortID: ports.Ports[0].ID, RuleID: ruleID, Port: portNumber}, nil
+}
+
+func (c *Client) DeleteSecurityPolicy(ctx context.Context, id string) error {
+	s, err := c.authenticate(ctx)
+	if err != nil {
+		return err
+	}
+	var last error
+	for attempt := 0; attempt < 20; attempt++ {
+		last = c.request(ctx, http.MethodDelete, s.NetworkURL+"/v2.0/security-groups/"+id, nil, nil)
+		if last == nil {
+			return nil
+		}
+		if !strings.Contains(last.Error(), "HTTP 409") {
+			return last
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(time.Second):
+		}
+	}
+	return last
 }
 
 type flavorList struct {

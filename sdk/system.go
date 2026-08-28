@@ -163,7 +163,7 @@ func (s System) Validate() error {
 		if service.Kind == "" || service.Instances < 1 || service.Resources.VCPU < 1 || service.Resources.MemoryMiB < 1 {
 			return fmt.Errorf("service %s has invalid kind, instances, or resources", service.Name)
 		}
-		if service.Isolation != "firecracker" {
+		if service.Isolation != "firecracker" && service.Isolation != "process" {
 			return fmt.Errorf("service %s requests unsupported isolation %q", service.Name, service.Isolation)
 		}
 		if service.Kind == "database" && service.Engine == "" {
@@ -187,31 +187,45 @@ func CompileSystem(system System) (ExecutionGraph, error) {
 	}
 	host := system.Spec.Constraints.Host
 	graph := ExecutionGraph{SchemaVersion: "v1", System: system.Metadata.Name}
+	needsFirecracker, needsProcess := false, false
+	for _, service := range system.Spec.Services {
+		needsFirecracker = needsFirecracker || service.Isolation == "firecracker"
+		needsProcess = needsProcess || service.Isolation == "process"
+	}
 	graph.Nodes = append(graph.Nodes, GraphNode{
 		ID: "m1/system", Kind: "m1.namespace", Properties: map[string]string{"prefix": system.Spec.M1.Prefix},
 	})
 	for i := 1; i <= host.Count; i++ {
 		hostID := fmt.Sprintf("compute/host-%d", i)
-		graph.Nodes = append(graph.Nodes,
-			GraphNode{ID: hostID, Kind: "compute.host", Properties: map[string]string{"class": host.Class, "memoryMiB": fmt.Sprint(host.MemoryMiB)}},
-			GraphNode{ID: fmt.Sprintf("runtime/host-%d", i), Kind: "runtime.firecracker", DependsOn: []string{hostID}, Placement: hostID},
-		)
-		graph.Invariants = append(graph.Invariants, Invariant{Kind: "host.capability", Subject: hostID, Value: "kvm"})
+		graph.Nodes = append(graph.Nodes, GraphNode{ID: hostID, Kind: "compute.host", Properties: map[string]string{"class": host.Class, "memoryMiB": fmt.Sprint(host.MemoryMiB)}})
+		if needsFirecracker {
+			graph.Nodes = append(graph.Nodes, GraphNode{ID: fmt.Sprintf("runtime/firecracker-host-%d", i), Kind: "runtime.firecracker", DependsOn: []string{hostID}, Placement: hostID})
+			graph.Invariants = append(graph.Invariants, Invariant{Kind: "host.capability", Subject: hostID, Value: "kvm"})
+		}
+		if needsProcess {
+			graph.Nodes = append(graph.Nodes, GraphNode{ID: fmt.Sprintf("runtime/process-host-%d", i), Kind: "runtime.process", DependsOn: []string{hostID}, Placement: hostID})
+		}
 	}
 	guestMemory := 0
 	hostIndex := 1
 	for _, service := range system.Spec.Services {
 		for instance := 1; instance <= service.Instances; instance++ {
 			hostID := fmt.Sprintf("compute/host-%d", hostIndex)
-			runtimeID := fmt.Sprintf("runtime/host-%d", hostIndex)
-			guestID := fmt.Sprintf("microvm/%s-%d", service.Name, instance)
+			runtimeID := fmt.Sprintf("runtime/firecracker-host-%d", hostIndex)
+			workloadID := fmt.Sprintf("microvm/%s-%d", service.Name, instance)
+			workloadKind := "runtime.microvm"
+			if service.Isolation == "process" {
+				runtimeID = fmt.Sprintf("runtime/process-host-%d", hostIndex)
+				workloadID = fmt.Sprintf("process/%s-%d", service.Name, instance)
+				workloadKind = "runtime.process-instance"
+			}
 			serviceID := fmt.Sprintf("service/%s-%d", service.Name, instance)
 			graph.Nodes = append(graph.Nodes,
-				GraphNode{ID: guestID, Kind: "runtime.microvm", DependsOn: []string{runtimeID}, Placement: hostID, Resources: service.Resources, Properties: map[string]string{"isolation": service.Isolation}},
-				GraphNode{ID: serviceID, Kind: service.Kind + "." + service.Engine, DependsOn: []string{guestID, "m1/system"}, Placement: guestID, Properties: map[string]string{"readiness": fmt.Sprintf("%s:%d", service.Readiness.Protocol, service.Readiness.Port), "networking": service.Networking}},
+				GraphNode{ID: workloadID, Kind: workloadKind, DependsOn: []string{runtimeID}, Placement: hostID, Resources: service.Resources, Properties: map[string]string{"isolation": service.Isolation}},
+				GraphNode{ID: serviceID, Kind: service.Kind + "." + service.Engine, DependsOn: []string{workloadID, "m1/system"}, Placement: workloadID, Properties: map[string]string{"readiness": fmt.Sprintf("%s:%d", service.Readiness.Protocol, service.Readiness.Port), "networking": service.Networking}},
 			)
 			graph.Invariants = append(graph.Invariants,
-				Invariant{Kind: "resource.memory", Subject: guestID, Value: fmt.Sprintf("%dMiB", service.Resources.MemoryMiB)},
+				Invariant{Kind: "resource.memory", Subject: workloadID, Value: fmt.Sprintf("%dMiB", service.Resources.MemoryMiB)},
 				Invariant{Kind: "service.ready", Subject: serviceID, Value: fmt.Sprintf("%s:%d", service.Readiness.Protocol, service.Readiness.Port)},
 			)
 			guestMemory += service.Resources.MemoryMiB

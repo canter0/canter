@@ -41,7 +41,7 @@ func run(args []string) error {
 		return initCommand(args[1:])
 	case "compile":
 		return compileCommand(args[1:])
-	case "probe", "plan", "checkpoint", "apply", "status", "destroy":
+	case "probe", "plan", "checkpoint", "apply", "status", "destroy", "host", "release":
 		if _, err := envfile.Load(); err != nil {
 			return err
 		}
@@ -66,6 +66,10 @@ func run(args []string) error {
 		return statusCommand(client, args[1:])
 	case "destroy":
 		return destroyCommand(client, args[1:])
+	case "host":
+		return hostCommand(client, args[1:])
+	case "release":
+		return releaseCommand(client, args[1:])
 	}
 	return nil
 }
@@ -254,6 +258,6 @@ func mark(ok bool) string {
 	return "failed"
 }
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: canter <init|compile|probe|plan|checkpoint|apply|status|destroy|version>")
+	fmt.Fprintln(os.Stderr, "usage: canter <init|compile|probe|plan|checkpoint|apply|status|destroy|host|release|version>")
 	fmt.Fprintln(os.Stderr, "run 'canter <command> -h' for command flags")
 }
