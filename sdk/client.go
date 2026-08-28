@@ -3,6 +3,7 @@ package sdk
 import (
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -40,6 +41,14 @@ type Checkpoint struct {
 	Verified  bool      `json:"verified"`
 }
 
+type BootProof struct {
+	Sandbox       string `json:"sandbox"`
+	Status        string `json:"status"`
+	ExitCode      int    `json:"exitCode"`
+	Hostname      string `json:"hostname"`
+	MessageBase64 string `json:"messageBase64,omitempty"`
+}
+
 type State struct {
 	Sandbox     string     `json:"sandbox"`
 	Phase       string     `json:"phase"`
@@ -50,6 +59,7 @@ type State struct {
 	ProofKeys   []string   `json:"proofKeys"`
 	CreatedAt   time.Time  `json:"createdAt"`
 	DestroyedAt *time.Time `json:"destroyedAt,omitempty"`
+	Failure     string     `json:"failure,omitempty"`
 }
 
 type Attempt struct {
@@ -243,6 +253,11 @@ func (c *Client) Apply(ctx context.Context, spec Spec) (ApplyResult, error) {
 			return ApplyResult{}, fmt.Errorf("all eligible compute networks exhausted their address capacity")
 		}
 		if err := waitForProof(ctx, c.m1, proofKey); err != nil {
+			state.Phase = "failed"
+			state.Failure = err.Error()
+			if persistErr := c.m1.PutJSON(ctx, stateKey, state); persistErr != nil {
+				return ApplyResult{}, fmt.Errorf("%v; persist failed state: %w", err, persistErr)
+			}
 			return ApplyResult{}, err
 		}
 	}
@@ -309,19 +324,32 @@ func (c *Client) Destroy(ctx context.Context, spec Spec) (State, error) {
 func stateKey(spec Spec) string { return strings.TrimRight(spec.Spec.M1.Prefix, "/") + "/state.json" }
 
 func bootScript(spec Spec, proofURL string) string {
-	return "#!/bin/sh\nset -eu\n" + spec.Spec.Compute.Bootstrap + "\n" +
-		fmt.Sprintf("printf '{\"sandbox\":\"%s\",\"status\":\"booted\",\"hostname\":\"%%s\"}' \"$(hostname)\" | curl -fsS -X PUT -H 'Content-Type: application/json' --data-binary @- '%s'\n", spec.Metadata.Name, proofURL)
+	return "#!/bin/sh\nset +e\ncanter_log=/tmp/canter-bootstrap.log\ncanter_rc_file=/tmp/canter-bootstrap.rc\n(\n(\nset -eu\n" + spec.Spec.Compute.Bootstrap + "\n)\nprintf '%s' \"$?\" > \"$canter_rc_file\"\n) 2>&1 | tee \"$canter_log\"\n" +
+		"canter_rc=$(cat \"$canter_rc_file\")\nif [ \"$canter_rc\" -eq 0 ]; then canter_status=booted; else canter_status=failed; fi\ncanter_message_b64=$(tail -n 1 \"$canter_log\" | base64 | tr -d '\\n')\n" +
+		fmt.Sprintf("printf '{\"sandbox\":\"%s\",\"status\":\"%%s\",\"exitCode\":%%s,\"hostname\":\"%%s\",\"messageBase64\":\"%%s\"}' \"$canter_status\" \"$canter_rc\" \"$(hostname)\" \"$canter_message_b64\" | curl -fsS -X PUT -H 'Content-Type: application/json' --data-binary @- '%s'\nexit \"$canter_rc\"\n", spec.Metadata.Name, proofURL)
 }
 
-type objectChecker interface {
-	Exists(context.Context, string) bool
+type proofStore interface {
+	GetOptional(context.Context, string, any) (bool, error)
 }
 
-func waitForProof(ctx context.Context, store objectChecker, key string) error {
+func waitForProof(ctx context.Context, store proofStore, key string) error {
 	tick := time.NewTicker(2 * time.Second)
 	defer tick.Stop()
 	for {
-		if store.Exists(ctx, key) {
+		var proof BootProof
+		found, err := store.GetOptional(ctx, key, &proof)
+		if err != nil {
+			return fmt.Errorf("read compute boot proof: %w", err)
+		}
+		if found {
+			if proof.Status != "booted" || proof.ExitCode != 0 {
+				message := "bootstrap reported failure"
+				if decoded, decodeErr := base64.StdEncoding.DecodeString(proof.MessageBase64); decodeErr == nil && strings.TrimSpace(string(decoded)) != "" {
+					message = strings.TrimSpace(string(decoded))
+				}
+				return fmt.Errorf("compute bootstrap failed on %s with exit code %d: %s", proof.Hostname, proof.ExitCode, message)
+			}
 			return nil
 		}
 		select {

@@ -1,6 +1,7 @@
 package sdk
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -47,7 +48,10 @@ func TestBootScriptRequiresBootstrapSuccessBeforeProof(t *testing.T) {
 	s := validSpec()
 	s.Spec.Compute.Bootstrap = "false"
 	script := bootScript(s, "https://m1.invalid/proof")
-	if script[:18] != "#!/bin/sh\nset -eu\n" {
-		t.Fatalf("boot script does not fail closed: %q", script[:18])
+	if !strings.HasPrefix(script, "#!/bin/sh\nset +e\ncanter_log=") || !strings.Contains(script, "set -eu\nfalse") {
+		t.Fatalf("boot script does not isolate bootstrap failure: %q", script[:28])
+	}
+	if !strings.Contains(script, "canter_status=failed") {
+		t.Fatal("boot script does not report failure")
 	}
 }

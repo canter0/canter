@@ -39,6 +39,8 @@ func run(args []string) error {
 		return nil
 	case "init":
 		return initCommand(args[1:])
+	case "compile":
+		return compileCommand(args[1:])
 	case "probe", "plan", "checkpoint", "apply", "status", "destroy":
 		if _, err := envfile.Load(); err != nil {
 			return err
@@ -66,6 +68,23 @@ func run(args []string) error {
 		return destroyCommand(client, args[1:])
 	}
 	return nil
+}
+
+func compileCommand(args []string) error {
+	fs := flag.NewFlagSet("compile", flag.ContinueOnError)
+	file := fs.String("file", "system.yaml", "system contract path")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	system, err := sdk.LoadSystem(*file)
+	if err != nil {
+		return err
+	}
+	graph, err := sdk.CompileSystem(system)
+	if err != nil {
+		return err
+	}
+	return printJSON(graph)
 }
 
 func initCommand(args []string) error {
@@ -235,6 +254,6 @@ func mark(ok bool) string {
 	return "failed"
 }
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: canter <init|probe|plan|checkpoint|apply|status|destroy|version>")
+	fmt.Fprintln(os.Stderr, "usage: canter <init|compile|probe|plan|checkpoint|apply|status|destroy|version>")
 	fmt.Fprintln(os.Stderr, "run 'canter <command> -h' for command flags")
 }

@@ -1,0 +1,27 @@
+apiVersion: canter.dev/v1alpha1
+kind: System
+metadata:
+    name: blackbox-firecracker-mysql
+spec:
+    intent: Provide a logical two-instance Oracle MySQL service in two Firecracker microVMs on exactly one c1 host.
+    constraints:
+        host:
+            class: c1
+            count: 1
+            memoryMiB: 1024
+            systemReserveMiB: 384
+    services:
+        - name: mysql
+          kind: database
+          engine: mysql
+          isolation: firecracker
+          instances: 2
+          resources:
+            vcpu: 1
+            memoryMiB: 250
+          readiness:
+            protocol: mysql
+            port: 3306
+          networking: isolated-tap
+    m1:
+        prefix: systems/blackbox-firecracker-mysql

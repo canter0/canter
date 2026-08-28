@@ -10,7 +10,7 @@ The execution path is:
 4. Resolve public classes and image aliases through private adapters.
 5. Persist every returned resource ID before waiting on it.
 6. Reconcile the resource to ACTIVE. Exhausted network attempts are recorded and deleted before retry.
-7. Require the resource itself to upload a boot proof through a short-lived signed `m1` URL.
+7. Require the resource itself to upload a boot proof through a short-lived signed `m1` URL. A nonzero bootstrap becomes an explicit `failed` state with its error tail, never `ready` or an indefinite `creating` state.
 8. Mark the sandbox ready and write an immutable operation receipt only after the proof exists.
 9. Destroy only IDs recovered from persisted sandbox state, then retain the proof, state, and teardown receipt.
 

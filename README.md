@@ -15,3 +15,13 @@ go build -o bin/canter ./cmd/canter
 ```
 
 `apply` is real: it creates compute resources. Each resource must become active and independently write a boot proof to a short-lived signed `m1` URL before Canter marks the sandbox ready. State and operation receipts remain in `m1` after teardown.
+
+## System contracts
+
+`sdk.System` is the higher application layer. An application declares logical services, isolation, readiness, capacity constraints, and durable state; `sdk.CompileSystem` expands that contract into a typed execution graph before the lower reconciler touches infrastructure.
+
+```sh
+./bin/canter compile --file examples/blackbox-firecracker-mysql/system.yaml
+```
+
+The Firecracker/MySQL example uses the SDK to express one logical two-instance MySQL service. Its acceptance contract compiles to one 1 GiB `c1` host, a Firecracker runtime, two 250 MiB microVMs, two MySQL readiness invariants, and one `m1` namespace. See `examples/blackbox-firecracker-mysql/README.md` for the generated application and the recorded live capability result.
