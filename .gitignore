@@ -14,3 +14,5 @@ dist/
 bin/
 coverage/
 tmp/
+.canter/
+.sandbox/
