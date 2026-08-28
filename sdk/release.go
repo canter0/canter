@@ -208,7 +208,26 @@ func (c *Client) SystemHostStatus(ctx context.Context, system System) (State, er
 }
 
 func (c *Client) DestroySystemHost(ctx context.Context, system System) (State, error) {
-	return c.Destroy(ctx, SystemHostSpec(system, "true"))
+	state, err := c.Destroy(ctx, SystemHostSpec(system, "true"))
+	if err != nil {
+		return State{}, err
+	}
+	var observed ObservedRelease
+	if found, getErr := c.m1.GetOptional(ctx, observedKey(system), &observed); getErr != nil {
+		return State{}, getErr
+	} else if found {
+		observed.Phase = "host-destroyed"
+		observed.RunningVersion = ""
+		observed.PID = 0
+		observed.InternalPort = 0
+		observed.Healthy = false
+		observed.Message = "compute host destroyed"
+		observed.UpdatedAt = time.Now().UTC()
+		if putErr := c.m1.PutJSON(ctx, observedKey(system), observed); putErr != nil {
+			return State{}, putErr
+		}
+	}
+	return state, nil
 }
 
 func SystemHostSpec(system System, bootstrap string) Spec {

@@ -20,7 +20,7 @@ An intentionally unhealthy candidate listened but returned HTTP 503 from its hea
 
 The experiment also exposed `networking: public` as a real reconciliation requirement. Internal health initially passed while public TCP/8080 timed out. Canter created and attached a narrowly scoped managed ingress policy, persisted its IDs in system state, and subsequently deleted the policy during teardown.
 
-The host, compute port, and managed network policy were destroyed. A final provider probe returned zero compute resources and a separate network query returned zero matching managed policies. Content-addressed artifacts, desired/observed history, boot proof, and lifecycle receipts remain in `m1`.
+The host, compute port, and managed network policy were destroyed. A final provider probe returned zero compute resources and a separate network query returned zero matching managed policies. Observed application state was closed as `host-destroyed`; content-addressed artifacts, desired/observed history, boot proof, and lifecycle receipts remain in `m1`.
 
 ## Remaining boundaries
 
