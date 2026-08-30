@@ -13,17 +13,53 @@ import (
 
 type repeatedFlag []string
 
+const changeUsage = "usage: canter change <init|schema|validate|draft|inspect|authorize|apply>"
+
 func (r *repeatedFlag) String() string         { return strings.Join(*r, ",") }
 func (r *repeatedFlag) Set(value string) error { *r = append(*r, value); return nil }
 
 func changeCommand(client *sdk.Client, args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: canter change <draft|inspect|authorize|apply>")
+		return errors.New(changeUsage)
 	}
 	switch args[0] {
+	case "init":
+		fs := flag.NewFlagSet("change init", flag.ContinueOnError)
+		file := fs.String("file", "change.yaml", "path to write")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		return writeExclusive(*file, []byte(sdk.StarterChangeYAML))
+	case "schema":
+		if len(args) != 1 {
+			return errors.New("change schema accepts no arguments")
+		}
+		fmt.Println(string(sdk.ChangeRequestSchemaJSON()))
+		return nil
+	case "validate":
+		fs := flag.NewFlagSet("change validate", flag.ContinueOnError)
+		file := fs.String("file", "system.yaml", "system contract path")
+		requestPath := fs.String("request", "change.yaml", "declarative Change request path")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		system, err := sdk.LoadSystem(*file)
+		if err != nil {
+			return err
+		}
+		request, err := sdk.LoadChangeRequest(*requestPath)
+		if err != nil {
+			return err
+		}
+		input, err := request.DraftInput(system)
+		if err != nil {
+			return err
+		}
+		return printJSON(input)
 	case "draft":
 		fs := flag.NewFlagSet("change draft", flag.ContinueOnError)
 		file := fs.String("file", "system.yaml", "system contract path")
+		requestPath := fs.String("request", "", "declarative Change request path")
 		artifact := fs.String("artifact", "", "release .tar.gz path")
 		command := fs.String("command", "./app", "release command")
 		health := fs.String("health", "/health", "release health path")
@@ -39,8 +75,17 @@ func changeCommand(client *sdk.Client, args []string) error {
 		if err := fs.Parse(args[1:]); err != nil {
 			return err
 		}
-		if *artifact == "" || *summary == "" {
-			return errors.New("change draft requires --artifact and --summary")
+		var inlineFlags []string
+		fs.Visit(func(option *flag.Flag) {
+			if option.Name != "file" && option.Name != "request" {
+				inlineFlags = append(inlineFlags, option.Name)
+			}
+		})
+		if *requestPath != "" && len(inlineFlags) > 0 {
+			return errors.New("change draft --request cannot be combined with inline release, migration, or environment flags")
+		}
+		if *requestPath == "" && (*artifact == "" || *summary == "") {
+			return errors.New("change draft requires --request or both --artifact and --summary")
 		}
 		if (*migration == "") != (*migrationID == "") {
 			return errors.New("--migration and --migration-id must be supplied together")
@@ -59,6 +104,17 @@ func changeCommand(client *sdk.Client, args []string) error {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 		defer cancel()
+		if *requestPath != "" {
+			request, err := sdk.LoadChangeRequest(*requestPath)
+			if err != nil {
+				return err
+			}
+			change, err := client.DraftChangeRequest(ctx, system, request)
+			if err != nil {
+				return err
+			}
+			return printJSON(change)
+		}
 		change, err := client.DraftChange(ctx, system, sdk.DraftChangeInput{
 			Summary:       *summary,
 			Release:       sdk.PublishReleaseInput{ArtifactPath: *artifact, Command: strings.Fields(*command), Environment: environment, HealthPath: *health, PublicPort: *port},

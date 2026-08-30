@@ -35,10 +35,23 @@ func TestCompileSystemExpandsCapabilityIntoExecutionGraph(t *testing.T) {
 		}
 		if node.Kind == "database.mysql" {
 			databases++
+			if node.Properties["binding"] != "CANTER_SERVICE_MYSQL_URL" {
+				t.Fatalf("database binding was not compiled: %+v", node.Properties)
+			}
 		}
 	}
 	if guests != 2 || databases != 2 {
 		t.Fatalf("guests=%d databases=%d", guests, databases)
+	}
+}
+
+func TestServiceBindingNameIsStableAndValidated(t *testing.T) {
+	binding, err := ServiceBindingName("primary-data")
+	if err != nil || binding != "CANTER_SERVICE_PRIMARY_DATA_URL" {
+		t.Fatalf("binding=%q err=%v", binding, err)
+	}
+	if _, err := ServiceBindingName("../../secret"); err == nil {
+		t.Fatal("unsafe service name was accepted")
 	}
 }
 

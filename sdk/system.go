@@ -74,6 +74,28 @@ type GraphNode struct {
 	Properties map[string]string `json:"properties,omitempty"`
 }
 
+// ServiceBindingName is the stable environment variable through which an
+// application consumes a private Canter-managed service capability.
+func ServiceBindingName(service string) (string, error) {
+	if !safeName.MatchString(service) {
+		return "", fmt.Errorf("invalid service name %q", service)
+	}
+	var binding strings.Builder
+	binding.WriteString("CANTER_SERVICE_")
+	for _, r := range service {
+		switch {
+		case r >= 'a' && r <= 'z':
+			binding.WriteRune(r - ('a' - 'A'))
+		case r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+			binding.WriteRune(r)
+		default:
+			binding.WriteByte('_')
+		}
+	}
+	binding.WriteString("_URL")
+	return binding.String(), nil
+}
+
 type Invariant struct {
 	Kind    string `json:"kind"`
 	Subject string `json:"subject"`
@@ -228,13 +250,18 @@ func CompileSystem(system System) (ExecutionGraph, error) {
 				workloadKind = "runtime.process-instance"
 			}
 			serviceID := fmt.Sprintf("service/%s-%d", service.Name, instance)
+			properties := map[string]string{"readiness": fmt.Sprintf("%s:%d", service.Readiness.Protocol, service.Readiness.Port), "networking": service.Networking}
+			if service.Kind == "database" {
+				binding, _ := ServiceBindingName(service.Name)
+				properties["binding"] = binding
+			}
 			dependencies := []string{workloadID, "m1/system"}
 			for _, dependency := range service.DependsOn {
 				dependencies = append(dependencies, fmt.Sprintf("service/%s-1", dependency))
 			}
 			graph.Nodes = append(graph.Nodes,
 				GraphNode{ID: workloadID, Kind: workloadKind, DependsOn: []string{runtimeID}, Placement: hostID, Resources: service.Resources, Properties: map[string]string{"isolation": service.Isolation}},
-				GraphNode{ID: serviceID, Kind: service.Kind + "." + service.Engine, DependsOn: dependencies, Placement: workloadID, Properties: map[string]string{"readiness": fmt.Sprintf("%s:%d", service.Readiness.Protocol, service.Readiness.Port), "networking": service.Networking}},
+				GraphNode{ID: serviceID, Kind: service.Kind + "." + service.Engine, DependsOn: dependencies, Placement: workloadID, Properties: properties},
 			)
 			graph.Invariants = append(graph.Invariants,
 				Invariant{Kind: "resource.memory", Subject: workloadID, Value: fmt.Sprintf("%dMiB", service.Resources.MemoryMiB)},

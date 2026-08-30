@@ -12,9 +12,12 @@ import (
 	"github.com/canter0/canter/sdk"
 )
 
+const hostUsage = "usage: canter host <bootstrap|expose|status|destroy>"
+const releaseUsage = "usage: canter release <publish|status|wait|rollback|restart>"
+
 func hostCommand(client *sdk.Client, args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: canter host <bootstrap|expose|status|destroy>")
+		return errors.New(hostUsage)
 	}
 	switch args[0] {
 	case "bootstrap":
@@ -102,7 +105,7 @@ func hostCommand(client *sdk.Client, args []string) error {
 
 func releaseCommand(client *sdk.Client, args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: canter release <publish|status|rollback|restart>")
+		return errors.New(releaseUsage)
 	}
 	switch args[0] {
 	case "publish":
@@ -141,11 +144,29 @@ func releaseCommand(client *sdk.Client, args []string) error {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
-		status, err := client.ReleaseStatus(ctx, system)
+		status, err := client.InspectRelease(ctx, system)
 		if err != nil {
 			return err
 		}
 		return printJSON(status)
+	case "wait":
+		fs := flag.NewFlagSet("release wait", flag.ContinueOnError)
+		file := fs.String("file", "system.yaml", "system contract path")
+		timeout := fs.Duration("timeout", 2*time.Minute, "external readiness deadline")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		system, err := sdk.LoadSystem(*file)
+		if err != nil {
+			return err
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), *timeout)
+		defer cancel()
+		status, waitErr := client.WaitPublicEndpoint(ctx, system)
+		if printErr := printJSON(status); printErr != nil {
+			return printErr
+		}
+		return waitErr
 	case "rollback":
 		fs := flag.NewFlagSet("release rollback", flag.ContinueOnError)
 		file := fs.String("file", "system.yaml", "system contract path")

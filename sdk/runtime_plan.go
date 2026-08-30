@@ -15,6 +15,7 @@ type RuntimePlan struct {
 
 type RuntimeService struct {
 	Name      string           `json:"name"`
+	Binding   string           `json:"binding"`
 	Kind      string           `json:"kind"`
 	Engine    string           `json:"engine"`
 	Instances int              `json:"instances"`
@@ -31,8 +32,13 @@ func CompileRuntimePlan(system System) (RuntimePlan, error) {
 		if service.Kind != "database" {
 			continue
 		}
+		binding, err := ServiceBindingName(service.Name)
+		if err != nil {
+			return RuntimePlan{}, err
+		}
 		plan.Services = append(plan.Services, RuntimeService{
 			Name: service.Name, Kind: service.Kind, Engine: strings.ToLower(service.Engine),
+			Binding:   binding,
 			Instances: service.Instances, Resources: service.Resources, Readiness: service.Readiness,
 		})
 	}
@@ -44,7 +50,8 @@ func (p RuntimePlan) Validate(system string) error {
 		return fmt.Errorf("runtime plan does not belong to system %s", system)
 	}
 	for _, service := range p.Services {
-		if !safeName.MatchString(service.Name) || service.Kind == "" || service.Engine == "" || service.Instances < 1 {
+		binding, err := ServiceBindingName(service.Name)
+		if err != nil || service.Binding != binding || service.Kind == "" || service.Engine == "" || service.Instances < 1 {
 			return fmt.Errorf("runtime plan contains an invalid service")
 		}
 	}

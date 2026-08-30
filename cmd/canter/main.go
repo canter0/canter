@@ -33,6 +33,22 @@ func run(args []string) error {
 		usage()
 		return nil
 	}
+	if len(args) == 2 && (args[1] == "help" || args[1] == "--help" || args[1] == "-h") {
+		switch args[0] {
+		case "host":
+			fmt.Println(hostUsage)
+			return nil
+		case "release":
+			fmt.Println(releaseUsage)
+			return nil
+		case "change":
+			fmt.Println(changeUsage)
+			return nil
+		}
+	}
+	if args[0] == "change" && len(args) > 1 && (args[1] == "init" || args[1] == "schema" || args[1] == "validate") {
+		return changeCommand(nil, args[1:])
+	}
 	switch args[0] {
 	case "version":
 		fmt.Println(version)
@@ -41,7 +57,7 @@ func run(args []string) error {
 		return initCommand(args[1:])
 	case "compile":
 		return compileCommand(args[1:])
-	case "probe", "plan", "checkpoint", "apply", "status", "destroy", "host", "release", "change":
+	case "probe", "plan", "checkpoint", "apply", "status", "destroy", "inspect", "host", "release", "change":
 		if _, err := envfile.Load(); err != nil {
 			return err
 		}
@@ -66,6 +82,8 @@ func run(args []string) error {
 		return statusCommand(client, args[1:])
 	case "destroy":
 		return destroyCommand(client, args[1:])
+	case "inspect":
+		return inspectCommand(client, args[1:])
 	case "host":
 		return hostCommand(client, args[1:])
 	case "release":
@@ -74,6 +92,25 @@ func run(args []string) error {
 		return changeCommand(client, args[1:])
 	}
 	return nil
+}
+
+func inspectCommand(client *sdk.Client, args []string) error {
+	fs := flag.NewFlagSet("inspect", flag.ContinueOnError)
+	file := fs.String("file", "system.yaml", "system contract path")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	system, err := sdk.LoadSystem(*file)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	view, err := client.InspectSystem(ctx, system)
+	if err != nil {
+		return err
+	}
+	return printJSON(view)
 }
 
 func compileCommand(args []string) error {
@@ -260,6 +297,6 @@ func mark(ok bool) string {
 	return "failed"
 }
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: canter <init|compile|probe|plan|checkpoint|apply|status|destroy|host|release|change|version>")
+	fmt.Fprintln(os.Stderr, "usage: canter <init|compile|probe|plan|checkpoint|apply|status|destroy|inspect|host|release|change|version>")
 	fmt.Fprintln(os.Stderr, "run 'canter <command> -h' for command flags")
 }

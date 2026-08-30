@@ -16,7 +16,7 @@ func TestRuntimePlanProjectsManagedCapabilities(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(plan.Services) != 1 || plan.Services[0].Name != "database" || plan.Services[0].Engine != "postgres" {
+	if len(plan.Services) != 1 || plan.Services[0].Name != "database" || plan.Services[0].Binding != "CANTER_SERVICE_DATABASE_URL" || plan.Services[0].Engine != "postgres" {
 		t.Fatalf("unexpected runtime plan: %+v", plan)
 	}
 	graph, err := CompileSystem(system)

@@ -44,6 +44,7 @@ type ObservedRelease struct {
 
 type ObservedService struct {
 	Name     string `json:"name"`
+	Binding  string `json:"binding,omitempty"`
 	Kind     string `json:"kind"`
 	Engine   string `json:"engine"`
 	Phase    string `json:"phase"`
@@ -57,11 +58,11 @@ type RuntimeControl struct {
 }
 
 type PublishReleaseInput struct {
-	ArtifactPath string
-	Command      []string
-	Environment  map[string]string
-	HealthPath   string
-	PublicPort   int
+	ArtifactPath string            `json:"artifactPath"`
+	Command      []string          `json:"command"`
+	Environment  map[string]string `json:"environment,omitempty"`
+	HealthPath   string            `json:"healthPath"`
+	PublicPort   int               `json:"publicPort"`
 }
 
 func (c *Client) PublishRelease(ctx context.Context, system System, input PublishReleaseInput) (ReleaseManifest, error) {
@@ -274,7 +275,7 @@ func SystemHostSpec(system System, bootstrap string) Spec {
 
 func systemPublicPort(system System) (int, error) {
 	for _, service := range system.Spec.Services {
-		if service.Readiness.Protocol == "http" && service.Readiness.Port > 0 {
+		if service.Networking == "public" && service.Readiness.Protocol == "http" && service.Readiness.Port > 0 {
 			return service.Readiness.Port, nil
 		}
 	}

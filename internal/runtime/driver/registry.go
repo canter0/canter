@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"unicode"
 
 	"github.com/canter0/canter/sdk"
 )
@@ -67,22 +66,12 @@ func (r *Registry) Ensure(ctx context.Context, plan sdk.RuntimePlan) (map[string
 			observed = append(observed, sdk.ObservedService{Name: service.Name, Kind: service.Kind, Engine: service.Engine, Phase: "failed"})
 			return nil, observed, fmt.Errorf("reconcile service %s: %w", service.Name, err)
 		}
-		bindings[bindingName(service.Name)] = result.URL
-		observed = append(observed, sdk.ObservedService{Name: service.Name, Kind: service.Kind, Engine: service.Engine, Phase: "ready", Endpoint: result.Endpoint})
+		binding, err := sdk.ServiceBindingName(service.Name)
+		if err != nil {
+			return nil, observed, err
+		}
+		bindings[binding] = result.URL
+		observed = append(observed, sdk.ObservedService{Name: service.Name, Binding: binding, Kind: service.Kind, Engine: service.Engine, Phase: "ready", Endpoint: result.Endpoint})
 	}
 	return bindings, observed, nil
-}
-
-func bindingName(name string) string {
-	var b strings.Builder
-	b.WriteString("CANTER_SERVICE_")
-	for _, r := range name {
-		if unicode.IsLetter(r) || unicode.IsDigit(r) {
-			b.WriteRune(unicode.ToUpper(r))
-		} else {
-			b.WriteByte('_')
-		}
-	}
-	b.WriteString("_URL")
-	return b.String()
 }

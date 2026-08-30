@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"regexp"
@@ -93,12 +94,12 @@ type ChangeEvidence struct {
 }
 
 type DraftChangeInput struct {
-	Summary       string
-	Release       PublishReleaseInput
-	MigrationPath string
-	MigrationID   string
-	Database      string
-	Verification  ChangeVerification
+	Summary       string              `json:"summary"`
+	Release       PublishReleaseInput `json:"release"`
+	MigrationPath string              `json:"migrationPath,omitempty"`
+	MigrationID   string              `json:"migrationId,omitempty"`
+	Database      string              `json:"database,omitempty"`
+	Verification  ChangeVerification  `json:"verification"`
 }
 
 var environmentName = regexp.MustCompile(`^[A-Z][A-Z0-9_]{0,127}$`)
@@ -341,11 +342,11 @@ func (c *Client) executeChangeOperation(ctx context.Context, system System, chan
 			return "", fmt.Errorf("verification requires exactly one addressed host")
 		}
 		verification := change.Plan.Verification
-		request, err := http.NewRequestWithContext(ctx, verification.Method, "http://"+state.Resources[0].Address+":"+fmt.Sprint(change.Plan.Release.PublicPort)+verification.Path, nil)
+		request, err := http.NewRequestWithContext(ctx, verification.Method, "http://"+net.JoinHostPort(state.Resources[0].Address, fmt.Sprint(change.Plan.Release.PublicPort))+verification.Path, nil)
 		if err != nil {
 			return "", err
 		}
-		response, err := (&http.Client{Timeout: 10 * time.Second}).Do(request)
+		response, err := (&http.Client{Timeout: 10 * time.Second, Transport: &http.Transport{Proxy: nil}}).Do(request)
 		if err != nil {
 			return "", err
 		}

@@ -24,6 +24,11 @@ go build -o bin/canter ./cmd/canter
 ./bin/canter compile --file examples/blackbox-firecracker-mysql/system.yaml
 ```
 
+`compile` makes private capability consumption explicit. A PostgreSQL service
+named `database`, for example, is delivered to dependent applications as
+`CANTER_SERVICE_DATABASE_URL`; application code never needs provider addresses
+or database provisioning logic.
+
 The Firecracker/MySQL example uses the SDK to express one logical two-instance MySQL service. Its acceptance contract compiles to one 1 GiB `c1` host, a Firecracker runtime, two 250 MiB microVMs, two MySQL readiness invariants, and one `m1` namespace. See `examples/blackbox-firecracker-mysql/README.md` for the generated application and the recorded live capability result.
 
 The reconciled HTTP example exercises the complete versioned lifecycle: content-addressed artifacts, a host-independent desired release, node-reported observed state, health-gated updates, public proxying, process recovery, failed-release containment, rollback, and managed endpoint policy cleanup. See `examples/reconciled-http-app/README.md`.
@@ -46,5 +51,36 @@ The stateful board example adds a private Postgres capability behind the same ab
 ./bin/canter change apply --file system.yaml --id CHANGE_ID
 ./bin/canter change inspect --file system.yaml --id CHANGE_ID
 ```
+
+Agents do not need to assemble that flag sequence. The same boundary has a
+strict declarative request understood by the Go SDK and CLI:
+
+```sh
+./bin/canter change init --file change.yaml
+./bin/canter change schema > change-request.schema.json
+./bin/canter change validate --file system.yaml --request change.yaml
+./bin/canter change draft --file system.yaml --request change.yaml
+```
+
+The request can contain an immutable release, configuration, one expand-only
+migration, and an application verification contract. Unknown fields are
+rejected, the request is bound to one named System, and it cannot express
+provider calls or credentials. `sdk.ChangeRequest` is the transport-neutral
+type future HTTP, MCP, and WebMCP adapters should use.
+
+`canter inspect --file system.yaml` returns the shared semantic read model:
+declared intent, compiled graph, exact service bindings, observed host and
+release state, and public-endpoint reachability. `canter release status` reports
+internal release health separately from public reachability, while
+`canter release wait` waits for the latter.
+
+This gives every interface the same small vocabulary:
+
+```text
+inspect system -> draft Change -> inspect exact digest -> authorize -> apply -> inspect evidence
+```
+
+The website should expose these same objects and operations. WebMCP is an
+adapter into this vocabulary, not a privileged infrastructure interface.
 
 The first live Change acceptance killed its executor mid-application, rejected a bad digest, contained an unhealthy release, resumed an abandoned ledger, prevented duplicate migration execution, compensated after business verification failed under traffic, rejected stale starting state, and serialized competing Changes. See `doc/(initial steps, august 2026)/change-v0-acceptance.md`.

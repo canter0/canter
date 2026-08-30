@@ -19,14 +19,14 @@ func (fakeDriver) Execute(_ context.Context, _ sdk.RuntimeService, action sdk.Ru
 func TestRegistryCreatesGenericServiceBinding(t *testing.T) {
 	registry := NewRegistry()
 	registry.Register("database", "example", fakeDriver{})
-	bindings, observed, err := registry.Ensure(context.Background(), sdk.RuntimePlan{Services: []sdk.RuntimeService{{Name: "primary-data", Kind: "database", Engine: "example"}}})
+	bindings, observed, err := registry.Ensure(context.Background(), sdk.RuntimePlan{Services: []sdk.RuntimeService{{Name: "primary-data", Binding: "CANTER_SERVICE_PRIMARY_DATA_URL", Kind: "database", Engine: "example"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if bindings["CANTER_SERVICE_PRIMARY_DATA_URL"] != "scheme://private" {
 		t.Fatalf("bindings=%v", bindings)
 	}
-	if len(observed) != 1 || observed[0].Endpoint != "private:1234" || observed[0].Phase != "ready" {
+	if len(observed) != 1 || observed[0].Binding != "CANTER_SERVICE_PRIMARY_DATA_URL" || observed[0].Endpoint != "private:1234" || observed[0].Phase != "ready" {
 		t.Fatalf("observed=%+v", observed)
 	}
 }
@@ -34,7 +34,7 @@ func TestRegistryCreatesGenericServiceBinding(t *testing.T) {
 func TestRegistryRoutesTypedActionToCapabilityDriver(t *testing.T) {
 	registry := NewRegistry()
 	registry.Register("database", "example", fakeDriver{})
-	plan := sdk.RuntimePlan{Services: []sdk.RuntimeService{{Name: "data", Kind: "database", Engine: "example"}}}
+	plan := sdk.RuntimePlan{Services: []sdk.RuntimeService{{Name: "data", Binding: "CANTER_SERVICE_DATA_URL", Kind: "database", Engine: "example"}}}
 	result, err := registry.Execute(context.Background(), plan, sdk.RuntimeAction{ID: "action", Service: "data", Kind: "database.expand-migration"})
 	if err != nil {
 		t.Fatal(err)

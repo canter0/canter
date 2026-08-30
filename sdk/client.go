@@ -293,6 +293,9 @@ func (c *Client) Status(ctx context.Context, spec Spec) (State, error) {
 		return state, nil
 	}
 	for i := range state.Resources {
+		if state.Resources[i].Status == "DELETED" {
+			continue
+		}
 		server, err := c.compute.Server(ctx, state.Resources[i].ID)
 		if err != nil {
 			return State{}, err
@@ -312,22 +315,43 @@ func (c *Client) Destroy(ctx context.Context, spec Spec) (State, error) {
 	if state.Phase == "destroyed" {
 		return state, nil
 	}
-	for _, resource := range state.Resources {
-		if err := c.compute.Delete(ctx, resource.ID); err != nil {
-			return State{}, fmt.Errorf("delete compute %s: %w", resource.ID, err)
+	state.Phase = "destroying"
+	state.Failure = ""
+	if err := c.m1.PutJSON(ctx, key, state); err != nil {
+		return State{}, fmt.Errorf("record destroying state: %w", err)
+	}
+	persistFailure := func(cause error) (State, error) {
+		state.Failure = cause.Error()
+		if err := c.m1.PutJSON(context.WithoutCancel(ctx), key, state); err != nil {
+			return state, fmt.Errorf("%v; persist interrupted destroy: %w", cause, err)
+		}
+		return state, cause
+	}
+	for index := range state.Resources {
+		if state.Resources[index].Status == "DELETED" {
+			continue
+		}
+		if err := c.compute.Delete(ctx, state.Resources[index].ID); err != nil {
+			return persistFailure(fmt.Errorf("delete compute %s: %w", state.Resources[index].ID, err))
+		}
+		state.Resources[index].Status = "DELETED"
+		if err := c.m1.PutJSON(ctx, key, state); err != nil {
+			return state, fmt.Errorf("persist deleted compute %s: %w", state.Resources[index].ID, err)
 		}
 	}
-	for _, policy := range state.NetworkPolicies {
+	for len(state.NetworkPolicies) > 0 {
+		policy := state.NetworkPolicies[0]
 		if err := c.compute.DeleteSecurityPolicy(ctx, policy.ID); err != nil {
-			return State{}, fmt.Errorf("delete network policy %s: %w", policy.ID, err)
+			return persistFailure(fmt.Errorf("delete network policy %s: %w", policy.ID, err))
+		}
+		state.NetworkPolicies = state.NetworkPolicies[1:]
+		if err := c.m1.PutJSON(ctx, key, state); err != nil {
+			return state, fmt.Errorf("persist deleted network policy %s: %w", policy.ID, err)
 		}
 	}
 	now := time.Now().UTC()
 	state.Phase = "destroyed"
 	state.DestroyedAt = &now
-	for i := range state.Resources {
-		state.Resources[i].Status = "DELETED"
-	}
 	if err := c.m1.PutJSON(ctx, key, state); err != nil {
 		return State{}, err
 	}

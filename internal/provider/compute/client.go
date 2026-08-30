@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -82,6 +83,22 @@ type Fault struct {
 type SecurityPolicy struct {
 	ID, PortID, RuleID string
 	Port               int
+}
+
+// HTTPError preserves the provider status code so reconciliation can make
+// idempotent decisions without parsing an error string.
+type HTTPError struct {
+	StatusCode int
+	Body       string
+}
+
+func (e *HTTPError) Error() string {
+	return fmt.Sprintf("compute request failed with HTTP %d: %s", e.StatusCode, e.Body)
+}
+
+func isHTTPStatus(err error, status int) bool {
+	var responseErr *HTTPError
+	return errors.As(err, &responseErr) && responseErr.StatusCode == status
 }
 
 func NewFromEnv() (*Client, error) {
@@ -391,10 +408,10 @@ func (c *Client) DeleteSecurityPolicy(ctx context.Context, id string) error {
 	var last error
 	for attempt := 0; attempt < 20; attempt++ {
 		last = c.request(ctx, http.MethodDelete, s.NetworkURL+"/v2.0/security-groups/"+id, nil, nil)
-		if last == nil {
+		if last == nil || isHTTPStatus(last, http.StatusNotFound) {
 			return nil
 		}
-		if !strings.Contains(last.Error(), "HTTP 409") {
+		if !isHTTPStatus(last, http.StatusConflict) {
 			return last
 		}
 		select {
@@ -515,7 +532,7 @@ func (c *Client) request(ctx context.Context, method, url string, payload, targe
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-		return fmt.Errorf("compute request failed with HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
+		return &HTTPError{StatusCode: resp.StatusCode, Body: strings.TrimSpace(string(b))}
 	}
 	if target == nil || resp.StatusCode == http.StatusNoContent {
 		return nil
