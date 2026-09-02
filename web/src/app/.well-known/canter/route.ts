@@ -94,7 +94,7 @@ export function GET(request: NextRequest) {
     distributions: {
       cli: {
         repository: "https://github.com/canter0/canter-cli",
-        install: "go install github.com/canter0/canter-cli@latest",
+        install: "go install github.com/canter0/canter-cli/cmd/canter@latest",
       },
       goSdk: {
         repository: "https://github.com/canter0/canter-sdk-go",
