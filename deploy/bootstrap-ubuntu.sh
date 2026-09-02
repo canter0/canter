@@ -6,6 +6,11 @@ if [ "$(id -u)" -ne 0 ]; then
   exit 1
 fi
 
+if [ -z "${CANTER_SSH_CIDR:-}" ]; then
+  echo "CANTER_SSH_CIDR is required (for example, 203.0.113.8/32)" >&2
+  exit 1
+fi
+
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get install -y ca-certificates curl gnupg postgresql postgresql-client ufw unzip
@@ -44,7 +49,7 @@ if ! swapon --show --noheadings | grep -q .; then
   grep -q '^/swapfile ' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
 fi
 
-ufw allow OpenSSH
+ufw allow from "$CANTER_SSH_CIDR" to any port 22 proto tcp
 ufw allow 80/tcp
 ufw allow 443/tcp
 ufw --force enable
