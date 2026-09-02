@@ -59,6 +59,11 @@ func (s *Service) Bootstrap(ctx context.Context, p Principal) (Bootstrap, error)
 func initialDeploymentCapabilities(workspaceID string) map[string]any {
 	prefix := "/v1/workspaces/" + workspaceID
 	return map[string]any{
+		"compute": map[string]any{
+			"semantics":        "provider-neutral ordered capacity classes; provider identities, flavor IDs, and credentials remain private",
+			"hostClasses":      sdk.SupportedHostClasses(),
+			"defaultHostClass": "c1",
+		},
 		"standingPolicies": map[string]any{
 			"semantics": "only a signed-in human can create or revoke an immutable, expiring envelope; an allowed agent may ask Canter to evaluate one exact Change digest, and Canter either records an automatic policy authorization and queues it or performs no mutation and requires human approval",
 			"bounds":    []string{"exact agent installation IDs", "System and workspace revisions", "affected services", "operation kinds", "availability", "data impact", "operation reversibility", "per-service inclusive replica ranges", "maximum additional monthly cost", "maximum operation count", "expiry"},
@@ -86,6 +91,11 @@ func initialDeploymentCapabilities(workspaceID string) map[string]any {
 			"mcp": map[string]string{"tool": "canter_request_change_approval"},
 		},
 		"initialDeployment": map[string]any{
+			"workflow": map[string]any{
+				"agent":     "upload and draft, then inspect the durable proposal and execution; agents cannot authorize or apply an initial deployment",
+				"human":     "the review surface records authorization of the exact digest, then separately enqueues that unchanged proposal for server-owned execution",
+				"webAction": "the default human review action performs both explicit ledger transitions as approve + start deployment",
+			},
 			"systemM1Prefix": "server-derived from workspace and System name; any safe client suggestion is replaced before digesting",
 			"artifact": map[string]any{
 				"format": "tar.gz", "contentType": "application/gzip", "maxBytes": 64 << 20, "maxExpandedBytes": 512 << 20,
@@ -99,7 +109,7 @@ func initialDeploymentCapabilities(workspaceID string) map[string]any {
 				"CANTER_RELEASE_VERSION": "immutable content-derived release version",
 				"serviceBindingPattern":  "CANTER_SERVICE_<UPPERCASE_SERVICE_NAME>_URL",
 			},
-			"constraints": map[string]any{"hostCount": 1, "publicHTTPServices": 1, "authorization": "human approval of exact digest required"},
+			"constraints": map[string]any{"hostCount": 1, "hostClasses": sdk.SupportedHostClasses(), "publicHTTPServices": 1, "authorization": "human approval of exact digest required"},
 			"http": map[string]any{
 				"uploadArtifact": map[string]string{"method": "POST", "path": prefix + "/artifacts"},
 				"draft":          map[string]string{"method": "POST", "path": prefix + "/initial-deployments"},
@@ -111,7 +121,7 @@ func initialDeploymentCapabilities(workspaceID string) map[string]any {
 			},
 			"mcp": map[string]any{
 				"url":   "/mcp",
-				"tools": []string{"canter_upload_artifact", "canter_draft_initial_deployment", "canter_list_initial_deployments", "canter_inspect_initial_deployment", "canter_authorize_initial_deployment", "canter_apply_initial_deployment", "canter_inspect_initial_deployment_execution"},
+				"tools": []string{"canter_upload_artifact", "canter_draft_initial_deployment", "canter_list_initial_deployments", "canter_inspect_initial_deployment", "canter_inspect_initial_deployment_execution"},
 			},
 		},
 	}

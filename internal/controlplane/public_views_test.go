@@ -48,3 +48,20 @@ func TestPublicInitialDeploymentRedactsEnvironmentAndFailures(t *testing.T) {
 		t.Fatal("public initial deployment redaction mutated the execution document")
 	}
 }
+
+func TestPublicInitialDeploymentPreservesOnlySafeActionableFailures(t *testing.T) {
+	deployment := InitialDeployment{Failure: `unsupported_compute_class: host class "shared" is unsupported; supported classes: c1, c2, c3`, Operations: []InitialDeploymentOperation{
+		{Failure: `unsupported_compute_class: host class "shared" is unsupported; supported classes: c1, c2, c3`},
+		{Failure: "provider request leaked-secret failed"},
+	}}
+	public := publicInitialDeployment(deployment)
+	if !strings.HasPrefix(public.Operations[0].Failure, "unsupported_compute_class:") {
+		t.Fatalf("safe domain failure was redacted: %q", public.Operations[0].Failure)
+	}
+	if !strings.HasPrefix(public.Failure, "unsupported_compute_class:") {
+		t.Fatalf("safe top-level failure was redacted: %q", public.Failure)
+	}
+	if public.Operations[1].Failure != "operation failed; operator inspection required" {
+		t.Fatalf("provider failure was exposed: %q", public.Operations[1].Failure)
+	}
+}

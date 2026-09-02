@@ -1,6 +1,9 @@
 package controlplane
 
-import "github.com/canter0/canter/sdk"
+import (
+	"github.com/canter0/canter/internal/computeclass"
+	"github.com/canter0/canter/sdk"
+)
 
 const redactedValue = "[redacted]"
 
@@ -16,11 +19,15 @@ func publicChange(change sdk.Change) sdk.Change {
 	change.Operations = append([]sdk.ChangeOperation(nil), change.Operations...)
 	for index := range change.Operations {
 		if change.Operations[index].Failure != "" {
-			change.Operations[index].Failure = "operation failed; operator inspection required"
+			change.Operations[index].Failure = publicOperationFailure(change.Operations[index].Failure)
 		}
 	}
 	if change.Failure != "" {
-		change.Failure = "Change failed; operator inspection required"
+		if computeclass.IsSafePublicFailure(change.Failure) {
+			change.Failure = publicOperationFailure(change.Failure)
+		} else {
+			change.Failure = "Change failed; operator inspection required"
+		}
 	}
 	if len(change.Residuals) > 0 {
 		change.Residuals = []string{"residual state requires operator inspection"}
@@ -47,13 +54,24 @@ func publicInitialDeployment(deployment InitialDeployment) InitialDeployment {
 	deployment.Operations = append([]InitialDeploymentOperation(nil), deployment.Operations...)
 	for index := range deployment.Operations {
 		if deployment.Operations[index].Failure != "" {
-			deployment.Operations[index].Failure = "operation failed; operator inspection required"
+			deployment.Operations[index].Failure = publicOperationFailure(deployment.Operations[index].Failure)
 		}
 	}
 	if deployment.Failure != "" {
-		deployment.Failure = "initial deployment failed; operator inspection required"
+		if computeclass.IsSafePublicFailure(deployment.Failure) {
+			deployment.Failure = publicOperationFailure(deployment.Failure)
+		} else {
+			deployment.Failure = "initial deployment failed; operator inspection required"
+		}
 	}
 	return deployment
+}
+
+func publicOperationFailure(failure string) string {
+	if computeclass.IsSafePublicFailure(failure) {
+		return failure
+	}
+	return "operation failed; operator inspection required"
 }
 
 func redactedEnvironment(environment map[string]string) map[string]string {

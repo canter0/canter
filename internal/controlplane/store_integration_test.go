@@ -204,7 +204,7 @@ func TestBootstrapAndDurableExecutionLedger(t *testing.T) {
 		t.Fatal(err)
 	}
 	system, err := sdk.NewSystem("api", "Serve an authenticated API").
-		OnHost("compute", 1, 1024, 256).
+		OnHost("c1", 1, 1024, 256).
 		WithM1("systems/api").
 		Provide(sdk.SystemService{Name: "web", Kind: "application", Isolation: "process", Instances: 1, Resources: sdk.ServiceResources{VCPU: 1, MemoryMiB: 256}, Readiness: sdk.Readiness{Protocol: "http", Port: 8080}}).
 		Build()

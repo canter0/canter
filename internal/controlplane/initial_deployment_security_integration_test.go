@@ -19,7 +19,7 @@ func initialExecutionFixture(t *testing.T, store *Store, email string) (Account,
 		t.Fatal(err)
 	}
 	system, err := sdk.NewSystem("lease-app", "Exercise fenced first deployment recovery").
-		OnHost("compute", 1, 1024, 256).
+		OnHost("c1", 1, 1024, 256).
 		WithM1("systems/lease-app").
 		Provide(sdk.SystemService{Name: "web", Kind: "application", Isolation: "process", Instances: 1, Networking: "public", Resources: sdk.ServiceResources{VCPU: 1, MemoryMiB: 256}, Readiness: sdk.Readiness{Protocol: "http", Port: 8080}}).
 		Build()
@@ -101,7 +101,7 @@ func TestInitialDeploymentRejectsPlanMutationAtAuthorizationAndExecution(t *test
 		if err != nil {
 			t.Fatal(err)
 		}
-		system, _ := sdk.NewSystem("digest-auth", "bind plan").OnHost("compute", 1, 1024, 256).WithM1("systems/digest-auth").Provide(sdk.SystemService{Name: "web", Kind: "application", Isolation: "process", Instances: 1, Networking: "public", Resources: sdk.ServiceResources{VCPU: 1, MemoryMiB: 256}, Readiness: sdk.Readiness{Protocol: "http", Port: 8080}}).Build()
+		system, _ := sdk.NewSystem("digest-auth", "bind plan").OnHost("c1", 1, 1024, 256).WithM1("systems/digest-auth").Provide(sdk.SystemService{Name: "web", Kind: "application", Isolation: "process", Instances: 1, Networking: "public", Resources: sdk.ServiceResources{VCPU: 1, MemoryMiB: 256}, Readiness: sdk.Readiness{Protocol: "http", Port: 8080}}).Build()
 		plan := InitialDeploymentPlan{System: system, ArtifactSHA256: strings.Repeat("b", 64), Release: InitialDeploymentRelease{Command: []string{"./app"}, HealthPath: "/health", PublicPort: 8080}, Verification: sdk.ChangeVerification{Method: "GET", Path: "/health", ExpectedStatus: 200}, WorkspaceRevision: workspace.Revision}
 		digest, _ := digestInitialDeployment(plan)
 		now := store.now()
@@ -157,7 +157,7 @@ func TestInitialDeploymentRehashesArtifactBeforePublication(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	system, _ := sdk.NewSystem("mutated-artifact", "reject mutated artifact").OnHost("compute", 1, 1024, 256).WithM1("systems/mutated-artifact").Provide(sdk.SystemService{Name: "web", Kind: "application", Isolation: "process", Instances: 1, Networking: "public", Resources: sdk.ServiceResources{VCPU: 1, MemoryMiB: 256}, Readiness: sdk.Readiness{Protocol: "http", Port: 8080}}).Build()
+	system, _ := sdk.NewSystem("mutated-artifact", "reject mutated artifact").OnHost("c1", 1, 1024, 256).WithM1("systems/mutated-artifact").Provide(sdk.SystemService{Name: "web", Kind: "application", Isolation: "process", Instances: 1, Networking: "public", Resources: sdk.ServiceResources{VCPU: 1, MemoryMiB: 256}, Readiness: sdk.Readiness{Protocol: "http", Port: 8080}}).Build()
 	system, err = canonicalizeSystemForWorkspace(workspace.ID, system)
 	if err != nil {
 		t.Fatal(err)

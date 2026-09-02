@@ -15,7 +15,7 @@ func TestNodeEnrollmentIsOneTimeHashedAndRevocable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	system, err := sdk.NewSystem("node-api", "run an api").OnHost("compute", 1, 1024, 256).WithM1("ignored/client/prefix").Provide(sdk.SystemService{Name: "web", Kind: "application", Isolation: "process", Instances: 1, Networking: "public", Resources: sdk.ServiceResources{VCPU: 1, MemoryMiB: 256}, Readiness: sdk.Readiness{Protocol: "http", Port: 8080}}).Build()
+	system, err := sdk.NewSystem("node-api", "run an api").OnHost("c1", 1, 1024, 256).WithM1("ignored/client/prefix").Provide(sdk.SystemService{Name: "web", Kind: "application", Isolation: "process", Instances: 1, Networking: "public", Resources: sdk.ServiceResources{VCPU: 1, MemoryMiB: 256}, Readiness: sdk.Readiness{Protocol: "http", Port: 8080}}).Build()
 	if err != nil {
 		t.Fatal(err)
 	}

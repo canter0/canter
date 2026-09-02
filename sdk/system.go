@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/canter0/canter/internal/computeclass"
 	"gopkg.in/yaml.v3"
 )
 
@@ -34,6 +35,10 @@ type HostConstraint struct {
 	MemoryMiB     int    `yaml:"memoryMiB" json:"memoryMiB"`
 	SystemReserve int    `yaml:"systemReserveMiB" json:"systemReserveMiB"`
 }
+
+// SupportedHostClasses returns the complete compute-class vocabulary accepted
+// by System contracts and advertised to agents.
+func SupportedHostClasses() []string { return computeclass.Supported() }
 
 type SystemService struct {
 	Name       string           `yaml:"name" json:"name"`
@@ -169,6 +174,9 @@ func (s System) Validate() error {
 	host := s.Spec.Constraints.Host
 	if host.Class == "" || host.Count < 1 || host.MemoryMiB < 1 || host.SystemReserve < 0 || host.SystemReserve >= host.MemoryMiB {
 		return fmt.Errorf("system requires a valid host constraint")
+	}
+	if err := computeclass.Validate(host.Class); err != nil {
+		return err
 	}
 	if len(s.Spec.Services) == 0 {
 		return fmt.Errorf("system requires at least one service")
