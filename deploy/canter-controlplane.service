@@ -9,6 +9,7 @@ User=canter
 Group=canter
 WorkingDirectory=/opt/canter
 EnvironmentFile=/etc/canter/controlplane.env
+Environment=CANTER_ENV_FILE=/etc/canter/controlplane.env
 ExecStart=/opt/canter/bin/canter-controlplane
 Restart=on-failure
 RestartSec=3

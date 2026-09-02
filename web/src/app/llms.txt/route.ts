@@ -15,6 +15,8 @@ Canter is an agent-operated, human-governed hosting control plane. A chat is not
 - Machine contract: ${origin}/.well-known/canter
 - Streamable HTTP MCP: ${api}/mcp
 - Human sign in: ${origin}/sign-in
+- Public CLI: https://github.com/canter0/canter-cli (install with: go install github.com/canter0/canter-cli@latest)
+- Public Go SDK: https://github.com/canter0/canter-sdk-go
 
 ## Connect a new installation
 

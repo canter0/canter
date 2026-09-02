@@ -91,6 +91,16 @@ export function GET(request: NextRequest) {
       neverExposed: ["compute provider credentials", "m1 storage credentials", "provider resource identifiers"],
     },
     instructions: `${origin}/llms.txt`,
+    distributions: {
+      cli: {
+        repository: "https://github.com/canter0/canter-cli",
+        install: "go install github.com/canter0/canter-cli@latest",
+      },
+      goSdk: {
+        repository: "https://github.com/canter0/canter-sdk-go",
+        module: "github.com/canter0/canter-sdk-go",
+      },
+    },
   }, {
     headers: { "Cache-Control": "public, max-age=300, must-revalidate" },
   });

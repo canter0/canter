@@ -8,7 +8,17 @@ fi
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
-apt-get install -y ca-certificates curl gnupg postgresql postgresql-client awscli ufw
+apt-get install -y ca-certificates curl gnupg postgresql postgresql-client ufw unzip
+
+if ! command -v aws >/dev/null 2>&1; then
+  aws_bundle=/tmp/awscliv2.zip
+  aws_unpack=/tmp/aws
+  curl -fsSL https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip -o "$aws_bundle"
+  rm -rf "$aws_unpack"
+  unzip -q "$aws_bundle" -d /tmp
+  /tmp/aws/install --bin-dir /usr/local/bin --install-dir /usr/local/aws-cli
+  rm -rf "$aws_bundle" "$aws_unpack"
+fi
 
 if ! command -v node >/dev/null 2>&1 || [ "$(node -p 'Number(process.versions.node.split(`.`)[0])')" -lt 22 ]; then
   curl -fsSL https://deb.nodesource.com/setup_22.x | sh -
