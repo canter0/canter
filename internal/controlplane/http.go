@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/canter0/canter/internal/computeclass"
 	"github.com/canter0/canter/sdk"
 )
 
@@ -1091,7 +1092,14 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 	_ = json.NewEncoder(w).Encode(value)
 }
 func writeError(w http.ResponseWriter, status int, err error) {
-	writeJSON(w, status, map[string]any{"error": map[string]string{"message": err.Error()}})
+	detail := map[string]any{"message": err.Error()}
+	var unsupported *computeclass.UnsupportedClassError
+	if errors.As(err, &unsupported) {
+		detail["code"] = computeclass.UnsupportedCode
+		detail["retryable"] = false
+		detail["supportedHostClasses"] = sdk.SupportedHostClasses()
+	}
+	writeJSON(w, status, map[string]any{"error": detail})
 }
 func methodNotAllowed(w http.ResponseWriter) {
 	writeError(w, http.StatusMethodNotAllowed, fmt.Errorf("method not allowed"))

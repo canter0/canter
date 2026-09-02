@@ -89,6 +89,13 @@ export function GET(request: NextRequest) {
         lifetimeSeconds: 600,
         semantics: "The URL is human-gated and single-use. It does not let the proposing agent approve its own Change.",
       },
+      initialDeployment: {
+        computeClasses: ["c1", "c2", "c3"],
+        defaultComputeClass: "c1",
+        agentTools: ["canter_upload_artifact", "canter_draft_initial_deployment", "canter_list_initial_deployments", "canter_inspect_initial_deployment", "canter_inspect_initial_deployment_execution"],
+        humanWorkflow: "The review surface records authorization of the exact digest and then starts that unchanged deployment. These are separate ledger events presented as one explicit approve + start action.",
+        failureSemantics: "Contract errors are returned with a stable code, retryability, and valid alternatives. Provider-sensitive execution failures remain redacted for operator inspection.",
+      },
       neverExposed: ["compute provider credentials", "m1 storage credentials", "provider resource identifiers"],
     },
     instructions: `${origin}/llms.txt`,

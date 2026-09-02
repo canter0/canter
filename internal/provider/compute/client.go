@@ -16,6 +16,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/canter0/canter/internal/computeclass"
 )
 
 type Client struct {
@@ -222,10 +224,9 @@ func (c *Client) Resolve(ctx context.Context, class, imageAlias string) (Shape, 
 		}
 		return shapes[i].GB < shapes[j].GB
 	})
-	classIndex := map[string]int{"c1": 0, "c2": 1, "c3": 2}
-	index, ok := classIndex[strings.ToLower(class)]
+	index, ok := computeclass.Index(strings.ToLower(class))
 	if !ok || index >= len(shapes) {
-		return Shape{}, "", nil, fmt.Errorf("unsupported compute class %q", class)
+		return Shape{}, "", nil, computeclass.UnsupportedError(class)
 	}
 	var imgs struct {
 		Images []image `json:"images"`

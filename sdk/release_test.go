@@ -61,7 +61,7 @@ func TestControlPlaneArtifactKeyIsCanonicallyBoundToDigest(t *testing.T) {
 }
 
 func TestNodeBootstrapContainsOneTimeGatewayCapabilityNotProviderCredentials(t *testing.T) {
-	system, err := NewSystem("gateway-app", "serve through a governed node").OnHost("compute", 1, 1024, 256).WithM1("systems/gateway-app").Provide(SystemService{Name: "web", Kind: "application", Isolation: "process", Instances: 1, Networking: "public", Resources: ServiceResources{VCPU: 1, MemoryMiB: 128}, Readiness: Readiness{Protocol: "http", Port: 8080}}).Build()
+	system, err := NewSystem("gateway-app", "serve through a governed node").OnHost("c1", 1, 1024, 256).WithM1("systems/gateway-app").Provide(SystemService{Name: "web", Kind: "application", Isolation: "process", Instances: 1, Networking: "public", Resources: ServiceResources{VCPU: 1, MemoryMiB: 128}, Readiness: Readiness{Protocol: "http", Port: 8080}}).Build()
 	if err != nil {
 		t.Fatal(err)
 	}

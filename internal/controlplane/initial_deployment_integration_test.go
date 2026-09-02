@@ -231,7 +231,7 @@ func TestInitialDeploymentIsAgentDraftedHumanAuthorizedAndServerExecuted(t *test
 	}
 
 	system, err := sdk.NewSystem("first-app", "Serve a real first application").
-		OnHost("compute", 1, 1024, 256).
+		OnHost("c1", 1, 1024, 256).
 		WithM1("systems/first-app").
 		Provide(sdk.SystemService{Name: "web", Kind: "application", Isolation: "process", Instances: 1, Networking: "public", Resources: sdk.ServiceResources{VCPU: 1, MemoryMiB: 256}, Readiness: sdk.Readiness{Protocol: "http", Port: 8080}}).
 		Build()
@@ -311,7 +311,7 @@ func TestFailedInitialDeploymentHumanRetryRecoversEscalatedExposure(t *testing.T
 		t.Fatal(err)
 	}
 	system, err := sdk.NewSystem("retry-app", "Recover an exact escalated endpoint").
-		OnHost("compute", 1, 1024, 256).
+		OnHost("c1", 1, 1024, 256).
 		WithM1("systems/retry-app").
 		Provide(sdk.SystemService{Name: "web", Kind: "application", Isolation: "process", Instances: 1, Networking: "public", Resources: sdk.ServiceResources{VCPU: 1, MemoryMiB: 256}, Readiness: sdk.Readiness{Protocol: "http", Port: 8080}}).
 		Build()
@@ -378,7 +378,7 @@ func TestHumanRetryReopensBootstrapReceiptAfterDestroyedHost(t *testing.T) {
 		t.Fatal(err)
 	}
 	system, err := sdk.NewSystem("destroyed-retry-app", "Replace a destroyed first host").
-		OnHost("compute", 1, 1024, 256).
+		OnHost("c1", 1, 1024, 256).
 		WithM1("systems/destroyed-retry-app").
 		Provide(sdk.SystemService{Name: "web", Kind: "application", Isolation: "process", Instances: 1, Networking: "public", Resources: sdk.ServiceResources{VCPU: 1, MemoryMiB: 256}, Readiness: sdk.Readiness{Protocol: "http", Port: 8080}}).
 		Build()

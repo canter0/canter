@@ -53,7 +53,7 @@ func archiveWithDeclaredSize(t *testing.T, size int64) []byte {
 
 func TestInitialDeploymentDigestBindsSystemArtifactReleaseVerificationAndRevision(t *testing.T) {
 	system, err := sdk.NewSystem("digest-app", "Test immutable first deployment").
-		OnHost("compute", 1, 1024, 256).
+		OnHost("c1", 1, 1024, 256).
 		WithM1("systems/digest-app").
 		Provide(sdk.SystemService{Name: "web", Kind: "application", Isolation: "process", Instances: 1, Networking: "public", Resources: sdk.ServiceResources{VCPU: 1, MemoryMiB: 256}, Readiness: sdk.Readiness{Protocol: "http", Port: 8080}}).
 		Build()
@@ -114,6 +114,38 @@ func TestMCPPublishesInitialDeploymentTools(t *testing.T) {
 	}
 }
 
+func TestMCPConstrainsInitialDeploymentHostClass(t *testing.T) {
+	raw, err := json.Marshal(mcpTools())
+	if err != nil {
+		t.Fatal(err)
+	}
+	contract := string(raw)
+	if !strings.Contains(contract, `"class":{"description":"Provider-neutral Canter compute class.`) || !strings.Contains(contract, `"enum":["c1","c2","c3"]`) {
+		t.Fatalf("MCP did not publish the supported host-class enum: %s", contract)
+	}
+}
+
+func TestMCPUnsupportedHostClassErrorIsStructuredAndNotRetryable(t *testing.T) {
+	broken := sdk.System{
+		APIVersion: sdk.APIVersion,
+		Kind:       "System",
+		Metadata:   sdk.Metadata{Name: "broken"},
+		Spec: sdk.SystemContract{
+			Intent:      "prove invalid classes fail before deployment",
+			Constraints: sdk.Constraints{Host: sdk.HostConstraint{Class: "shared", Count: 1, MemoryMiB: 512, SystemReserve: 128}},
+			M1:          sdk.M1Spec{Prefix: "systems/broken"},
+			Services:    []sdk.SystemService{{Name: "web", Kind: "application", Isolation: "process", Instances: 1, Networking: "public", Resources: sdk.ServiceResources{VCPU: 1, MemoryMiB: 256}, Readiness: sdk.Readiness{Protocol: "http", Port: 8080}}},
+		},
+	}
+	result := publicMCPToolError(broken.Validate())
+	if result["errorCode"] != "unsupported_compute_class" || result["retryable"] != false {
+		t.Fatalf("unsupported class error is not machine-actionable: %#v", result)
+	}
+	if got, ok := result["supportedHostClasses"].([]string); !ok || len(got) != 3 || got[0] != "c1" {
+		t.Fatalf("unsupported class error omitted alternatives: %#v", result)
+	}
+}
+
 func TestBlackoutBootstrapCapabilityIsSelfDescribing(t *testing.T) {
 	capabilities := initialDeploymentCapabilities("wrk_blackout")
 	raw, err := json.Marshal(capabilities)
@@ -125,10 +157,15 @@ func TestBlackoutBootstrapCapabilityIsSelfDescribing(t *testing.T) {
 		`"format":"tar.gz"`, `"maxBytes":67108864`, `"form":"argv"`, `./-prefixed executable`,
 		`"PORT"`, `CANTER_SERVICE_`, `/v1/workspaces/wrk_blackout/artifacts`,
 		`/initial-deployments/{deploymentId}/authorize`, `"principal":"human"`,
-		`"url":"/mcp"`, `canter_draft_initial_deployment`,
+		`"url":"/mcp"`, `canter_draft_initial_deployment`, `"hostClasses":["c1","c2","c3"]`, `approve + start deployment`,
 	} {
 		if !strings.Contains(contract, required) {
 			t.Fatalf("blackout capability contract omitted %q: %s", required, contract)
+		}
+	}
+	for _, forbidden := range []string{`canter_authorize_initial_deployment`, `canter_apply_initial_deployment`} {
+		if strings.Contains(contract, forbidden) {
+			t.Fatalf("blackout capability contract advertised unavailable MCP tool %q: %s", forbidden, contract)
 		}
 	}
 }

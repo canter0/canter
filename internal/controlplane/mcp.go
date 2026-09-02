@@ -3,9 +3,11 @@ package controlplane
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 
+	"github.com/canter0/canter/internal/computeclass"
 	"github.com/canter0/canter/sdk"
 )
 
@@ -60,13 +62,24 @@ func (h *HTTPServer) mcp(w http.ResponseWriter, r *http.Request) {
 		}
 		result, err := h.callMCPTool(r, principal, params.Name, params.Arguments)
 		if err != nil {
-			h.mcpResult(w, request.ID, mcpToolResult(map[string]string{"error": err.Error()}, true))
+			h.mcpResult(w, request.ID, mcpToolResult(publicMCPToolError(err), true))
 			return
 		}
 		h.mcpResult(w, request.ID, mcpToolResult(result, false))
 	default:
 		h.mcpError(w, request.ID, -32601, "method not found")
 	}
+}
+
+func publicMCPToolError(err error) map[string]any {
+	result := map[string]any{"error": err.Error()}
+	var unsupported *computeclass.UnsupportedClassError
+	if errors.As(err, &unsupported) {
+		result["errorCode"] = computeclass.UnsupportedCode
+		result["retryable"] = false
+		result["supportedHostClasses"] = sdk.SupportedHostClasses()
+	}
+	return result
 }
 
 func mcpTools() []mcpTool {
@@ -82,6 +95,11 @@ func mcpTools() []mcpTool {
 	}
 	str := map[string]any{"type": "string"}
 	integer := map[string]any{"type": "integer"}
+	hostClass := map[string]any{
+		"type":        "string",
+		"enum":        sdk.SupportedHostClasses(),
+		"description": "Provider-neutral Canter compute class. Use exactly one advertised value; c1 is the smallest class.",
+	}
 	service := object(map[string]any{
 		"name": str, "kind": str, "engine": str,
 		"isolation":  map[string]any{"type": "string", "enum": []string{"process", "firecracker"}},
@@ -97,7 +115,7 @@ func mcpTools() []mcpTool {
 		"metadata":   object(map[string]any{"name": str}, "name"),
 		"spec": object(map[string]any{
 			"intent":      str,
-			"constraints": object(map[string]any{"host": object(map[string]any{"class": str, "count": integer, "memoryMiB": integer, "systemReserveMiB": integer}, "class", "count", "memoryMiB", "systemReserveMiB")}, "host"),
+			"constraints": object(map[string]any{"host": object(map[string]any{"class": hostClass, "count": integer, "memoryMiB": integer, "systemReserveMiB": integer}, "class", "count", "memoryMiB", "systemReserveMiB")}, "host"),
 			"services":    map[string]any{"type": "array", "minItems": 1, "items": service},
 			"m1": object(map[string]any{
 				"prefix": map[string]any{"type": "string", "description": "Optional safe client suggestion; the control plane replaces it with a workspace-scoped server-derived prefix."},

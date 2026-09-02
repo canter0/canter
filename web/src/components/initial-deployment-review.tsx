@@ -50,18 +50,21 @@ export function InitialDeploymentReview({ id }: { id: string }) {
     return () => window.clearInterval(timer);
   }, [deployment, execution, id, workspaceId]);
 
-  async function authorize() {
+  async function authorizeAndApply() {
     if (!deployment || !workspaceId) return;
     setPending(true);
     setError("");
     try {
-      const result = await canterFetch<InitialDeploymentDetail>(`/workspaces/${workspaceId}/initial-deployments/${encodeURIComponent(id)}/authorize`, {
+      const authorized = await canterFetch<InitialDeploymentDetail>(`/workspaces/${workspaceId}/initial-deployments/${encodeURIComponent(id)}/authorize`, {
         method: "POST",
         body: JSON.stringify({ digest: deployment.digest }),
       });
-      setDeployment(result);
+      setDeployment(authorized);
+      const result = await canterFetch<InitialDeploymentExecution>(`/workspaces/${workspaceId}/initial-deployments/${encodeURIComponent(id)}/apply`, { method: "POST" });
+      setExecution(result);
+      setDeployment({ ...authorized, phase: "queued" });
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Canter could not authorize this proposal.");
+      setError(cause instanceof Error ? cause.message : "Canter could not approve and start this deployment.");
     } finally {
       setPending(false);
     }
@@ -87,6 +90,13 @@ export function InitialDeploymentReview({ id }: { id: string }) {
   const services = plan?.system.spec.services ?? [];
   const authorization = deployment?.authorization;
   const canRetry = deployment?.phase === "failed" && authorization?.digest === deployment.digest;
+  const actionExplanation = deployment?.phase === "drafted"
+    ? "Records approval of this exact digest, then starts that unchanged deployment."
+    : deployment?.phase === "authorized"
+      ? "Approval is recorded. Starting creates the server-owned execution."
+      : canRetry
+        ? "Retries the same approved digest; it does not broaden the proposal."
+        : "";
   const assessment: Array<[string, string]> = deployment && plan ? [
     ["digest", deployment.digest],
     ["artifact", plan.artifactSha256],
@@ -140,10 +150,13 @@ export function InitialDeploymentReview({ id }: { id: string }) {
 
         {execution ? <div className="mt-8 border-l-2 border-[var(--signal)] pl-4">Execution {execution.id} · {execution.phase} · attempt {execution.attempts}</div> : null}
 
-        <div className="mt-auto flex min-h-20 min-w-[760px] items-center justify-end gap-3 border-t border-[var(--ink)]">
-          {deployment?.phase === "drafted" ? <button onClick={() => void authorize()} disabled={pending} className="flex h-10 min-w-[190px] items-center justify-center bg-[var(--ink)] px-6 text-[var(--paper)] disabled:opacity-50">{pending ? "Authorizing…" : "Authorize exact digest"}</button> : null}
-          {deployment?.phase === "authorized" ? <button onClick={() => void apply()} disabled={pending} className="flex h-10 min-w-[190px] items-center justify-center bg-[var(--ink)] px-6 text-[var(--paper)] disabled:opacity-50">{pending ? "Enqueuing…" : "Apply approved proposal"}</button> : null}
-          {canRetry ? <button onClick={() => void apply()} disabled={pending} className="flex h-10 min-w-[190px] items-center justify-center bg-[var(--ink)] px-6 text-[var(--paper)] disabled:opacity-50">{pending ? "Retrying…" : "Retry failed proposal"}</button> : null}
+        <div className="mt-auto flex min-h-20 min-w-[760px] items-center justify-between gap-8 border-t border-[var(--ink)]">
+          <span className="max-w-[520px] text-[var(--muted)]">{actionExplanation}</span>
+          <div className="flex gap-3">
+            {deployment?.phase === "drafted" ? <button onClick={() => void authorizeAndApply()} disabled={pending} className="flex h-10 min-w-[210px] items-center justify-center bg-[var(--ink)] px-6 text-[var(--paper)] disabled:opacity-50">{pending ? "Approving + starting…" : "Approve + start deployment"}</button> : null}
+            {deployment?.phase === "authorized" ? <button onClick={() => void apply()} disabled={pending} className="flex h-10 min-w-[210px] items-center justify-center bg-[var(--ink)] px-6 text-[var(--paper)] disabled:opacity-50">{pending ? "Starting…" : "Start approved deployment"}</button> : null}
+            {canRetry ? <button onClick={() => void apply()} disabled={pending} className="flex h-10 min-w-[210px] items-center justify-center bg-[var(--ink)] px-6 text-[var(--paper)] disabled:opacity-50">{pending ? "Retrying…" : "Retry exact deployment"}</button> : null}
+          </div>
         </div>
       </section>
     </AppShell>

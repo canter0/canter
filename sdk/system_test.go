@@ -1,6 +1,10 @@
 package sdk
 
-import "testing"
+import (
+	"reflect"
+	"strings"
+	"testing"
+)
 
 func mysqlPairSystem(t *testing.T) System {
 	t.Helper()
@@ -60,5 +64,17 @@ func TestSystemRejectsOversubscribedMemory(t *testing.T) {
 	s.Spec.Services[0].Resources.MemoryMiB = 400
 	if err := s.Validate(); err == nil {
 		t.Fatal("oversubscribed system was accepted")
+	}
+}
+
+func TestSystemComputeClassesAreDiscoverableAndValidated(t *testing.T) {
+	if got, want := SupportedHostClasses(), []string{"c1", "c2", "c3"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("supported host classes = %v, want %v", got, want)
+	}
+	s := mysqlPairSystem(t)
+	s.Spec.Constraints.Host.Class = "shared"
+	err := s.Validate()
+	if err == nil || !strings.Contains(err.Error(), "unsupported_compute_class") || !strings.Contains(err.Error(), "c1, c2, c3") {
+		t.Fatalf("unsupported host class returned non-actionable error: %v", err)
 	}
 }
