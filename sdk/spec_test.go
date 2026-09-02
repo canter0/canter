@@ -33,6 +33,23 @@ func TestSpecPolicyRejectsReplicaEscalation(t *testing.T) {
 	}
 }
 
+func TestValidateM1PrefixRejectsUnsafeSegments(t *testing.T) {
+	invalid := []string{
+		"", "/systems/app", "systems/app/", "systems//app", "systems/./app", "systems/../app",
+		"systems/app name", "systems/app\nEnvironment=oops", `systems/app\name`, "systems/app%2fescape",
+	}
+	for _, prefix := range invalid {
+		if err := ValidateM1Prefix(prefix); err == nil {
+			t.Errorf("unsafe m1 prefix %q was accepted", prefix)
+		}
+	}
+	for _, prefix := range []string{"systems/app", "workspaces/wrk_123/systems/api-v2", "a/b.c_d-e"} {
+		if err := ValidateM1Prefix(prefix); err != nil {
+			t.Errorf("safe m1 prefix %q rejected: %v", prefix, err)
+		}
+	}
+}
+
 func TestValidatePlanRejectsModelDrift(t *testing.T) {
 	s := validSpec()
 	p := Plan{SchemaVersion: "v1", Operations: []Operation{

@@ -3,6 +3,7 @@ package sdk
 import (
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"strings"
@@ -20,6 +21,63 @@ type PublicEndpointObservation struct {
 	StatusCode    int       `json:"statusCode,omitempty"`
 	Message       string    `json:"message,omitempty"`
 	ObservedAt    time.Time `json:"observedAt"`
+}
+
+// VerifyPublicEndpoint performs the exact deterministic HTTP assertion bound
+// into an initial-deployment proposal. It is separate from WaitPublicEndpoint,
+// which waits on the release manifest's health path.
+func (c *Client) VerifyPublicEndpoint(ctx context.Context, system System, version string, verification ChangeVerification) (PublicEndpointObservation, error) {
+	if verification.Method == "" {
+		verification.Method = http.MethodGet
+	}
+	if verification.ExpectedStatus == 0 {
+		verification.ExpectedStatus = http.StatusOK
+	}
+	if verification.Method != http.MethodGet || !strings.HasPrefix(verification.Path, "/") || verification.ExpectedStatus < 100 || verification.ExpectedStatus > 599 {
+		return PublicEndpointObservation{}, fmt.Errorf("verification requires GET, an absolute path, and a valid expected status")
+	}
+	state, err := c.SystemHostStatus(ctx, system)
+	if err != nil {
+		return PublicEndpointObservation{}, err
+	}
+	if len(state.Resources) != 1 || state.Resources[0].Address == "" {
+		return PublicEndpointObservation{}, fmt.Errorf("system host has no public address")
+	}
+	port, err := systemPublicPort(system)
+	if err != nil {
+		return PublicEndpointObservation{}, err
+	}
+	url := "http://" + net.JoinHostPort(state.Resources[0].Address, fmt.Sprint(port)) + verification.Path
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return PublicEndpointObservation{}, err
+	}
+	response, err := (&http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{Proxy: nil}}).Do(request)
+	if err != nil {
+		return PublicEndpointObservation{}, err
+	}
+	defer response.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(response.Body, 1<<20))
+	if err != nil {
+		return PublicEndpointObservation{}, err
+	}
+	observation := PublicEndpointObservation{SchemaVersion: "v1", System: system.Metadata.Name, Version: version, Phase: "failed", URL: url, StatusCode: response.StatusCode, ObservedAt: time.Now().UTC()}
+	switch {
+	case response.StatusCode != verification.ExpectedStatus:
+		observation.Message = fmt.Sprintf("expected HTTP %d, got HTTP %d", verification.ExpectedStatus, response.StatusCode)
+	case verification.BodyContains != "" && !strings.Contains(string(body), verification.BodyContains):
+		observation.Message = "response body did not contain the approved marker"
+	default:
+		observation.Phase = "ready"
+		observation.Message = "approved public verification passed"
+	}
+	if _, recordErr := c.recordEndpointObservation(ctx, system, observation); recordErr != nil {
+		return PublicEndpointObservation{}, recordErr
+	}
+	if observation.Phase != "ready" {
+		return observation, fmt.Errorf("public verification failed: %s", observation.Message)
+	}
+	return observation, nil
 }
 
 type ReleaseView struct {

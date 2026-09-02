@@ -3,6 +3,7 @@ package compute
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -84,6 +85,47 @@ type SecurityPolicy struct {
 	ID, PortID, RuleID string
 	Port               int
 }
+
+type ManagedServerRequest struct {
+	Name, Sandbox, OperationID, FlavorID, ImageID, NetworkID, UserData string
+}
+
+type ManagedTCPExposureRequest struct {
+	ServerID, Name, Ownership string
+	Port                      int
+}
+
+type DuplicateManagedResourceError struct {
+	Kind, Identity string
+	Count          int
+}
+
+func (e *DuplicateManagedResourceError) Error() string {
+	return fmt.Sprintf("managed %s %q is ambiguous: found %d matches", e.Kind, e.Identity, e.Count)
+}
+
+func IsDuplicateManagedResource(err error) bool {
+	var duplicate *DuplicateManagedResourceError
+	return errors.As(err, &duplicate)
+}
+
+type AmbiguousManagedResourceError struct {
+	Kind, Identity string
+	Cause          error
+}
+
+func (e *AmbiguousManagedResourceError) Error() string {
+	return fmt.Sprintf("managed %s %q has an unresolved provider outcome: %v", e.Kind, e.Identity, e.Cause)
+}
+
+func (e *AmbiguousManagedResourceError) Unwrap() error { return e.Cause }
+
+func IsAmbiguousManagedResource(err error) bool {
+	var ambiguous *AmbiguousManagedResourceError
+	return errors.As(err, &ambiguous)
+}
+
+func IsNotFound(err error) bool { return isHTTPStatus(err, http.StatusNotFound) }
 
 // HTTPError preserves the provider status code so reconciliation can make
 // idempotent decisions without parsing an error string.
@@ -229,15 +271,24 @@ func normalizeImage(value string) string {
 }
 
 func (c *Client) Create(ctx context.Context, name, sandbox, flavorID, imageID, networkID, userData string) (Server, error) {
+	return c.CreateManaged(ctx, ManagedServerRequest{Name: name, Sandbox: sandbox, FlavorID: flavorID, ImageID: imageID, NetworkID: networkID, UserData: userData})
+}
+
+func (c *Client) CreateManaged(ctx context.Context, input ManagedServerRequest) (Server, error) {
 	s, err := c.authenticate(ctx)
 	if err != nil {
 		return Server{}, err
 	}
+	metadata := map[string]string{"canter.sandbox": input.Sandbox, "canter.managed": "true"}
+	if input.OperationID != "" {
+		metadata["canter.operation"] = input.OperationID
+		metadata["canter.resource"] = input.Name
+	}
 	payload := map[string]any{"server": map[string]any{
-		"name": name, "flavorRef": flavorID, "imageRef": imageID,
-		"networks":  []map[string]string{{"uuid": networkID}},
-		"metadata":  map[string]string{"canter.sandbox": sandbox, "canter.managed": "true"},
-		"user_data": base64.StdEncoding.EncodeToString([]byte(userData)),
+		"name": input.Name, "flavorRef": input.FlavorID, "imageRef": input.ImageID,
+		"networks":  []map[string]string{{"uuid": input.NetworkID}},
+		"metadata":  metadata,
+		"user_data": base64.StdEncoding.EncodeToString([]byte(input.UserData)),
 	}}
 	var out struct {
 		Server Server `json:"server"`
@@ -246,6 +297,33 @@ func (c *Client) Create(ctx context.Context, name, sandbox, flavorID, imageID, n
 		return Server{}, err
 	}
 	return out.Server, nil
+}
+
+// FindManagedServers returns exact matches for a durable Canter creation
+// intent. Provider name filters are not assumed to be exact, so the response
+// is filtered again locally, including all managed metadata.
+func (c *Client) FindManagedServers(ctx context.Context, sandbox, operationID, name string) ([]Server, error) {
+	s, err := c.authenticate(ctx)
+	if err != nil {
+		return nil, err
+	}
+	query := url.Values{}
+	query.Set("name", name)
+	var out struct {
+		Servers []Server `json:"servers"`
+	}
+	if err := c.get(ctx, s.ComputeURL+"/servers/detail?"+query.Encode(), &out); err != nil {
+		return nil, err
+	}
+	matches := make([]Server, 0, len(out.Servers))
+	for _, server := range out.Servers {
+		if server.Name != name || server.Metadata["canter.managed"] != "true" || server.Metadata["canter.sandbox"] != sandbox || server.Metadata["canter.operation"] != operationID || server.Metadata["canter.resource"] != name {
+			continue
+		}
+		matches = append(matches, server)
+	}
+	sort.Slice(matches, func(i, j int) bool { return matches[i].ID < matches[j].ID })
+	return matches, nil
 }
 
 func (c *Client) Server(ctx context.Context, id string) (Server, error) {
@@ -311,93 +389,241 @@ func (c *Client) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
+type networkPort struct {
+	ID             string   `json:"id"`
+	SecurityGroups []string `json:"security_groups"`
+}
+
+type securityRule struct {
+	ID        string `json:"id"`
+	Direction string `json:"direction"`
+	Protocol  string `json:"protocol"`
+	Min       int    `json:"port_range_min"`
+	Max       int    `json:"port_range_max"`
+}
+
+type securityGroup struct {
+	ID          string         `json:"id"`
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	Rules       []securityRule `json:"security_group_rules"`
+}
+
 func (c *Client) ExposeTCP(ctx context.Context, serverID, name string, portNumber int) (SecurityPolicy, error) {
+	ownershipDigest := sha256.Sum256([]byte(serverID + "\x00" + name))
+	return c.ExposeManagedTCP(ctx, ManagedTCPExposureRequest{ServerID: serverID, Name: name, Ownership: fmt.Sprintf("legacy-sha256:%x", ownershipDigest[:]), Port: portNumber})
+}
+
+func (c *Client) ExposeManagedTCP(ctx context.Context, input ManagedTCPExposureRequest) (SecurityPolicy, error) {
+	serverID, name, portNumber := input.ServerID, input.Name, input.Port
 	if portNumber < 1 || portNumber > 65535 {
 		return SecurityPolicy{}, fmt.Errorf("invalid TCP port")
 	}
+	if strings.TrimSpace(name) == "" || strings.TrimSpace(input.Ownership) == "" {
+		return SecurityPolicy{}, fmt.Errorf("managed TCP exposure requires name and ownership")
+	}
+	description := managedPolicyDescription(input.Ownership)
 	s, err := c.authenticate(ctx)
 	if err != nil {
 		return SecurityPolicy{}, err
 	}
-	var ports struct {
-		Ports []struct {
-			ID             string   `json:"id"`
-			SecurityGroups []string `json:"security_groups"`
-		} `json:"ports"`
-	}
-	if err := c.get(ctx, s.NetworkURL+"/v2.0/ports?device_id="+url.QueryEscape(serverID), &ports); err != nil {
+	port, err := c.findServerPort(ctx, s, serverID)
+	if err != nil {
 		return SecurityPolicy{}, err
 	}
-	if len(ports.Ports) != 1 {
-		return SecurityPolicy{}, fmt.Errorf("expected one compute network port, found %d", len(ports.Ports))
-	}
-	var groups struct {
-		SecurityGroups []struct {
-			ID    string `json:"id"`
-			Name  string `json:"name"`
-			Rules []struct {
-				ID        string `json:"id"`
-				Direction string `json:"direction"`
-				Protocol  string `json:"protocol"`
-				Min       int    `json:"port_range_min"`
-				Max       int    `json:"port_range_max"`
-			} `json:"security_group_rules"`
-		} `json:"security_groups"`
-	}
-	if err := c.get(ctx, s.NetworkURL+"/v2.0/security-groups", &groups); err != nil {
+	groups, err := c.findSecurityGroups(ctx, s, name, description)
+	if err != nil {
 		return SecurityPolicy{}, err
 	}
-	groupID, ruleID := "", ""
-	for _, group := range groups.SecurityGroups {
-		if group.Name == name {
-			groupID = group.ID
-			for _, rule := range group.Rules {
-				if rule.Direction == "ingress" && rule.Protocol == "tcp" && rule.Min == portNumber && rule.Max == portNumber {
-					ruleID = rule.ID
-				}
+	if len(groups) > 1 {
+		return SecurityPolicy{}, &DuplicateManagedResourceError{Kind: "network policy", Identity: name, Count: len(groups)}
+	}
+	var group securityGroup
+	if len(groups) == 1 {
+		group = groups[0]
+	} else {
+		group, err = c.createSecurityGroup(ctx, s, name, description)
+		if err != nil || group.ID == "" {
+			reconciled, lookupErr := c.findSecurityGroups(ctx, s, name, description)
+			if lookupErr != nil {
+				return SecurityPolicy{}, fmt.Errorf("create network policy failed (%v) and reconciliation failed: %w", err, lookupErr)
 			}
-			break
+			switch len(reconciled) {
+			case 0:
+				if err != nil {
+					return SecurityPolicy{}, &AmbiguousManagedResourceError{Kind: "network policy", Identity: name, Cause: err}
+				}
+				return SecurityPolicy{}, fmt.Errorf("provider returned an empty network policy")
+			case 1:
+				group = reconciled[0]
+			default:
+				return SecurityPolicy{}, &DuplicateManagedResourceError{Kind: "network policy", Identity: name, Count: len(reconciled)}
+			}
 		}
 	}
-	if groupID == "" {
-		var created struct {
-			SecurityGroup struct {
-				ID string `json:"id"`
-			} `json:"security_group"`
-		}
-		payload := map[string]any{"security_group": map[string]string{"name": name, "description": "Canter-managed public endpoint policy"}}
-		if err := c.request(ctx, http.MethodPost, s.NetworkURL+"/v2.0/security-groups", payload, &created); err != nil {
-			return SecurityPolicy{}, err
-		}
-		groupID = created.SecurityGroup.ID
+	rules := matchingTCPRules(group, portNumber)
+	if len(rules) > 1 {
+		return SecurityPolicy{}, &DuplicateManagedResourceError{Kind: "network policy rule", Identity: fmt.Sprintf("%s:tcp/%d", name, portNumber), Count: len(rules)}
 	}
-	if ruleID == "" {
-		var created struct {
-			SecurityGroupRule struct {
-				ID string `json:"id"`
-			} `json:"security_group_rule"`
+	ruleID := ""
+	if len(rules) == 1 {
+		ruleID = rules[0].ID
+	} else {
+		ruleID, err = c.createTCPRule(ctx, s, group.ID, portNumber)
+		if err != nil || ruleID == "" {
+			reconciled, lookupErr := c.findSecurityGroups(ctx, s, name, description)
+			if lookupErr != nil {
+				return SecurityPolicy{}, fmt.Errorf("create network policy rule failed (%v) and reconciliation failed: %w", err, lookupErr)
+			}
+			if len(reconciled) > 1 {
+				return SecurityPolicy{}, &DuplicateManagedResourceError{Kind: "network policy", Identity: name, Count: len(reconciled)}
+			}
+			if len(reconciled) == 1 {
+				rules = matchingTCPRules(reconciled[0], portNumber)
+			}
+			switch len(rules) {
+			case 0:
+				if err != nil {
+					return SecurityPolicy{}, &AmbiguousManagedResourceError{Kind: "network policy rule", Identity: fmt.Sprintf("%s:tcp/%d", name, portNumber), Cause: err}
+				}
+				return SecurityPolicy{}, fmt.Errorf("provider returned an empty network policy rule")
+			case 1:
+				ruleID = rules[0].ID
+			default:
+				return SecurityPolicy{}, &DuplicateManagedResourceError{Kind: "network policy rule", Identity: fmt.Sprintf("%s:tcp/%d", name, portNumber), Count: len(rules)}
+			}
 		}
-		payload := map[string]any{"security_group_rule": map[string]any{"security_group_id": groupID, "direction": "ingress", "ethertype": "IPv4", "protocol": "tcp", "port_range_min": portNumber, "port_range_max": portNumber, "remote_ip_prefix": "0.0.0.0/0"}}
-		if err := c.request(ctx, http.MethodPost, s.NetworkURL+"/v2.0/security-group-rules", payload, &created); err != nil {
-			return SecurityPolicy{}, err
-		}
-		ruleID = created.SecurityGroupRule.ID
 	}
-	attached := append([]string(nil), ports.Ports[0].SecurityGroups...)
-	found := false
-	for _, id := range attached {
-		if id == groupID {
-			found = true
-		}
-	}
-	if !found {
-		attached = append(attached, groupID)
+	if !containsString(port.SecurityGroups, group.ID) {
+		attached := append(append([]string(nil), port.SecurityGroups...), group.ID)
 		payload := map[string]any{"port": map[string]any{"security_groups": attached}}
-		if err := c.request(ctx, http.MethodPut, s.NetworkURL+"/v2.0/ports/"+ports.Ports[0].ID, payload, nil); err != nil {
-			return SecurityPolicy{}, err
+		attachErr := c.request(ctx, http.MethodPut, s.NetworkURL+"/v2.0/ports/"+port.ID, payload, nil)
+		if attachErr != nil {
+			reconciled, lookupErr := c.findServerPort(ctx, s, serverID)
+			if lookupErr != nil {
+				return SecurityPolicy{}, fmt.Errorf("attach network policy failed (%v) and reconciliation failed: %w", attachErr, lookupErr)
+			}
+			if !containsString(reconciled.SecurityGroups, group.ID) {
+				return SecurityPolicy{}, &AmbiguousManagedResourceError{Kind: "network policy attachment", Identity: fmt.Sprintf("%s:%s", serverID, name), Cause: attachErr}
+			}
+			port = reconciled
 		}
 	}
-	return SecurityPolicy{ID: groupID, PortID: ports.Ports[0].ID, RuleID: ruleID, Port: portNumber}, nil
+	return SecurityPolicy{ID: group.ID, PortID: port.ID, RuleID: ruleID, Port: portNumber}, nil
+}
+
+// FindManagedTCPExposure is deliberately lookup-only. It is used after a
+// persisted in-flight exposure intent: a complete exact policy is recovered,
+// while absence or partial provider state is reported without issuing another
+// create or attachment mutation.
+func (c *Client) FindManagedTCPExposure(ctx context.Context, input ManagedTCPExposureRequest) (SecurityPolicy, bool, error) {
+	if input.Port < 1 || input.Port > 65535 || strings.TrimSpace(input.Name) == "" || strings.TrimSpace(input.Ownership) == "" {
+		return SecurityPolicy{}, false, fmt.Errorf("managed TCP exposure requires valid name, ownership, and port")
+	}
+	s, err := c.authenticate(ctx)
+	if err != nil {
+		return SecurityPolicy{}, false, err
+	}
+	port, err := c.findServerPort(ctx, s, input.ServerID)
+	if err != nil {
+		return SecurityPolicy{}, false, err
+	}
+	description := managedPolicyDescription(input.Ownership)
+	groups, err := c.findSecurityGroups(ctx, s, input.Name, description)
+	if err != nil {
+		return SecurityPolicy{}, false, err
+	}
+	switch len(groups) {
+	case 0:
+		return SecurityPolicy{}, false, nil
+	case 1:
+	default:
+		return SecurityPolicy{}, false, &DuplicateManagedResourceError{Kind: "network policy", Identity: input.Name, Count: len(groups)}
+	}
+	rules := matchingTCPRules(groups[0], input.Port)
+	if len(rules) > 1 {
+		return SecurityPolicy{}, false, &DuplicateManagedResourceError{Kind: "network policy rule", Identity: fmt.Sprintf("%s:tcp/%d", input.Name, input.Port), Count: len(rules)}
+	}
+	if len(rules) == 0 {
+		return SecurityPolicy{}, false, &AmbiguousManagedResourceError{Kind: "network policy", Identity: input.Name, Cause: fmt.Errorf("owned policy exists without the intended rule")}
+	}
+	if !containsString(port.SecurityGroups, groups[0].ID) {
+		return SecurityPolicy{}, false, &AmbiguousManagedResourceError{Kind: "network policy attachment", Identity: fmt.Sprintf("%s:%s", input.ServerID, input.Name), Cause: fmt.Errorf("owned policy exists but is not attached")}
+	}
+	return SecurityPolicy{ID: groups[0].ID, PortID: port.ID, RuleID: rules[0].ID, Port: input.Port}, true, nil
+}
+
+func (c *Client) findServerPort(ctx context.Context, s session, serverID string) (networkPort, error) {
+	var out struct {
+		Ports []networkPort `json:"ports"`
+	}
+	if err := c.get(ctx, s.NetworkURL+"/v2.0/ports?device_id="+url.QueryEscape(serverID), &out); err != nil {
+		return networkPort{}, err
+	}
+	if len(out.Ports) != 1 {
+		return networkPort{}, fmt.Errorf("expected one compute network port, found %d", len(out.Ports))
+	}
+	return out.Ports[0], nil
+}
+
+func (c *Client) findSecurityGroups(ctx context.Context, s session, name, description string) ([]securityGroup, error) {
+	var out struct {
+		SecurityGroups []securityGroup `json:"security_groups"`
+	}
+	query := url.Values{}
+	query.Set("name", name)
+	if err := c.get(ctx, s.NetworkURL+"/v2.0/security-groups?"+query.Encode(), &out); err != nil {
+		return nil, err
+	}
+	groups := make([]securityGroup, 0, len(out.SecurityGroups))
+	for _, group := range out.SecurityGroups {
+		if group.Name == name && group.Description == description {
+			groups = append(groups, group)
+		}
+	}
+	sort.Slice(groups, func(i, j int) bool { return groups[i].ID < groups[j].ID })
+	return groups, nil
+}
+
+func (c *Client) createSecurityGroup(ctx context.Context, s session, name, description string) (securityGroup, error) {
+	var created struct {
+		SecurityGroup securityGroup `json:"security_group"`
+	}
+	payload := map[string]any{"security_group": map[string]string{"name": name, "description": description}}
+	err := c.request(ctx, http.MethodPost, s.NetworkURL+"/v2.0/security-groups", payload, &created)
+	return created.SecurityGroup, err
+}
+
+func managedPolicyDescription(ownership string) string {
+	return "Canter-managed public endpoint policy; owner=" + ownership
+}
+
+func (c *Client) createTCPRule(ctx context.Context, s session, groupID string, portNumber int) (string, error) {
+	var created struct {
+		SecurityGroupRule securityRule `json:"security_group_rule"`
+	}
+	payload := map[string]any{"security_group_rule": map[string]any{"security_group_id": groupID, "direction": "ingress", "ethertype": "IPv4", "protocol": "tcp", "port_range_min": portNumber, "port_range_max": portNumber, "remote_ip_prefix": "0.0.0.0/0"}}
+	err := c.request(ctx, http.MethodPost, s.NetworkURL+"/v2.0/security-group-rules", payload, &created)
+	return created.SecurityGroupRule.ID, err
+}
+
+func matchingTCPRules(group securityGroup, port int) []securityRule {
+	rules := make([]securityRule, 0, len(group.Rules))
+	for _, rule := range group.Rules {
+		if rule.Direction == "ingress" && rule.Protocol == "tcp" && rule.Min == port && rule.Max == port {
+			rules = append(rules, rule)
+		}
+	}
+	return rules
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 func (c *Client) DeleteSecurityPolicy(ctx context.Context, id string) error {

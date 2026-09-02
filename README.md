@@ -2,6 +2,14 @@
 
 Canter is an agent-operated, human-governed hosting control plane. An agent states the desired sandbox in `canter.yaml`; Canter compiles that intent into a typed plan, validates it against policy, reconciles real `compute` and `m1` resources, and emits verifiable receipts.
 
+The product interface lives in `web/`. It carries the same control-plane vocabulary through account creation, agent connection, System inspection, exact Change review, human authorization, and execution evidence.
+
+```sh
+cd web
+pnpm install
+pnpm dev
+```
+
 The model is an intent compiler, not an infrastructure driver. It never receives provider credentials or arbitrary API access. Only deterministic adapters may mutate resources.
 
 ```sh
@@ -13,6 +21,45 @@ go build -o bin/canter ./cmd/canter
 ./bin/canter status
 ./bin/canter destroy --yes
 ```
+
+## Connect an agent
+
+An agent installation outlives any one conversation. `connect` opens a device
+authorization, waits for the human to approve it in Canter, then exchanges the
+single-use private device credential for installation-bound credentials:
+
+A clean-room agent without this repository or CLI can instead start at the
+website origin. The landing HTML advertises `/.well-known/canter` and
+`/llms.txt`, which describe the same-origin device, API, and Streamable HTTP MCP
+contract without exposing provider details.
+
+```sh
+./bin/canter agent connect \
+  --api-url http://127.0.0.1:8081 \
+  --name 'Codex on my Mac' \
+  --harness codex
+```
+
+Without `--env-file`, credentials and MCP instructions are printed as JSON and
+Canter writes nothing. Persistence is always explicit:
+
+```sh
+./bin/canter agent connect --env-file .canter/agent.env
+./bin/canter agent bootstrap --env-file .canter/agent.env
+./bin/canter agent mcp --env-file .canter/agent.env
+./bin/canter agent refresh --env-file .canter/agent.env
+```
+
+The credential file is written atomically with mode `0600`, retains unrelated
+values, and rejects symbolic-link targets. A fresh conversation calls
+`bootstrap` to reconstruct the workspace, Systems, pending Changes, installation
+authority, and current session without needing prior chat history. Run
+`canter agent --help` for the split `begin`, `exchange`, `whoami`, and `refresh`
+flows used by non-interactive harnesses.
+
+The complete durable identity, governed first-deployment, scoped node-gateway,
+and blackout acceptance contract is documented in
+`doc/(initial steps, august 2026)/durable-agent-control-plane.md`.
 
 `apply` is real: it creates compute resources. Each resource must become active and independently write a boot proof to a short-lived signed `m1` URL before Canter marks the sandbox ready. State and operation receipts remain in `m1` after teardown.
 
