@@ -13,6 +13,7 @@ ExecStart=/usr/bin/node /opt/canter/web/server.js
 Restart=on-failure
 RestartSec=3
 TimeoutStopSec=15
+SuccessExitStatus=143
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true
