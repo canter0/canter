@@ -15,7 +15,7 @@ func TestGroupHelpDoesNotRequireCredentials(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chdir(prior) })
-	for _, command := range []string{"host", "release", "change"} {
+	for _, command := range []string{"host", "release", "change", "agent"} {
 		if err := run([]string{command, "--help"}); err != nil {
 			t.Fatalf("%s --help: %v", command, err)
 		}

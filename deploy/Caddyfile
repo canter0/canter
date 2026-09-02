@@ -1,0 +1,24 @@
+canter.dev, www.canter.dev {
+    encode zstd gzip
+
+    @control path /v1/* /mcp /healthz /readyz
+    reverse_proxy @control 127.0.0.1:8081
+    reverse_proxy 127.0.0.1:3000
+
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        Permissions-Policy "camera=(), microphone=(), geolocation=()"
+        -Server
+    }
+
+    log {
+        output file /var/log/caddy/canter-access.log {
+            roll_size 20MiB
+            roll_keep 5
+        }
+        format json
+    }
+}

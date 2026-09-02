@@ -15,8 +15,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/canter0/canter/internal/provider/m1"
 )
 
 type Change struct {
@@ -26,6 +24,7 @@ type Change struct {
 	Summary       string            `json:"summary"`
 	Phase         string            `json:"phase"`
 	Digest        string            `json:"digest"`
+	DraftedBy     *ActorRef         `json:"draftedBy,omitempty"`
 	Plan          ChangePlan        `json:"plan"`
 	Authorization *Authorization    `json:"authorization,omitempty"`
 	Operations    []ChangeOperation `json:"operations"`
@@ -38,11 +37,26 @@ type Change struct {
 }
 
 type ChangePlan struct {
+	BaseRevision ChangeBaseRevision `json:"baseRevision,omitempty"`
 	BaseVersion  string             `json:"baseVersion"`
 	Release      ReleaseManifest    `json:"release"`
+	Scale        *ReplicaScalePlan  `json:"scale,omitempty"`
 	Migration    *Migration         `json:"migration,omitempty"`
 	Verification ChangeVerification `json:"verification"`
 	Impact       ChangeImpact       `json:"impact"`
+}
+
+// ReplicaScalePlan is an application-level capacity transition on the
+// System's existing host allocation. It deliberately contains no provider or
+// machine identity; host expansion is a separate, future Change primitive.
+type ReplicaScalePlan struct {
+	Service           string     `json:"service"`
+	FromReplicas      int        `json:"fromReplicas"`
+	ToReplicas        int        `json:"toReplicas"`
+	CapacityMode      string     `json:"capacityMode"`
+	LeaseSeconds      int        `json:"leaseSeconds,omitempty"`
+	RestoreAt         *time.Time `json:"restoreAt,omitempty"`
+	RestoreToReplicas int        `json:"restoreToReplicas,omitempty"`
 }
 
 type ChangeImpact struct {
@@ -71,6 +85,7 @@ type ChangeVerification struct {
 type Authorization struct {
 	Digest       string    `json:"digest"`
 	AuthorizedAt time.Time `json:"authorizedAt"`
+	AuthorizedBy *ActorRef `json:"authorizedBy,omitempty"`
 }
 
 type ChangeOperation struct {
@@ -102,6 +117,14 @@ type DraftChangeInput struct {
 	Verification  ChangeVerification  `json:"verification"`
 }
 
+type DraftScaleChangeInput struct {
+	Summary      string             `json:"summary"`
+	Service      string             `json:"service"`
+	Replicas     int                `json:"replicas"`
+	ForSeconds   int                `json:"forSeconds,omitempty"`
+	Verification ChangeVerification `json:"verification"`
+}
+
 var environmentName = regexp.MustCompile(`^[A-Z][A-Z0-9_]{0,127}$`)
 
 func (c *Client) DraftChange(ctx context.Context, system System, input DraftChangeInput) (Change, error) {
@@ -123,9 +146,28 @@ func (c *Client) DraftChange(ctx context.Context, system System, input DraftChan
 	if observed.Phase != "running" || !observed.Healthy || observed.RunningVersion == "" {
 		return Change{}, fmt.Errorf("change requires a healthy running base release")
 	}
+	var currentDesired ReleaseManifest
+	if err := c.m1.Get(ctx, desiredKey(system), &currentDesired); err != nil {
+		return Change{}, fmt.Errorf("read current desired release: %w", err)
+	}
 	release, err := c.StageRelease(ctx, system, input.Release)
 	if err != nil {
 		return Change{}, err
+	}
+	currentReplicas := observed.DesiredReplicas
+	if currentReplicas < 1 {
+		currentReplicas = observed.ReadyReplicas
+	}
+	if currentReplicas < 1 {
+		currentReplicas = 1
+	}
+	release.Replicas = currentReplicas
+	if currentDesired.CapacityLease != nil && currentDesired.CapacityLease.ExpiresAt.After(time.Now().UTC()) {
+		lease := *currentDesired.CapacityLease
+		release.CapacityLease = &lease
+	}
+	if err := c.m1.PutJSON(ctx, releaseKey(system, release.Version), release); err != nil {
+		return Change{}, fmt.Errorf("persist release replica intent: %w", err)
 	}
 	verification := input.Verification
 	if verification.Method == "" {
@@ -138,6 +180,9 @@ func (c *Client) DraftChange(ctx context.Context, system System, input DraftChan
 		return Change{}, fmt.Errorf("v0 verification requires GET, an absolute path, and a valid expected status")
 	}
 	plan := ChangePlan{BaseVersion: observed.RunningVersion, Release: release, Verification: verification, Impact: ChangeImpact{AffectedServices: []string{"web"}, Availability: "rolling replacement; no downtime expected", Data: "none", MonthlyCostDeltaCents: 0}}
+	if revision, ok := ChangeBaseRevisionFromContext(ctx); ok {
+		plan.BaseRevision = revision
+	}
 	operations := []ChangeOperation{{ID: "01-precondition", Kind: "state.assert", Description: "assert the approved base release is still healthy", Reversibility: "read-only", Phase: "pending"}}
 	if input.MigrationPath != "" {
 		migrationSQL, err := os.ReadFile(input.MigrationPath)
@@ -167,10 +212,168 @@ func (c *Client) DraftChange(ctx context.Context, system System, input DraftChan
 	}
 	now := time.Now().UTC()
 	change := Change{SchemaVersion: "v1", ID: "change-" + newID(), System: system.Metadata.Name, Summary: strings.TrimSpace(input.Summary), Phase: "drafted", Digest: digest, Plan: plan, Operations: operations, CreatedAt: now, UpdatedAt: now}
+	if actor, ok := ActorFromContext(ctx); ok {
+		change.DraftedBy = &actor
+	}
 	if err := c.saveChange(ctx, system, &change); err != nil {
 		return Change{}, err
 	}
 	return change, nil
+}
+
+// DraftScaleChange compiles a typed service capacity outcome into the same
+// immutable Change ledger used for releases. v1 scales process-isolated public
+// applications only within already allocated host memory; it never silently
+// creates provider machines.
+func (c *Client) DraftScaleChange(ctx context.Context, system System, input DraftScaleChangeInput) (Change, error) {
+	if err := system.Validate(); err != nil {
+		return Change{}, err
+	}
+	if strings.TrimSpace(input.Summary) == "" {
+		return Change{}, fmt.Errorf("change summary is required")
+	}
+	service, maxReplicas, err := ScaleCapacity(system, input.Service)
+	if err != nil {
+		return Change{}, err
+	}
+	if input.Replicas < 1 || input.Replicas > maxReplicas {
+		return Change{}, fmt.Errorf("service %s replicas must be between 1 and %d within current host capacity", input.Service, maxReplicas)
+	}
+	if input.ForSeconds != 0 && (input.ForSeconds < 60 || input.ForSeconds > 24*60*60) {
+		return Change{}, fmt.Errorf("temporary scale duration must be between 60 and 86400 seconds")
+	}
+	observed, err := c.ReleaseStatus(ctx, system)
+	if err != nil {
+		return Change{}, fmt.Errorf("read starting release: %w", err)
+	}
+	if observed.Phase != "running" || !observed.Healthy || observed.RunningVersion == "" {
+		return Change{}, fmt.Errorf("scale change requires a healthy running base release")
+	}
+	var release ReleaseManifest
+	if err := c.m1.Get(ctx, desiredKey(system), &release); err != nil {
+		return Change{}, fmt.Errorf("read desired release: %w", err)
+	}
+	from := effectiveReleaseReplicas(release, time.Now().UTC())
+	ready := observed.ReadyReplicas
+	if ready < 1 && observed.PID > 0 {
+		ready = 1
+	}
+	if ready != from || (observed.DesiredReplicas > 0 && observed.DesiredReplicas != from) {
+		return Change{}, fmt.Errorf("scale change requires desired and ready replicas to agree; desired=%d ready=%d", from, ready)
+	}
+	if input.Replicas == from {
+		return Change{}, fmt.Errorf("service %s already has %d ready replicas", service.Name, from)
+	}
+	verification := input.Verification
+	if verification.Method == "" {
+		verification.Method = http.MethodGet
+	}
+	if verification.ExpectedStatus == 0 {
+		verification.ExpectedStatus = http.StatusOK
+	}
+	if verification.Method != http.MethodGet || !strings.HasPrefix(verification.Path, "/") || verification.ExpectedStatus < 100 || verification.ExpectedStatus > 599 {
+		return Change{}, fmt.Errorf("v0 verification requires GET, an absolute path, and a valid expected status")
+	}
+	release.Replicas = input.Replicas
+	release.CapacityLease = nil
+	var restoreAt *time.Time
+	if input.ForSeconds > 0 {
+		expires := time.Now().UTC().Add(time.Duration(input.ForSeconds) * time.Second)
+		restoreAt = &expires
+		release.CapacityLease = &CapacityLease{ExpiresAt: expires, RestoreReplicas: from}
+	}
+	restoreTo := 0
+	if restoreAt != nil {
+		restoreTo = from
+	}
+	plan := ChangePlan{
+		BaseVersion:  observed.RunningVersion,
+		Release:      release,
+		Scale:        &ReplicaScalePlan{Service: service.Name, FromReplicas: from, ToReplicas: input.Replicas, CapacityMode: "existing-host", LeaseSeconds: input.ForSeconds, RestoreAt: restoreAt, RestoreToReplicas: restoreTo},
+		Verification: verification,
+		Impact: ChangeImpact{
+			AffectedServices: []string{service.Name},
+			Availability:     "capacity adjustment; healthy replicas remain serving",
+			Data:             "none",
+			// The current primitive consumes already allocated host capacity and
+			// therefore has no additional provider charge.
+			MonthlyCostDeltaCents: 0,
+		},
+	}
+	if revision, ok := ChangeBaseRevisionFromContext(ctx); ok {
+		plan.BaseRevision = revision
+	}
+	operations := []ChangeOperation{
+		{ID: "01-precondition", Kind: "state.assert", Description: fmt.Sprintf("assert release %s remains healthy at %d ready replicas", observed.RunningVersion, from), Reversibility: "read-only", Phase: "pending"},
+		{ID: "02-scale", Kind: "release.scale", Description: scaleDescription(service.Name, from, input.Replicas, restoreAt), Reversibility: "compensatable", Compensation: fmt.Sprintf("restore %s to %d replicas", service.Name, from), Phase: "pending"},
+		{ID: "03-ready", Kind: "release.wait-replicas", Description: fmt.Sprintf("wait for %d healthy %s replicas to join traffic", input.Replicas, service.Name), Reversibility: "read-only", Phase: "pending"},
+		{ID: "04-verify", Kind: "http.verify", Description: "verify the approved application outcome while scaled", Reversibility: "read-only", Phase: "pending"},
+	}
+	digest, err := digestChange(plan, operations)
+	if err != nil {
+		return Change{}, err
+	}
+	now := time.Now().UTC()
+	change := Change{SchemaVersion: "v1", ID: "change-" + newID(), System: system.Metadata.Name, Summary: strings.TrimSpace(input.Summary), Phase: "drafted", Digest: digest, Plan: plan, Operations: operations, CreatedAt: now, UpdatedAt: now}
+	if actor, ok := ActorFromContext(ctx); ok {
+		change.DraftedBy = &actor
+	}
+	if err := c.saveChange(ctx, system, &change); err != nil {
+		return Change{}, err
+	}
+	return change, nil
+}
+
+// ScaleCapacity returns the exact public process service and maximum replicas
+// that fit the System's existing host memory after all other declared services.
+func ScaleCapacity(system System, serviceName string) (SystemService, int, error) {
+	if err := system.Validate(); err != nil {
+		return SystemService{}, 0, err
+	}
+	if system.Spec.Constraints.Host.Count != 1 {
+		return SystemService{}, 0, fmt.Errorf("application replica scaling currently requires exactly one allocated host; multi-host placement must be a separate governed Change")
+	}
+	var target *SystemService
+	usedByOthers := 0
+	for index := range system.Spec.Services {
+		service := &system.Spec.Services[index]
+		if service.Name == serviceName {
+			target = service
+			continue
+		}
+		usedByOthers += service.Instances * service.Resources.MemoryMiB
+	}
+	if target == nil {
+		return SystemService{}, 0, fmt.Errorf("service %s is not declared by the System", serviceName)
+	}
+	if target.Networking != "public" || target.Readiness.Protocol != "http" || target.Isolation != "process" || target.Kind == "database" {
+		return SystemService{}, 0, fmt.Errorf("service %s is not a process-isolated public HTTP application", serviceName)
+	}
+	available := system.Spec.Constraints.Host.Count*(system.Spec.Constraints.Host.MemoryMiB-system.Spec.Constraints.Host.SystemReserve) - usedByOthers
+	maxReplicas := available / target.Resources.MemoryMiB
+	if maxReplicas < 1 {
+		return SystemService{}, 0, fmt.Errorf("service %s has no schedulable capacity", serviceName)
+	}
+	return *target, maxReplicas, nil
+}
+
+func effectiveReleaseReplicas(release ReleaseManifest, now time.Time) int {
+	replicas := release.Replicas
+	if replicas < 1 {
+		replicas = 1
+	}
+	if lease := release.CapacityLease; lease != nil && !now.Before(lease.ExpiresAt) && lease.RestoreReplicas > 0 {
+		return lease.RestoreReplicas
+	}
+	return replicas
+}
+
+func scaleDescription(service string, from, to int, restoreAt *time.Time) string {
+	description := fmt.Sprintf("set %s application capacity from %d to %d replicas within existing host allocation", service, from, to)
+	if restoreAt != nil {
+		description += fmt.Sprintf(" and automatically restore %d replicas at %s", from, restoreAt.UTC().Format(time.RFC3339))
+	}
+	return description
 }
 
 func (c *Client) InspectChange(ctx context.Context, system System, id string) (Change, error) {
@@ -203,7 +406,11 @@ func (c *Client) AuthorizeChange(ctx context.Context, system System, id, digest 
 		return Change{}, fmt.Errorf("authorization digest does not match the immutable change plan")
 	}
 	now := time.Now().UTC()
-	change.Authorization = &Authorization{Digest: digest, AuthorizedAt: now}
+	authorization := &Authorization{Digest: digest, AuthorizedAt: now}
+	if actor, ok := ActorFromContext(ctx); ok {
+		authorization.AuthorizedBy = &actor
+	}
+	change.Authorization = authorization
 	change.Phase = "authorized"
 	change.UpdatedAt = now
 	if err := c.saveChange(ctx, system, &change); err != nil {
@@ -301,6 +508,15 @@ func (c *Client) executeChangeOperation(ctx context.Context, system System, chan
 		if observed.Phase != "running" || !observed.Healthy || observed.RunningVersion != change.Plan.BaseVersion {
 			return "", fmt.Errorf("production moved after planning: expected healthy %s, observed phase=%s version=%s healthy=%t", change.Plan.BaseVersion, observed.Phase, observed.RunningVersion, observed.Healthy)
 		}
+		if change.Plan.Scale != nil {
+			ready := observed.ReadyReplicas
+			if ready < 1 && observed.PID > 0 {
+				ready = 1
+			}
+			if ready != change.Plan.Scale.FromReplicas {
+				return "", fmt.Errorf("production capacity moved after planning: expected %d ready replicas, observed %d", change.Plan.Scale.FromReplicas, ready)
+			}
+		}
 		return "base release remained healthy and unchanged", nil
 	case "database.expand-migration":
 		if change.Plan.Migration == nil {
@@ -327,12 +543,35 @@ func (c *Client) executeChangeOperation(ctx context.Context, system System, chan
 			return "", err
 		}
 		return "desired release set to exact artifact " + change.Plan.Release.ArtifactSHA, nil
+	case "release.scale":
+		if change.Plan.Scale == nil || change.Plan.Release.Replicas != change.Plan.Scale.ToReplicas {
+			return "", fmt.Errorf("scale operation has no valid replica plan")
+		}
+		if lease := change.Plan.Release.CapacityLease; lease != nil && !time.Now().UTC().Before(lease.ExpiresAt) {
+			return "", fmt.Errorf("temporary scale lease expired before execution")
+		}
+		if err := lease.Assert(ctx); err != nil {
+			return "", err
+		}
+		if err := c.m1.PutJSON(ctx, desiredKey(system), change.Plan.Release); err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("desired application capacity set to %d replicas without changing the release artifact", change.Plan.Scale.ToReplicas), nil
 	case "release.wait-healthy":
 		observed, err := c.waitReleaseVersion(ctx, system, change.Plan.Release.Version, 45*time.Second)
 		if err != nil {
 			return "", err
 		}
 		return fmt.Sprintf("release %s healthy on node %s pid %d", observed.RunningVersion, observed.Node, observed.PID), nil
+	case "release.wait-replicas":
+		if change.Plan.Scale == nil {
+			return "", fmt.Errorf("replica wait operation has no scale plan")
+		}
+		observed, err := c.waitReleaseReplicas(ctx, system, change.Plan.Release.Version, change.Plan.Scale.ToReplicas, 45*time.Second)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("%d distinct application replicas are healthy and serving release %s on node %s", observed.ReadyReplicas, observed.RunningVersion, observed.Node), nil
 	case "http.verify":
 		state, err := c.SystemHostStatus(ctx, system)
 		if err != nil {
@@ -366,7 +605,7 @@ func (c *Client) executeChangeOperation(ctx context.Context, system System, chan
 }
 
 func (c *Client) compensateChange(ctx context.Context, system System, change *Change, lease *changeLeaseGuard) error {
-	if !operationCompleted(change.Operations, "database.expand-migration") && !operationReached(change.Operations, "release.set-desired") {
+	if !operationCompleted(change.Operations, "database.expand-migration") && !operationReached(change.Operations, "release.set-desired") && !operationReached(change.Operations, "release.scale") {
 		now := time.Now().UTC()
 		change.Phase = "rejected"
 		change.CompletedAt = &now
@@ -376,6 +615,27 @@ func (c *Client) compensateChange(ctx context.Context, system System, change *Ch
 	_ = c.saveChange(ctx, system, change)
 	if change.Plan.Migration != nil && operationCompleted(change.Operations, "database.expand-migration") {
 		change.Residuals = appendUnique(change.Residuals, "expand-only migration "+change.Plan.Migration.ID+" remains applied and backward-compatible")
+	}
+	if change.Plan.Scale != nil && operationReached(change.Operations, "release.scale") {
+		if err := lease.Assert(ctx); err != nil {
+			change.Phase = "escalated"
+			_ = c.saveChange(ctx, system, change)
+			return err
+		}
+		restore := change.Plan.Release
+		restore.Replicas = change.Plan.Scale.FromReplicas
+		restore.CapacityLease = nil
+		if err := c.m1.PutJSON(ctx, desiredKey(system), restore); err != nil {
+			change.Phase = "escalated"
+			_ = c.saveChange(ctx, system, change)
+			return err
+		}
+		if _, err := c.waitReleaseReplicas(ctx, system, restore.Version, restore.Replicas, 45*time.Second); err != nil {
+			change.Phase = "escalated"
+			_ = c.saveChange(ctx, system, change)
+			return err
+		}
+		change.Evidence = append(change.Evidence, ChangeEvidence{OperationID: "compensation-scale", Kind: "release.scale-restore", Statement: fmt.Sprintf("restored %s to %d healthy replicas", change.Plan.Scale.Service, restore.Replicas), ObservedAt: time.Now().UTC()})
 	}
 	if operationReached(change.Operations, "release.set-desired") {
 		if err := lease.Assert(ctx); err != nil {
@@ -451,6 +711,35 @@ func (c *Client) waitReleaseVersion(ctx context.Context, system System, version 
 			return ObservedRelease{}, ctx.Err()
 		case <-deadline.C:
 			return ObservedRelease{}, fmt.Errorf("release %s did not become healthy within %s", version, timeout)
+		case <-ticker.C:
+		}
+	}
+}
+
+func (c *Client) waitReleaseReplicas(ctx context.Context, system System, version string, replicas int, timeout time.Duration) (ObservedRelease, error) {
+	deadline := time.NewTimer(timeout)
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer deadline.Stop()
+	defer ticker.Stop()
+	for {
+		observed, err := c.ReleaseStatus(ctx, system)
+		if err != nil {
+			return ObservedRelease{}, err
+		}
+		if observed.Phase == "running" && observed.Healthy && observed.RunningVersion == version && observed.DesiredReplicas == replicas && observed.ReadyReplicas == replicas && len(observed.ReplicaPIDs) == replicas {
+			return observed, nil
+		}
+		if observed.Phase == "release-failed" && observed.DesiredVersion == version {
+			return ObservedRelease{}, fmt.Errorf("replica reconciliation failed: %s", observed.Message)
+		}
+		if observed.CapacityLease != nil && strings.HasPrefix(observed.CapacityLease.Phase, "expired") {
+			return ObservedRelease{}, fmt.Errorf("temporary scale lease expired before target verification completed")
+		}
+		select {
+		case <-ctx.Done():
+			return ObservedRelease{}, ctx.Err()
+		case <-deadline.C:
+			return ObservedRelease{}, fmt.Errorf("release %s did not reach %d healthy replicas within %s", version, replicas, timeout)
 		case <-ticker.C:
 		}
 	}
@@ -574,7 +863,7 @@ func runtimeActionResultKey(system System, id string) string {
 const changeLeaseDuration = 20 * time.Second
 
 type changeLeaseGuard struct {
-	store  *m1.Client
+	store  objectStore
 	key    string
 	mu     sync.Mutex
 	lease  ChangeLease

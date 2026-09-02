@@ -51,6 +51,19 @@ func changeCommand(client *sdk.Client, args []string) error {
 		if err != nil {
 			return err
 		}
+		if request.Spec.System != system.Metadata.Name {
+			return fmt.Errorf("change request targets system %q, not %q", request.Spec.System, system.Metadata.Name)
+		}
+		if request.Spec.Scale != nil {
+			_, maximum, err := sdk.ScaleCapacity(system, request.Spec.Scale.Service)
+			if err != nil {
+				return err
+			}
+			if request.Spec.Scale.Replicas > maximum {
+				return fmt.Errorf("requested %d replicas exceed existing host capacity %d", request.Spec.Scale.Replicas, maximum)
+			}
+			return printJSON(map[string]any{"request": request, "capacityMode": "existing-host", "maximumReplicas": maximum})
+		}
 		input, err := request.DraftInput(system)
 		if err != nil {
 			return err

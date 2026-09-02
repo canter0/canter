@@ -18,14 +18,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"syscall"
 	"time"
 
-	"github.com/canter0/canter/internal/provider/m1"
+	"github.com/canter0/canter/internal/nodeclient"
 	"github.com/canter0/canter/internal/runtime/driver"
 	"github.com/canter0/canter/sdk"
 )
@@ -39,18 +39,26 @@ type process struct {
 	exitErr error
 }
 
+type nodeControl interface {
+	Snapshot(context.Context) (sdk.NodeSnapshot, error)
+	Artifact(context.Context, string) ([]byte, error)
+	PutObserved(context.Context, sdk.ObservedRelease) error
+	AckControl(context.Context, string) error
+	PutRuntimeActionResult(context.Context, string, sdk.RuntimeActionResult) error
+}
+
 func (p *process) setExit(err error) { p.mu.Lock(); p.exitErr = err; p.mu.Unlock(); close(p.done) }
 func (p *process) err() error        { p.mu.Lock(); defer p.mu.Unlock(); return p.exitErr }
 
 type node struct {
-	store                   *m1.Client
+	control                 nodeControl
 	system                  string
-	prefix                  string
 	publicPort              int
-	target                  atomic.Value
 	routingMu               sync.Mutex
 	inflight                map[string]int
-	active                  *process
+	targets                 []string
+	nextTarget              uint64
+	active                  []*process
 	failedVersion           string
 	restarts                int
 	lastControl             string
@@ -63,17 +71,20 @@ type node struct {
 	runtimePlan             sdk.RuntimePlan
 	nextServiceCheck        time.Time
 	restartRequested        bool
+	startReplica            func(context.Context, sdk.ReleaseManifest, int) (*process, error)
+	releaseRoot             string
 }
 
 func main() {
 	system := flag.String("system", "", "system name")
-	prefix := flag.String("prefix", "", "m1 system prefix")
+	gatewayURL := flag.String("gateway", "", "HTTPS node capability gateway URL")
+	tokenFile := flag.String("token-file", "/etc/canter/node.token", "node credential file")
 	publicPort := flag.Int("public-port", 8080, "public proxy port")
 	flag.Parse()
-	if *system == "" || *prefix == "" || *publicPort < 1 || *publicPort > 65535 {
-		log.Fatal("system, prefix, and a valid public-port are required")
+	if *system == "" || *gatewayURL == "" || *tokenFile == "" || *publicPort < 1 || *publicPort > 65535 {
+		log.Fatal("system, gateway, token-file, and a valid public-port are required")
 	}
-	store, err := m1.NewFromEnv()
+	control, err := nodeclient.New(*gatewayURL, *tokenFile)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -81,8 +92,7 @@ func main() {
 	drivers := driver.NewRegistry()
 	drivers.Register("database", "postgres", driver.Postgres{})
 	drivers.Register("database", "postgresql", driver.Postgres{})
-	n := &node{store: store, system: *system, prefix: strings.TrimRight(*prefix, "/"), publicPort: *publicPort, hostname: hostname, drivers: drivers, inflight: make(map[string]int)}
-	n.target.Store("")
+	n := &node{control: control, system: *system, publicPort: *publicPort, hostname: hostname, drivers: drivers, inflight: make(map[string]int)}
 	go func() {
 		addr := fmt.Sprintf(":%d", n.publicPort)
 		if err := http.ListenAndServe(addr, n); err != nil {
@@ -125,81 +135,160 @@ func (n *node) run(ctx context.Context) error {
 }
 
 func (n *node) reconcile(ctx context.Context) error {
-	if n.active != nil {
-		select {
-		case <-n.active.done:
-			err := n.active.err()
-			log.Printf("release %s exited: %v", n.active.version, err)
-			n.active = nil
-			n.setTarget("")
-			n.restarts++
-			n.failedVersion = ""
-			_ = n.writeObserved(ctx, sdk.ObservedRelease{Phase: "recovering", Restarts: n.restarts, Message: "application process exited"})
-		default:
-		}
-	}
-	if err := n.applyControl(ctx); err != nil {
-		return err
-	}
-	if err := n.reconcileServices(ctx); err != nil {
-		_ = n.writeObserved(ctx, sdk.ObservedRelease{Phase: "provisioning-services", Restarts: n.restarts, Message: err.Error()})
-		return err
-	}
-	if err := n.reconcileRuntimeAction(ctx); err != nil {
-		log.Printf("runtime action: %v", err)
-	}
-	var desired sdk.ReleaseManifest
-	found, err := n.store.GetOptional(ctx, n.prefix+"/desired.json", &desired)
+	snapshot, err := n.control.Snapshot(ctx)
 	if err != nil {
 		return err
 	}
-	if !found {
+	if snapshot.SchemaVersion != "v1" || snapshot.System != n.system {
+		return fmt.Errorf("gateway snapshot does not belong to node system")
+	}
+	if n.reapExited() > 0 {
+		n.failedVersion = ""
+		_ = n.writeObserved(ctx, sdk.ObservedRelease{Phase: "recovering", Restarts: n.restarts, ReadyReplicas: len(n.active), Message: "one or more application replicas exited"})
+	}
+	if err := n.applyControl(ctx, snapshot.Control); err != nil {
+		return err
+	}
+	if err := n.reconcileServices(ctx, snapshot.RuntimePlan); err != nil {
+		_ = n.writeObserved(ctx, sdk.ObservedRelease{Phase: "provisioning-services", Restarts: n.restarts, Message: err.Error()})
+		return err
+	}
+	if err := n.reconcileRuntimeAction(ctx, snapshot.RuntimeAction); err != nil {
+		log.Printf("runtime action: %v", err)
+	}
+	if snapshot.Desired == nil {
 		return n.writeObserved(ctx, sdk.ObservedRelease{Phase: "waiting", Restarts: n.restarts, Message: "no desired release"})
 	}
+	d := snapshot.Desired
+	desired := sdk.ReleaseManifest{SchemaVersion: d.SchemaVersion, System: d.System, Version: d.Version, ArtifactSHA: d.ArtifactSHA, Command: d.Command, Environment: d.Environment, HealthPath: d.HealthPath, PublicPort: d.PublicPort, Replicas: d.Replicas, CapacityLease: d.CapacityLease, RequestedAt: d.RequestedAt}
 	if desired.System != n.system || desired.SchemaVersion != "v1" {
 		return fmt.Errorf("desired release does not belong to node system")
 	}
-	if n.active != nil && n.active.version == desired.Version && !n.restartRequested {
-		return n.writeObserved(ctx, n.observed(desired, "running", true, ""))
+	if desired.Replicas < 1 {
+		desired.Replicas = 1
+	}
+	if lease := desired.CapacityLease; lease != nil {
+		if lease.ExpiresAt.IsZero() || lease.RestoreReplicas < 1 {
+			return fmt.Errorf("desired release contains an invalid capacity lease")
+		}
+		if !time.Now().UTC().Before(lease.ExpiresAt) {
+			desired.Replicas = lease.RestoreReplicas
+		}
 	}
 	if n.failedVersion == desired.Version && !n.restartRequested {
 		return nil
 	}
-	old := n.active
-	candidate, err := n.startRelease(ctx, desired)
-	if err != nil {
-		if n.restartRequested && old != nil {
-			n.restartRequested = false
-			return n.writeObserved(ctx, n.observed(desired, "running", true, "requested replacement failed: "+err.Error()))
+	if err := n.reconcileReleaseFleet(ctx, desired); err != nil {
+		if len(n.active) == 0 {
+			n.failedVersion = desired.Version
 		}
-		n.failedVersion = desired.Version
-		observed := n.observed(desired, "release-failed", old != nil, err.Error())
-		return n.writeObserved(ctx, observed)
+		return n.writeObserved(ctx, n.observed(desired, "release-failed", len(n.active) > 0, err.Error()))
 	}
-	n.active = candidate
-	newTarget := fmt.Sprintf("http://127.0.0.1:%d", candidate.port)
-	n.setTarget(newTarget)
-	n.failedVersion = ""
-	if old != nil {
-		oldTarget := fmt.Sprintf("http://127.0.0.1:%d", old.port)
-		n.waitForDrain(ctx, oldTarget, 10*time.Second)
-		n.stop(old)
-	}
-	if n.restartRequested {
-		n.restarts++
-		n.restartRequested = false
-	}
-	return n.writeObserved(ctx, n.observed(desired, "running", true, ""))
+	return n.writeObserved(ctx, n.observed(desired, "running", len(n.active) == desired.Replicas, ""))
 }
 
-func (n *node) startRelease(ctx context.Context, desired sdk.ReleaseManifest) (*process, error) {
+func (n *node) reconcileReleaseFleet(ctx context.Context, desired sdk.ReleaseManifest) error {
+	versionMatches := len(n.active) > 0
+	for _, current := range n.active {
+		versionMatches = versionMatches && current.version == desired.Version
+	}
+	if n.restartRequested || !versionMatches {
+		old := append([]*process(nil), n.active...)
+		candidates := make([]*process, 0, desired.Replicas)
+		for len(candidates) < desired.Replicas {
+			candidate, err := n.launchReplica(ctx, desired, n.nextProcessPort(candidates))
+			if err != nil {
+				for _, started := range candidates {
+					n.stop(started)
+				}
+				n.restartRequested = false
+				return err
+			}
+			candidates = append(candidates, candidate)
+		}
+		n.active = candidates
+		n.setTargets(processTargets(candidates))
+		for _, previous := range old {
+			n.waitForDrain(ctx, processTarget(previous), 10*time.Second)
+			n.stop(previous)
+		}
+		if n.restartRequested {
+			n.restarts++
+		}
+		n.restartRequested = false
+		n.failedVersion = ""
+		return nil
+	}
+	if len(n.active) < desired.Replicas {
+		added := make([]*process, 0, desired.Replicas-len(n.active))
+		for len(n.active)+len(added) < desired.Replicas {
+			candidate, err := n.launchReplica(ctx, desired, n.nextProcessPort(added))
+			if err != nil {
+				for _, started := range added {
+					n.stop(started)
+				}
+				return err
+			}
+			added = append(added, candidate)
+		}
+		n.active = append(n.active, added...)
+		n.setTargets(processTargets(n.active))
+	}
+	if len(n.active) > desired.Replicas {
+		removed := append([]*process(nil), n.active[desired.Replicas:]...)
+		n.active = append([]*process(nil), n.active[:desired.Replicas]...)
+		n.setTargets(processTargets(n.active))
+		for _, previous := range removed {
+			n.waitForDrain(ctx, processTarget(previous), 10*time.Second)
+			n.stop(previous)
+		}
+	}
+	return nil
+}
+
+func (n *node) reapExited() int {
+	survivors := make([]*process, 0, len(n.active))
+	exited := 0
+	for _, current := range n.active {
+		select {
+		case <-current.done:
+			log.Printf("release %s replica on port %d exited: %v", current.version, current.port, current.err())
+			n.restarts++
+			exited++
+		default:
+			survivors = append(survivors, current)
+		}
+	}
+	if exited > 0 {
+		n.active = survivors
+		n.setTargets(processTargets(survivors))
+	}
+	return exited
+}
+
+func (n *node) nextProcessPort(extra []*process) int {
+	used := make(map[int]struct{}, len(n.active)+len(extra))
+	for _, current := range n.active {
+		used[current.port] = struct{}{}
+	}
+	for _, current := range extra {
+		used[current.port] = struct{}{}
+	}
+	for port := 18080; port <= 65535; port++ {
+		if _, exists := used[port]; !exists {
+			return port
+		}
+	}
+	return 0
+}
+
+func (n *node) startRelease(ctx context.Context, desired sdk.ReleaseManifest, port int) (*process, error) {
 	dir, err := n.materialize(ctx, desired)
 	if err != nil {
 		return nil, err
 	}
-	port := 18080
-	if n.active != nil && n.active.port == port {
-		port = 18081
+	if port < 1 {
+		return nil, fmt.Errorf("no private application port is available")
 	}
 	command := desired.Command[0]
 	if strings.HasPrefix(command, "./") {
@@ -207,14 +296,7 @@ func (n *node) startRelease(ctx context.Context, desired sdk.ReleaseManifest) (*
 	}
 	cmd := exec.Command(command, desired.Command[1:]...)
 	cmd.Dir = dir
-	env := append(os.Environ(), "PORT="+strconv.Itoa(port), "CANTER_RELEASE_VERSION="+desired.Version)
-	for key, value := range desired.Environment {
-		env = append(env, key+"="+value)
-	}
-	for key, value := range n.serviceBindings {
-		env = append(env, key+"="+value)
-	}
-	cmd.Env = env
+	cmd.Env = releaseProcessEnvironment(os.Environ(), desired.Environment, n.serviceBindings, port, desired.Version)
 	logFile, err := os.OpenFile(filepath.Join(dir, "application.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o640)
 	if err != nil {
 		return nil, err
@@ -231,6 +313,46 @@ func (n *node) startRelease(ctx context.Context, desired sdk.ReleaseManifest) (*
 		return nil, err
 	}
 	return p, nil
+}
+
+func (n *node) launchReplica(ctx context.Context, desired sdk.ReleaseManifest, port int) (*process, error) {
+	if n.startReplica != nil {
+		return n.startReplica(ctx, desired, port)
+	}
+	return n.startRelease(ctx, desired, port)
+}
+
+// releaseProcessEnvironment makes the runtime boundary explicit. Release
+// authors may set ordinary application variables, but they cannot redirect the
+// candidate away from the node's private port, spoof its observed version, or
+// replace a managed-service binding. Producing one value per key also avoids
+// depending on platform-specific duplicate-environment behavior.
+func releaseProcessEnvironment(base []string, desired, serviceBindings map[string]string, port int, version string) []string {
+	values := make(map[string]string, len(base)+len(desired)+len(serviceBindings)+2)
+	for _, entry := range base {
+		key, value, ok := strings.Cut(entry, "=")
+		if ok && key != "" {
+			values[key] = value
+		}
+	}
+	for key, value := range desired {
+		values[key] = value
+	}
+	for key, value := range serviceBindings {
+		values[key] = value
+	}
+	values["PORT"] = strconv.Itoa(port)
+	values["CANTER_RELEASE_VERSION"] = version
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	environment := make([]string, 0, len(keys))
+	for _, key := range keys {
+		environment = append(environment, key+"="+values[key])
+	}
+	return environment
 }
 
 func waitHealthy(ctx context.Context, port int, path string, process *process) error {
@@ -260,13 +382,16 @@ func waitHealthy(ctx context.Context, port int, path string, process *process) e
 }
 
 func (n *node) materialize(ctx context.Context, manifest sdk.ReleaseManifest) (string, error) {
-	root := "/var/lib/canter-node/releases"
+	root := n.releaseRoot
+	if root == "" {
+		root = "/var/lib/canter-node/releases"
+	}
 	dir := filepath.Join(root, manifest.Version)
 	marker := filepath.Join(dir, ".artifact-sha256")
 	if b, err := os.ReadFile(marker); err == nil && strings.TrimSpace(string(b)) == manifest.ArtifactSHA {
 		return dir, nil
 	}
-	artifact, err := n.store.GetBytes(ctx, manifest.ArtifactKey)
+	artifact, err := n.control.Artifact(ctx, manifest.ArtifactSHA)
 	if err != nil {
 		return "", err
 	}
@@ -359,19 +484,8 @@ func (n *node) stop(p *process) {
 	}
 }
 
-func (n *node) applyControl(ctx context.Context) error {
-	var control sdk.RuntimeControl
-	found, err := n.store.GetOptional(ctx, n.prefix+"/control.json", &control)
-	if err != nil || !found || control.ID == "" || control.ID == n.lastControl {
-		return err
-	}
-	var ack struct {
-		ID string `json:"id"`
-	}
-	if ackFound, ackErr := n.store.GetOptional(ctx, n.prefix+"/control-ack.json", &ack); ackErr != nil {
-		return ackErr
-	} else if ackFound && ack.ID == control.ID {
-		n.lastControl = control.ID
+func (n *node) applyControl(ctx context.Context, control *sdk.RuntimeControl) error {
+	if control == nil || control.ID == "" || control.ID == n.lastControl {
 		return nil
 	}
 	n.lastControl = control.ID
@@ -379,15 +493,31 @@ func (n *node) applyControl(ctx context.Context) error {
 		return fmt.Errorf("unsupported runtime control %q", control.Action)
 	}
 	n.restartRequested = true
-	return n.store.PutJSON(ctx, n.prefix+"/control-ack.json", map[string]any{"id": control.ID, "action": control.Action, "completedAt": time.Now().UTC()})
+	return n.control.AckControl(ctx, control.ID)
 }
 
 func (n *node) observed(desired sdk.ReleaseManifest, phase string, healthy bool, message string) sdk.ObservedRelease {
-	o := sdk.ObservedRelease{Phase: phase, DesiredVersion: desired.Version, Restarts: n.restarts, PublicPort: n.publicPort, Healthy: healthy, Message: message, Services: n.services}
-	if n.active != nil {
-		o.RunningVersion = n.active.version
-		o.PID = n.active.cmd.Process.Pid
-		o.InternalPort = n.active.port
+	o := sdk.ObservedRelease{Phase: phase, DesiredVersion: desired.Version, DesiredReplicas: desired.Replicas, ReadyReplicas: len(n.active), Restarts: n.restarts, PublicPort: n.publicPort, Healthy: healthy, Message: message, Services: n.services}
+	if lease := desired.CapacityLease; lease != nil {
+		leasePhase := "active"
+		if !time.Now().UTC().Before(lease.ExpiresAt) {
+			leasePhase = "expiry-pending-restore"
+			if desired.Replicas == lease.RestoreReplicas && len(n.active) == lease.RestoreReplicas {
+				leasePhase = "expired-restored"
+			}
+		}
+		o.CapacityLease = &sdk.ObservedCapacityLease{ExpiresAt: lease.ExpiresAt, RestoreReplicas: lease.RestoreReplicas, Phase: leasePhase}
+	}
+	if len(n.active) > 0 {
+		o.RunningVersion = n.active[0].version
+		o.PID = n.active[0].cmd.Process.Pid
+		o.InternalPort = n.active[0].port
+		for _, current := range n.active {
+			o.ReplicaPIDs = append(o.ReplicaPIDs, current.cmd.Process.Pid)
+			if current.version != o.RunningVersion {
+				o.RunningVersion = "mixed"
+			}
+		}
 	}
 	return o
 }
@@ -399,7 +529,7 @@ func (n *node) writeObserved(ctx context.Context, observed sdk.ObservedRelease) 
 	if observed.Services == nil {
 		observed.Services = n.services
 	}
-	fingerprint := fmt.Sprintf("%s|%s|%s|%d|%d|%d|%t|%s|%v", observed.Phase, observed.DesiredVersion, observed.RunningVersion, observed.PID, observed.Restarts, observed.InternalPort, observed.Healthy, observed.Message, observed.Services)
+	fingerprint := fmt.Sprintf("%s|%s|%s|%d|%d|%d|%d|%d|%v|%v|%t|%s|%v", observed.Phase, observed.DesiredVersion, observed.RunningVersion, observed.PID, observed.Restarts, observed.InternalPort, observed.DesiredReplicas, observed.ReadyReplicas, observed.ReplicaPIDs, observed.CapacityLease, observed.Healthy, observed.Message, observed.Services)
 	if fingerprint == n.lastObservedFingerprint && time.Since(n.lastObservedAt) < 30*time.Second {
 		return nil
 	}
@@ -407,7 +537,7 @@ func (n *node) writeObserved(ctx context.Context, observed sdk.ObservedRelease) 
 	observed.System = n.system
 	observed.Node = n.hostname
 	observed.UpdatedAt = time.Now().UTC()
-	if err := n.store.PutJSON(ctx, n.prefix+"/observed.json", observed); err != nil {
+	if err := n.control.PutObserved(ctx, observed); err != nil {
 		return err
 	}
 	n.lastObservedFingerprint = fingerprint
@@ -417,11 +547,12 @@ func (n *node) writeObserved(ctx context.Context, observed sdk.ObservedRelease) 
 
 func (n *node) acquireTarget() (string, func()) {
 	n.routingMu.Lock()
-	target := n.target.Load().(string)
-	if target == "" {
+	if len(n.targets) == 0 {
 		n.routingMu.Unlock()
 		return "", func() {}
 	}
+	target := n.targets[n.nextTarget%uint64(len(n.targets))]
+	n.nextTarget++
 	n.inflight[target]++
 	n.routingMu.Unlock()
 	return target, func() {
@@ -431,10 +562,27 @@ func (n *node) acquireTarget() (string, func()) {
 	}
 }
 
-func (n *node) setTarget(target string) {
+func (n *node) setTargets(targets []string) {
 	n.routingMu.Lock()
-	n.target.Store(target)
+	n.targets = append([]string(nil), targets...)
+	if len(n.targets) == 0 {
+		n.nextTarget = 0
+	} else {
+		n.nextTarget %= uint64(len(n.targets))
+	}
 	n.routingMu.Unlock()
+}
+
+func processTarget(process *process) string {
+	return fmt.Sprintf("http://127.0.0.1:%d", process.port)
+}
+
+func processTargets(processes []*process) []string {
+	targets := make([]string, 0, len(processes))
+	for _, process := range processes {
+		targets = append(targets, processTarget(process))
+	}
+	return targets
 }
 
 func (n *node) waitForDrain(ctx context.Context, target string, timeout time.Duration) {
@@ -459,57 +607,38 @@ func (n *node) waitForDrain(ctx context.Context, target string, timeout time.Dur
 	}
 }
 
-func (n *node) reconcileServices(ctx context.Context) error {
+func (n *node) reconcileServices(ctx context.Context, plan *sdk.RuntimePlan) error {
 	if time.Now().Before(n.nextServiceCheck) {
 		return nil
 	}
-	var plan sdk.RuntimePlan
-	found, err := n.store.GetOptional(ctx, n.prefix+"/runtime-plan.json", &plan)
-	if err != nil {
-		return err
-	}
-	if !found {
+	if plan == nil {
 		n.nextServiceCheck = time.Now().Add(10 * time.Second)
 		return nil
 	}
 	if err := plan.Validate(n.system); err != nil {
 		return err
 	}
-	bindings, services, err := n.drivers.Ensure(ctx, plan)
+	bindings, services, err := n.drivers.Ensure(ctx, *plan)
 	n.services = services
 	if err != nil {
 		n.nextServiceCheck = time.Now().Add(time.Second)
 		return err
 	}
 	n.serviceBindings = bindings
-	n.runtimePlan = plan
+	n.runtimePlan = *plan
 	n.nextServiceCheck = time.Now().Add(10 * time.Second)
 	return nil
 }
 
-func (n *node) reconcileRuntimeAction(ctx context.Context) error {
-	var action sdk.RuntimeAction
-	found, err := n.store.GetOptional(ctx, n.prefix+"/runtime-actions/request.json", &action)
-	if err != nil || !found {
-		return err
+func (n *node) reconcileRuntimeAction(ctx context.Context, envelope *sdk.NodeRuntimeAction) error {
+	if envelope == nil {
+		return nil
 	}
+	action, lease := envelope.Action, envelope.Lease
 	if action.SchemaVersion != "v1" || action.System != n.system || action.ID == "" || action.Service == "" || action.Kind == "" {
 		return fmt.Errorf("invalid runtime action")
 	}
-	resultKey := n.prefix + "/runtime-actions/results/" + action.ID + ".json"
-	var prior sdk.RuntimeActionResult
-	if completed, getErr := n.store.GetOptional(ctx, resultKey, &prior); getErr != nil {
-		return getErr
-	} else if completed {
-		return nil
-	}
-	if !strings.HasPrefix(action.LeaseKey, n.prefix+"/changes/") {
-		return fmt.Errorf("runtime action has an invalid lease key")
-	}
-	var lease sdk.ChangeLease
-	if leaseFound, leaseErr := n.store.GetOptional(ctx, action.LeaseKey, &lease); leaseErr != nil {
-		return leaseErr
-	} else if !leaseFound || lease.FencingToken != action.FencingToken || !lease.ExpiresAt.After(time.Now().UTC()) || !strings.HasPrefix(action.ID, lease.ChangeID+"-") {
+	if lease.FencingToken != action.FencingToken || !lease.ExpiresAt.After(time.Now().UTC()) || !strings.HasPrefix(action.ID, lease.ChangeID+"-") {
 		return nil
 	}
 	actionCtx, cancel := context.WithDeadline(ctx, lease.ExpiresAt)
@@ -518,7 +647,7 @@ func (n *node) reconcileRuntimeAction(ctx context.Context) error {
 	if executeErr != nil {
 		result = sdk.RuntimeActionResult{SchemaVersion: "v1", ID: action.ID, System: n.system, Service: action.Service, Kind: action.Kind, Phase: "failed", Message: executeErr.Error(), CompletedAt: time.Now().UTC()}
 	}
-	if err := n.store.PutJSON(ctx, resultKey, result); err != nil {
+	if err := n.control.PutRuntimeActionResult(ctx, action.ID, result); err != nil {
 		return err
 	}
 	return executeErr

@@ -12,7 +12,26 @@ import (
 
 const APIVersion = "canter.dev/v1alpha1"
 
-var safeName = regexp.MustCompile(`^[a-z][a-z0-9-]{0,47}$`)
+var (
+	safeName      = regexp.MustCompile(`^[a-z][a-z0-9-]{0,47}$`)
+	safeM1Segment = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
+)
+
+// ValidateM1Prefix validates an object-store namespace without imposing a
+// product-specific layout. Control-plane callers additionally bind valid
+// prefixes to a workspace; standalone SDK callers retain their existing
+// freedom to choose any safe relative namespace.
+func ValidateM1Prefix(prefix string) error {
+	if prefix == "" || len(prefix) > 512 || strings.HasPrefix(prefix, "/") || strings.HasSuffix(prefix, "/") {
+		return fmt.Errorf("m1 prefix must be a safe relative path of at most 512 characters")
+	}
+	for _, segment := range strings.Split(prefix, "/") {
+		if !safeM1Segment.MatchString(segment) || segment == "." || segment == ".." {
+			return fmt.Errorf("m1 prefix contains unsafe segment %q", segment)
+		}
+	}
+	return nil
+}
 
 type Spec struct {
 	APIVersion string   `yaml:"apiVersion" json:"apiVersion"`
@@ -91,7 +110,7 @@ func (s Spec) Validate() error {
 	if s.Spec.Compute.Replicas > s.Spec.Policy.MaxReplicas {
 		problems = append(problems, "requested replicas exceed policy.maxReplicas")
 	}
-	if s.Spec.M1.Prefix == "" || strings.HasPrefix(s.Spec.M1.Prefix, "/") || strings.Contains(s.Spec.M1.Prefix, "..") {
+	if err := ValidateM1Prefix(s.Spec.M1.Prefix); err != nil {
 		problems = append(problems, "spec.m1.prefix must be a safe relative prefix")
 	}
 	if len(problems) > 0 {

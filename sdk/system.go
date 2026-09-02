@@ -173,7 +173,7 @@ func (s System) Validate() error {
 	if len(s.Spec.Services) == 0 {
 		return fmt.Errorf("system requires at least one service")
 	}
-	if s.Spec.M1.Prefix == "" || strings.HasPrefix(s.Spec.M1.Prefix, "/") || strings.Contains(s.Spec.M1.Prefix, "..") {
+	if err := ValidateM1Prefix(s.Spec.M1.Prefix); err != nil {
 		return fmt.Errorf("system requires a safe relative m1 prefix")
 	}
 	seen := map[string]bool{}

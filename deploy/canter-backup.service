@@ -1,0 +1,15 @@
+[Unit]
+Description=Back up Canter PostgreSQL to m1
+After=postgresql.service network-online.target
+
+[Service]
+Type=oneshot
+User=canter
+Group=canter
+EnvironmentFile=/etc/canter/controlplane.env
+ExecStart=/opt/canter/deploy/postgres-backup.sh
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/canter
