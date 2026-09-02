@@ -335,11 +335,12 @@ type InitialDeploymentRelease struct {
 }
 
 type InitialDeploymentPlan struct {
-	System            sdk.System               `json:"system"`
-	ArtifactSHA256    string                   `json:"artifactSha256"`
-	Release           InitialDeploymentRelease `json:"release"`
-	Verification      sdk.ChangeVerification   `json:"verification"`
-	WorkspaceRevision int64                    `json:"workspaceRevision"`
+	System               sdk.System               `json:"system"`
+	ArtifactSHA256       string                   `json:"artifactSha256"`
+	Release              InitialDeploymentRelease `json:"release"`
+	Verification         sdk.ChangeVerification   `json:"verification"`
+	WorkspaceRevision    int64                    `json:"workspaceRevision"`
+	ReplacesDeploymentID string                   `json:"replacesDeploymentId,omitempty"`
 }
 
 type InitialDeploymentOperation struct {

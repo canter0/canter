@@ -10,6 +10,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/canter0/canter/internal/computeclass"
 	"github.com/canter0/canter/sdk"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -42,6 +43,9 @@ var standingPoliciesMigration string
 
 //go:embed migrations/009_workspace_usage_caps.sql
 var workspaceUsageCapsMigration string
+
+//go:embed migrations/010_initial_deployment_corrections.sql
+var initialDeploymentCorrectionsMigration string
 
 var (
 	ErrNotFound      = errors.New("not found")
@@ -137,6 +141,12 @@ func (s *Store) Migrate(ctx context.Context) error {
 		return fmt.Errorf("apply workspace usage caps migration: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('009_workspace_usage_caps') ON CONFLICT DO NOTHING`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, initialDeploymentCorrectionsMigration); err != nil {
+		return fmt.Errorf("apply initial deployment corrections migration: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('010_initial_deployment_corrections') ON CONFLICT DO NOTHING`); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
@@ -666,7 +676,15 @@ func (s *Store) GetSystem(ctx context.Context, workspaceID, name string) (System
 
 func validateStoredSystemPrefix(prefix string, system sdk.System) error {
 	if err := system.Validate(); err != nil {
-		return fmt.Errorf("stored System contract is invalid: %w", err)
+		var unsupported *computeclass.UnsupportedClassError
+		if !errors.As(err, &unsupported) {
+			return fmt.Errorf("stored System contract is invalid: %w", err)
+		}
+		legacy := system
+		legacy.Spec.Constraints.Host.Class = sdk.SupportedHostClasses()[0]
+		if legacyErr := legacy.Validate(); legacyErr != nil {
+			return fmt.Errorf("stored System contract is invalid: %w", err)
+		}
 	}
 	if prefix != system.Spec.M1.Prefix {
 		return fmt.Errorf("stored System m1 prefix metadata does not match its contract")

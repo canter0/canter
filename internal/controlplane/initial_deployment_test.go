@@ -73,6 +73,7 @@ func TestInitialDeploymentDigestBindsSystemArtifactReleaseVerificationAndRevisio
 		func(p *InitialDeploymentPlan) { p.Release.Environment["MODE"] = "other" },
 		func(p *InitialDeploymentPlan) { p.Verification.BodyContains = "different" },
 		func(p *InitialDeploymentPlan) { p.WorkspaceRevision++ },
+		func(p *InitialDeploymentPlan) { p.ReplacesDeploymentID = "dep_failed_legacy" },
 		func(p *InitialDeploymentPlan) { p.System.Spec.Constraints.Host.Class = "larger" },
 	}
 	for index, mutate := range mutations {
@@ -146,6 +147,35 @@ func TestMCPUnsupportedHostClassErrorIsStructuredAndNotRetryable(t *testing.T) {
 	}
 }
 
+func TestLegacyUnsupportedClassCorrectionRequiresProofOfNoRuntimeMutation(t *testing.T) {
+	legacy := InitialDeployment{
+		Phase: "failed",
+		Plan:  InitialDeploymentPlan{System: sdk.System{Spec: sdk.SystemContract{Constraints: sdk.Constraints{Host: sdk.HostConstraint{Class: "shared"}}}}},
+		Operations: []InitialDeploymentOperation{
+			{ID: "01-register-system", Phase: "succeeded"},
+			{ID: "02-bootstrap-host", Phase: "failed", Failure: `unsupported compute class "shared"`},
+			{ID: "03-publish-release", Phase: "pending"},
+			{ID: "04-wait-healthy", Phase: "pending"},
+			{ID: "05-verify-public", Phase: "pending"},
+		},
+	}
+	if !failedBeforeRuntimeMutationForUnsupportedClass(legacy) {
+		t.Fatal("exact legacy pre-runtime class failure was not recognized")
+	}
+	mutated := legacy
+	mutated.Operations = append([]InitialDeploymentOperation(nil), legacy.Operations...)
+	mutated.Operations[2].Phase = "succeeded"
+	if failedBeforeRuntimeMutationForUnsupportedClass(mutated) {
+		t.Fatal("proposal with a later side effect was considered safe to replace")
+	}
+	providerFailure := legacy
+	providerFailure.Operations = append([]InitialDeploymentOperation(nil), legacy.Operations...)
+	providerFailure.Operations[1].Failure = "provider request failed"
+	if failedBeforeRuntimeMutationForUnsupportedClass(providerFailure) {
+		t.Fatal("provider failure was considered an unsupported-class correction")
+	}
+}
+
 func TestBlackoutBootstrapCapabilityIsSelfDescribing(t *testing.T) {
 	capabilities := initialDeploymentCapabilities("wrk_blackout")
 	raw, err := json.Marshal(capabilities)
@@ -157,7 +187,7 @@ func TestBlackoutBootstrapCapabilityIsSelfDescribing(t *testing.T) {
 		`"format":"tar.gz"`, `"maxBytes":67108864`, `"form":"argv"`, `./-prefixed executable`,
 		`"PORT"`, `CANTER_SERVICE_`, `/v1/workspaces/wrk_blackout/artifacts`,
 		`/initial-deployments/{deploymentId}/authorize`, `"principal":"human"`,
-		`"url":"/mcp"`, `canter_draft_initial_deployment`, `"hostClasses":["c1","c2","c3"]`, `approve + start deployment`,
+		`"url":"/mcp"`, `canter_draft_initial_deployment`, `"hostClasses":["c1","c2","c3"]`, `approve + start deployment`, `transfers the original beta usage reservation`,
 	} {
 		if !strings.Contains(contract, required) {
 			t.Fatalf("blackout capability contract omitted %q: %s", required, contract)

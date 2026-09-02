@@ -174,7 +174,7 @@ func (s *Store) EnqueueInitialDeployment(ctx context.Context, workspaceID, deplo
 	if active {
 		return InitialDeploymentExecution{}, ErrConflict
 	}
-	if err := reserveInitialDeploymentUsage(ctx, tx, workspaceID, deploymentID, s.now()); err != nil {
+	if err := reserveInitialDeploymentUsage(ctx, tx, workspaceID, deploymentID, deployment.Plan.ReplacesDeploymentID, s.now()); err != nil {
 		return InitialDeploymentExecution{}, enqueueInitialDeploymentError(err)
 	}
 	id, _ := newID("ide_")
@@ -206,15 +206,28 @@ const initialDeploymentReservationCents = 500
 
 // reserveInitialDeploymentUsage is deliberately internal to the beta. It is a
 // hard provider-spend guard, not a customer-facing balance or pricing model.
-// Retries of the same authorized proposal reuse its reservation; distinct
-// proposals serialize on the workspace cap row and cannot race past the cap.
-func reserveInitialDeploymentUsage(ctx context.Context, tx pgx.Tx, workspaceID, deploymentID string, now time.Time) error {
+// Retries of the same authorized proposal reuse its reservation. A corrected
+// proposal replacing a proven pre-runtime class failure transfers that exact
+// reservation; all other distinct proposals serialize on the workspace cap.
+func reserveInitialDeploymentUsage(ctx context.Context, tx pgx.Tx, workspaceID, deploymentID, replacesDeploymentID string, now time.Time) error {
 	var alreadyReserved bool
 	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM usage_reservations WHERE workspace_id=$1 AND subject_kind='initial-deployment' AND subject_id=$2 AND phase IN ('reserved','committed'))`, workspaceID, deploymentID).Scan(&alreadyReserved); err != nil {
 		return err
 	}
 	if alreadyReserved {
 		return nil
+	}
+	if replacesDeploymentID != "" {
+		result, err := tx.Exec(ctx, `UPDATE usage_reservations SET subject_id=$1,updated_at=$2 WHERE workspace_id=$3 AND subject_kind='initial-deployment' AND subject_id=$4 AND phase IN ('reserved','committed')`, deploymentID, now, workspaceID, replacesDeploymentID)
+		if err != nil {
+			return err
+		}
+		if result.RowsAffected() == 1 {
+			return nil
+		}
+		if result.RowsAffected() > 1 {
+			return ErrConflict
+		}
 	}
 	var limit, reserved, spent int
 	if err := tx.QueryRow(ctx, `SELECT limit_cents,reserved_cents,spent_cents FROM workspace_usage_caps WHERE workspace_id=$1 FOR UPDATE`, workspaceID).Scan(&limit, &reserved, &spent); err != nil {

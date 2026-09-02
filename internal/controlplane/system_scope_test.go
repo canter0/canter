@@ -42,6 +42,22 @@ func TestValidateCanonicalSystemRejectsLegacyPrefixAtStoreBoundary(t *testing.T)
 	}
 }
 
+func TestStoredLegacyUnsupportedClassRemainsReadableButCannotBeWritten(t *testing.T) {
+	legacy := scopedTestSystem(t, "workspaces/wrk_123/systems/api")
+	legacy.Spec.Constraints.Host.Class = "shared"
+	if err := validateStoredSystemPrefix(legacy.Spec.M1.Prefix, legacy); err != nil {
+		t.Fatalf("otherwise valid legacy contract became unreadable: %v", err)
+	}
+	if err := validateCanonicalSystemForWorkspace("wrk_123", legacy); err == nil {
+		t.Fatal("legacy unsupported class was accepted at the write boundary")
+	}
+	broken := legacy
+	broken.Spec.Services = nil
+	if err := validateStoredSystemPrefix(broken.Spec.M1.Prefix, broken); err == nil {
+		t.Fatal("malformed legacy contract was accepted merely because its class was unsupported")
+	}
+}
+
 func TestAllowWorkspaceRejectsInspectOnlyAgentWrites(t *testing.T) {
 	h := &HTTPServer{}
 	request := httptest.NewRequest("GET", "/", nil)

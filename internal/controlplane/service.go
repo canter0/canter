@@ -92,9 +92,10 @@ func initialDeploymentCapabilities(workspaceID string) map[string]any {
 		},
 		"initialDeployment": map[string]any{
 			"workflow": map[string]any{
-				"agent":     "upload and draft, then inspect the durable proposal and execution; agents cannot authorize or apply an initial deployment",
-				"human":     "the review surface records authorization of the exact digest, then separately enqueues that unchanged proposal for server-owned execution",
-				"webAction": "the default human review action performs both explicit ledger transitions as approve + start deployment",
+				"agent":      "upload and draft, then inspect the durable proposal and execution; agents cannot authorize or apply an initial deployment",
+				"human":      "the review surface records authorization of the exact digest, then separately enqueues that unchanged proposal for server-owned execution",
+				"webAction":  "the default human review action performs both explicit ledger transitions as approve + start deployment",
+				"correction": "an immutable legacy proposal that failed on an unsupported class cannot be retried; when its ledger proves no runtime mutation occurred, an agent may draft a corrected proposal for the same System name and artifact, and Canter transfers the original beta usage reservation",
 			},
 			"systemM1Prefix": "server-derived from workspace and System name; any safe client suggestion is replaced before digesting",
 			"artifact": map[string]any{

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/canter0/canter/sdk"
+	"github.com/jackc/pgx/v5"
 )
 
 func testApplicationArtifact(t *testing.T) []byte {
@@ -293,6 +294,130 @@ func TestInitialDeploymentIsAgentDraftedHumanAuthorizedAndServerExecuted(t *test
 	}
 	if engine.gateway.GatewayURL != service.NodeGatewayURL || !strings.HasPrefix(engine.gateway.EnrollmentToken, "ce_") {
 		t.Fatalf("provider bootstrap did not receive scoped gateway enrollment: %#v", engine.gateway)
+	}
+}
+
+func TestCorrectedProposalReplacesLegacyUnsupportedClassBeforeRuntimeAndReusesReservation(t *testing.T) {
+	store := integrationStore(t)
+	engine := &initialDeploymentFakeEngine{}
+	service := &Service{Store: store, Engine: engine, NodeGatewayURL: "https://control.canter.test"}
+	ctx := context.Background()
+	account, workspace, _, err := store.Signup(ctx, "corrected-class@example.com", "correct horse battery staple", "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	agent := sdk.ActorRef{Kind: "agent", ID: "agt_correct", SessionID: "ags_correct"}
+	artifact, err := service.UploadDeploymentArtifact(ctx, workspace.ID, testApplicationArtifact(t), "application.tar.gz", "application/gzip", agent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	corrected, err := sdk.NewSystem("legacy-class-app", "Serve the corrected application").
+		OnHost("c1", 1, 512, 128).
+		WithM1("systems/legacy-class-app").
+		Provide(sdk.SystemService{Name: "web", Kind: "application", Isolation: "process", Instances: 1, Networking: "public", Resources: sdk.ServiceResources{VCPU: 1, MemoryMiB: 256}, Readiness: sdk.Readiness{Protocol: "http", Port: 8080}}).
+		Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonical, err := canonicalizeSystemForWorkspace(workspace.ID, corrected)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.PutSystem(ctx, workspace.ID, canonical); err != nil {
+		t.Fatal(err)
+	}
+	legacy := canonical
+	legacy.Spec.Constraints.Host.Class = "shared"
+	legacyRaw, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.pool.Exec(ctx, `UPDATE systems SET contract=$1 WHERE workspace_id=$2 AND name=$3`, legacyRaw, workspace.ID, legacy.Metadata.Name); err != nil {
+		t.Fatal(err)
+	}
+	workspace, err = store.Workspace(ctx, workspace.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyPlan := InitialDeploymentPlan{
+		System: legacy, ArtifactSHA256: artifact.SHA256,
+		Release:           InitialDeploymentRelease{Command: []string{"./app"}, HealthPath: "/health", PublicPort: 8080},
+		Verification:      sdk.ChangeVerification{Method: http.MethodGet, Path: "/health", ExpectedStatus: http.StatusOK},
+		WorkspaceRevision: workspace.Revision - 1,
+	}
+	legacyDigest, err := digestInitialDeployment(legacyPlan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := store.now()
+	legacyDeployment := InitialDeployment{
+		SchemaVersion: "v1", ID: "dep_legacy_shared", WorkspaceID: workspace.ID, System: legacy.Metadata.Name,
+		Summary: "legacy unsupported class", Phase: "failed", Digest: legacyDigest, DraftedBy: agent, Plan: legacyPlan,
+		Operations: []InitialDeploymentOperation{
+			{ID: "01-register-system", Kind: "system.register", Phase: "succeeded"},
+			{ID: "02-bootstrap-host", Kind: "system-host.bootstrap", Phase: "failed", Failure: `unsupported compute class "shared"`},
+			{ID: "03-publish-release", Kind: "release.publish-staged", Phase: "pending"},
+			{ID: "04-wait-healthy", Kind: "release.wait-public", Phase: "pending"},
+			{ID: "05-verify-public", Kind: "http.verify", Phase: "pending"},
+		},
+		Failure: `unsupported compute class "shared"`, CreatedAt: now, UpdatedAt: now, CompletedAt: &now,
+	}
+	if err := store.CreateInitialDeployment(ctx, legacyDeployment); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := store.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := reserveInitialDeploymentUsage(ctx, tx, workspace.ID, legacyDeployment.ID, "", now); err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatal(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	proposal, err := service.DraftInitialDeployment(ctx, workspace.ID, DraftInitialDeploymentInput{
+		Summary: "correct unsupported class", System: corrected, ArtifactSHA256: artifact.SHA256,
+		Release:      InitialDeploymentRelease{Command: []string{"./app"}, HealthPath: "/health", PublicPort: 8080},
+		Verification: sdk.ChangeVerification{Method: http.MethodGet, Path: "/health", ExpectedStatus: http.StatusOK},
+	}, agent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if proposal.Plan.ReplacesDeploymentID != legacyDeployment.ID {
+		t.Fatalf("corrected proposal replacement=%q want %q", proposal.Plan.ReplacesDeploymentID, legacyDeployment.ID)
+	}
+	if _, err := service.AuthorizeInitialDeployment(ctx, workspace.ID, proposal.ID, proposal.Digest, sdk.ActorRef{Kind: "human", ID: account.ID}); err != nil {
+		t.Fatal(err)
+	}
+	execution, err := store.EnqueueInitialDeployment(ctx, workspace.ID, proposal.ID, sdk.ActorRef{Kind: "human", ID: account.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var reservationSubject string
+	var reservationCount int
+	if err := store.pool.QueryRow(ctx, `SELECT min(subject_id),count(*) FROM usage_reservations WHERE workspace_id=$1`, workspace.ID).Scan(&reservationSubject, &reservationCount); err != nil {
+		t.Fatal(err)
+	}
+	if reservationCount != 1 || reservationSubject != proposal.ID {
+		t.Fatalf("reservation was not transferred: count=%d subject=%q", reservationCount, reservationSubject)
+	}
+	claimed, ok, err := store.ClaimInitialDeploymentExecution(ctx, "correction-worker", time.Minute)
+	if err != nil || !ok || claimed.ID != execution.ID {
+		t.Fatalf("claim=%#v ok=%t err=%v", claimed, ok, err)
+	}
+	dispatcher := &InitialDeploymentDispatcher{Store: store, Service: service, Engine: engine, NodeBinary: []byte("node"), WorkerID: "correction-worker", LeaseDuration: time.Minute, WaitTimeout: time.Second}
+	if err := dispatcher.runOne(ctx, claimed); err != nil {
+		t.Fatal(err)
+	}
+	record, err := store.GetSystem(ctx, workspace.ID, corrected.Metadata.Name)
+	if err != nil || record.Contract.Spec.Constraints.Host.Class != "c1" {
+		t.Fatalf("corrected System was not registered: %#v err=%v", record, err)
+	}
+	finished, err := store.InitialDeployment(ctx, workspace.ID, proposal.ID)
+	if err != nil || finished.Phase != "succeeded" {
+		t.Fatalf("corrected deployment did not succeed: %#v err=%v", finished, err)
 	}
 }
 

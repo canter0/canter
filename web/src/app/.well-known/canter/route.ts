@@ -94,7 +94,7 @@ export function GET(request: NextRequest) {
         defaultComputeClass: "c1",
         agentTools: ["canter_upload_artifact", "canter_draft_initial_deployment", "canter_list_initial_deployments", "canter_inspect_initial_deployment", "canter_inspect_initial_deployment_execution"],
         humanWorkflow: "The review surface records authorization of the exact digest and then starts that unchanged deployment. These are separate ledger events presented as one explicit approve + start action.",
-        failureSemantics: "Contract errors are returned with a stable code, retryability, and valid alternatives. Provider-sensitive execution failures remain redacted for operator inspection.",
+        failureSemantics: "Contract errors are returned with a stable code, retryability, and valid alternatives. A legacy first deployment that failed on an unsupported class remains immutable history, but the agent may draft a corrected proposal for the same System name because Canter proves no runtime mutation occurred. Provider-sensitive execution failures remain redacted for operator inspection.",
       },
       neverExposed: ["compute provider credentials", "m1 storage credentials", "provider resource identifiers"],
     },

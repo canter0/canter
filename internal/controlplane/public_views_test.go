@@ -50,13 +50,13 @@ func TestPublicInitialDeploymentRedactsEnvironmentAndFailures(t *testing.T) {
 }
 
 func TestPublicInitialDeploymentPreservesOnlySafeActionableFailures(t *testing.T) {
-	deployment := InitialDeployment{Failure: `unsupported_compute_class: host class "shared" is unsupported; supported classes: c1, c2, c3`, Operations: []InitialDeploymentOperation{
-		{Failure: `unsupported_compute_class: host class "shared" is unsupported; supported classes: c1, c2, c3`},
+	deployment := InitialDeployment{Failure: `unsupported compute class "shared"`, Operations: []InitialDeploymentOperation{
+		{Failure: `unsupported compute class "shared"`},
 		{Failure: "provider request leaked-secret failed"},
 	}}
 	public := publicInitialDeployment(deployment)
 	if !strings.HasPrefix(public.Operations[0].Failure, "unsupported_compute_class:") {
-		t.Fatalf("safe domain failure was redacted: %q", public.Operations[0].Failure)
+		t.Fatalf("safe legacy domain failure was not upgraded: %q", public.Operations[0].Failure)
 	}
 	if !strings.HasPrefix(public.Failure, "unsupported_compute_class:") {
 		t.Fatalf("safe top-level failure was redacted: %q", public.Failure)

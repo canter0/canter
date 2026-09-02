@@ -148,6 +148,7 @@ export type InitialDeploymentDetail = InitialDeploymentSummary & {
       bodyContains?: string;
     };
     workspaceRevision: number;
+    replacesDeploymentId?: string;
   };
   operations: InitialDeploymentOperation[];
   evidence?: Array<{

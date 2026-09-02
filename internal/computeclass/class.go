@@ -2,6 +2,7 @@ package computeclass
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -47,9 +48,25 @@ func UnsupportedError(class string) error {
 	return &UnsupportedClassError{Class: class}
 }
 
-// IsSafePublicFailure identifies a domain validation failure that contains
-// only agent-supplied input and Canter's public class names. Provider errors
-// and execution details must continue through the generic redaction path.
+// NormalizePublicFailure identifies the current structured error and the exact
+// legacy error emitted before unsupported classes were validated at ingress.
+// Both contain only agent-supplied input and Canter's public class names.
+func NormalizePublicFailure(message string) (string, bool) {
+	if strings.HasPrefix(message, UnsupportedCode+": ") {
+		return message, true
+	}
+	const legacyPrefix = "unsupported compute class "
+	if !strings.HasPrefix(message, legacyPrefix) {
+		return "", false
+	}
+	class, err := strconv.Unquote(strings.TrimPrefix(message, legacyPrefix))
+	if err != nil {
+		return "", false
+	}
+	return UnsupportedError(class).Error(), true
+}
+
 func IsSafePublicFailure(message string) bool {
-	return strings.HasPrefix(message, UnsupportedCode+": ")
+	_, ok := NormalizePublicFailure(message)
+	return ok
 }

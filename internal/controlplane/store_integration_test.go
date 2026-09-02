@@ -107,7 +107,7 @@ func TestWorkspaceUsageCapReservesOneInitialHostAndReusesRetry(t *testing.T) {
 			return beginErr
 		}
 		defer tx.Rollback(ctx)
-		if reserveErr := reserveInitialDeploymentUsage(ctx, tx, workspace.ID, subject, store.now()); reserveErr != nil {
+		if reserveErr := reserveInitialDeploymentUsage(ctx, tx, workspace.ID, subject, "", store.now()); reserveErr != nil {
 			return reserveErr
 		}
 		return tx.Commit(ctx)

@@ -89,11 +89,15 @@ export function InitialDeploymentReview({ id }: { id: string }) {
   const host = plan?.system.spec.constraints?.host;
   const services = plan?.system.spec.services ?? [];
   const authorization = deployment?.authorization;
-  const canRetry = deployment?.phase === "failed" && authorization?.digest === deployment.digest;
+  const unsupportedClassFailure = [deployment?.failure, ...(deployment?.operations.map((operation) => operation.failure) ?? [])]
+    .find((failure) => failure?.startsWith("unsupported_compute_class:"));
+  const canRetry = deployment?.phase === "failed" && authorization?.digest === deployment.digest && !unsupportedClassFailure;
   const actionExplanation = deployment?.phase === "drafted"
     ? "Records approval of this exact digest, then starts that unchanged deployment."
     : deployment?.phase === "authorized"
       ? "Approval is recorded. Starting creates the server-owned execution."
+      : unsupportedClassFailure
+        ? `This immutable proposal used ${host?.class ?? "an unsupported class"}. Ask the agent to draft a corrected c1 proposal; this record remains failed history.`
       : canRetry
         ? "Retries the same approved digest; it does not broaden the proposal."
         : "";

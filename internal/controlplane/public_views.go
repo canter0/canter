@@ -23,8 +23,8 @@ func publicChange(change sdk.Change) sdk.Change {
 		}
 	}
 	if change.Failure != "" {
-		if computeclass.IsSafePublicFailure(change.Failure) {
-			change.Failure = publicOperationFailure(change.Failure)
+		if failure, ok := computeclass.NormalizePublicFailure(change.Failure); ok {
+			change.Failure = failure
 		} else {
 			change.Failure = "Change failed; operator inspection required"
 		}
@@ -58,8 +58,8 @@ func publicInitialDeployment(deployment InitialDeployment) InitialDeployment {
 		}
 	}
 	if deployment.Failure != "" {
-		if computeclass.IsSafePublicFailure(deployment.Failure) {
-			deployment.Failure = publicOperationFailure(deployment.Failure)
+		if failure, ok := computeclass.NormalizePublicFailure(deployment.Failure); ok {
+			deployment.Failure = failure
 		} else {
 			deployment.Failure = "initial deployment failed; operator inspection required"
 		}
@@ -68,8 +68,8 @@ func publicInitialDeployment(deployment InitialDeployment) InitialDeployment {
 }
 
 func publicOperationFailure(failure string) string {
-	if computeclass.IsSafePublicFailure(failure) {
-		return failure
+	if normalized, ok := computeclass.NormalizePublicFailure(failure); ok {
+		return normalized
 	}
 	return "operation failed; operator inspection required"
 }

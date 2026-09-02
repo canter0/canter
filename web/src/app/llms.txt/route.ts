@@ -53,7 +53,7 @@ Use only the advertised provider-neutral host classes: c1, c2, or c3. c1 is the 
 
 After an agent uploads and drafts, direct the signed-in human to the exact review in Canter. The review action first records authorization of the immutable digest and then starts the unchanged proposal as a separate server-owned execution. The default interface presents both ledger transitions as “Approve + start deployment”; if authorization succeeds but enqueueing is interrupted, it presents “Start approved deployment.” A retry always reuses the same authorized digest.
 
-An unsupported contract is rejected before registration or provisioning with a stable error code, retryable=false, and supportedHostClasses. Correct the proposal instead of retrying it. Provider-sensitive failures remain redacted and require the focused recovery path shown by Canter.
+An unsupported contract is rejected before registration or provisioning with a stable error code, retryable=false, and supportedHostClasses. Correct the proposal instead of retrying it. For a legacy proposal that already failed on an unsupported class, preserve that immutable failure as history and draft a corrected proposal using the same System name and staged artifact; Canter permits this only when the prior operation ledger proves no runtime mutation occurred. Provider-sensitive failures remain redacted and require the focused recovery path shown by Canter.
 
 Canter never gives tenant agents or hosts raw compute-provider credentials, m1 credentials, or generic storage access.
 `;

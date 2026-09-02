@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/canter0/canter/internal/computeclass"
 	"github.com/canter0/canter/sdk"
 	"github.com/jackc/pgx/v5"
 )
@@ -200,6 +201,7 @@ func (s *Service) DraftInitialDeployment(ctx context.Context, workspaceID string
 	if input.Verification.Method != http.MethodGet || !strings.HasPrefix(input.Verification.Path, "/") || input.Verification.ExpectedStatus < 100 || input.Verification.ExpectedStatus > 599 {
 		return InitialDeployment{}, fmt.Errorf("verification requires GET, an absolute path, and a valid expected status")
 	}
+	replacesDeploymentID := ""
 	if existing, err := s.Store.GetSystem(ctx, workspaceID, input.System.Metadata.Name); err == nil {
 		existingRaw, marshalErr := json.Marshal(existing.Contract)
 		if marshalErr != nil {
@@ -209,23 +211,33 @@ func (s *Service) DraftInitialDeployment(ctx context.Context, workspaceID string
 		if marshalErr != nil {
 			return InitialDeployment{}, marshalErr
 		}
-		if !bytes.Equal(existingRaw, requestedRaw) {
+		existingMatches := bytes.Equal(existingRaw, requestedRaw)
+		replacementSource, replacementErr := failedUnsupportedClassReplacementSource(ctx, s.Store, workspaceID, input.System.Metadata.Name, "", existing.Contract)
+		if replacementErr != nil {
+			return InitialDeployment{}, replacementErr
+		}
+		if !existingMatches && replacementSource == "" {
 			return InitialDeployment{}, fmt.Errorf("%w: a different System contract already uses this name", ErrConflict)
 		}
-		view, inspectErr := s.InspectSystem(ctx, workspaceID, input.System.Metadata.Name)
-		if inspectErr != nil {
-			return InitialDeployment{}, inspectErr
+		if !existingMatches {
+			replacesDeploymentID = replacementSource
 		}
-		if view.Host != nil || view.Release != nil {
-			return InitialDeployment{}, fmt.Errorf("%w: System already has observed runtime state; draft a Change instead", ErrConflict)
-		}
-		deployments, listErr := s.Store.ListInitialDeployments(ctx, workspaceID)
-		if listErr != nil {
-			return InitialDeployment{}, listErr
-		}
-		for _, deployment := range deployments {
-			if deployment.System == input.System.Metadata.Name {
-				return InitialDeployment{}, fmt.Errorf("%w: System already has an initial deployment proposal", ErrConflict)
+		if existingMatches {
+			view, inspectErr := s.InspectSystem(ctx, workspaceID, input.System.Metadata.Name)
+			if inspectErr != nil {
+				return InitialDeployment{}, inspectErr
+			}
+			if view.Host != nil || view.Release != nil {
+				return InitialDeployment{}, fmt.Errorf("%w: System already has observed runtime state; draft a Change instead", ErrConflict)
+			}
+			deployments, listErr := s.Store.ListInitialDeployments(ctx, workspaceID)
+			if listErr != nil {
+				return InitialDeployment{}, listErr
+			}
+			for _, deployment := range deployments {
+				if deployment.System == input.System.Metadata.Name {
+					return InitialDeployment{}, fmt.Errorf("%w: System already has an initial deployment proposal", ErrConflict)
+				}
 			}
 		}
 	} else if !errors.Is(err, ErrNotFound) {
@@ -256,7 +268,7 @@ func (s *Service) DraftInitialDeployment(ctx context.Context, workspaceID string
 	if err != nil {
 		return InitialDeployment{}, err
 	}
-	plan := InitialDeploymentPlan{System: input.System, ArtifactSHA256: input.ArtifactSHA256, Release: input.Release, Verification: input.Verification, WorkspaceRevision: workspace.Revision}
+	plan := InitialDeploymentPlan{System: input.System, ArtifactSHA256: input.ArtifactSHA256, Release: input.Release, Verification: input.Verification, WorkspaceRevision: workspace.Revision, ReplacesDeploymentID: replacesDeploymentID}
 	digest, err := digestInitialDeployment(plan)
 	if err != nil {
 		return InitialDeployment{}, err
@@ -280,6 +292,71 @@ func (s *Service) DraftInitialDeployment(ctx context.Context, workspaceID string
 	}
 	_ = s.Store.Audit(ctx, workspaceID, actor, "initial-deployment.drafted", id, map[string]any{"system": deployment.System, "digest": digest, "artifactSha256": input.ArtifactSHA256})
 	return deployment, nil
+}
+
+// failedUnsupportedClassReplacementSource proves that the only prior attempt
+// for this System stopped at class resolution, before a durable creation intent
+// or provider mutation could exist. It is the sole case where a first-deploy
+// proposal may replace an already registered contract under the same name.
+func failedUnsupportedClassReplacementSource(ctx context.Context, store *Store, workspaceID, systemName, excludeDeploymentID string, existingContract sdk.System) (string, error) {
+	deployments, err := store.ListInitialDeployments(ctx, workspaceID)
+	if err != nil {
+		return "", err
+	}
+	source := ""
+	for _, index := range deployments {
+		if index.System != systemName || index.ID == excludeDeploymentID {
+			continue
+		}
+		if index.Phase != "failed" {
+			return "", nil
+		}
+		deployment, err := store.InitialDeployment(ctx, workspaceID, index.ID)
+		if err != nil {
+			return "", err
+		}
+		if !failedBeforeRuntimeMutationForUnsupportedClass(deployment) {
+			return "", nil
+		}
+		existingRaw, existingErr := json.Marshal(existingContract)
+		sourceRaw, sourceErr := json.Marshal(deployment.Plan.System)
+		if existingErr != nil || sourceErr != nil {
+			return "", errors.Join(existingErr, sourceErr)
+		}
+		if !bytes.Equal(existingRaw, sourceRaw) {
+			return "", nil
+		}
+		if source == "" {
+			source = deployment.ID
+		}
+	}
+	return source, nil
+}
+
+func failedBeforeRuntimeMutationForUnsupportedClass(deployment InitialDeployment) bool {
+	if deployment.Phase != "failed" || !operationSucceeded(deployment, "01-register-system") {
+		return false
+	}
+	if computeclass.Validate(deployment.Plan.System.Spec.Constraints.Host.Class) == nil {
+		return false
+	}
+	bootstrapFailed := false
+	laterPending := 0
+	for _, operation := range deployment.Operations {
+		switch operation.ID {
+		case "02-bootstrap-host":
+			if operation.Phase != "failed" || !computeclass.IsSafePublicFailure(operation.Failure) {
+				return false
+			}
+			bootstrapFailed = true
+		case "03-publish-release", "04-wait-healthy", "05-verify-public":
+			if operation.Phase != "pending" {
+				return false
+			}
+			laterPending++
+		}
+	}
+	return bootstrapFailed && laterPending == 3
 }
 
 func digestInitialDeployment(plan InitialDeploymentPlan) (string, error) {
@@ -405,13 +482,23 @@ func (d *InitialDeploymentDispatcher) execute(ctx context.Context, execution Ini
 	}
 	existing, existingErr := d.Store.GetSystem(ctx, execution.WorkspaceID, system.Metadata.Name)
 	existingMatches := false
+	replacementAllowed := false
 	if existingErr == nil {
 		existingRaw, _ := json.Marshal(existing.Contract)
 		approvedRaw, _ := json.Marshal(system)
 		if string(existingRaw) != string(approvedRaw) {
-			return fmt.Errorf("%w: a different System contract now uses this name", ErrConflict)
+			replacementSource, replacementErr := failedUnsupportedClassReplacementSource(ctx, d.Store, execution.WorkspaceID, system.Metadata.Name, deployment.ID, existing.Contract)
+			err = replacementErr
+			if err != nil {
+				return err
+			}
+			replacementAllowed = replacementSource != "" && replacementSource == deployment.Plan.ReplacesDeploymentID
+			if !replacementAllowed {
+				return fmt.Errorf("%w: a different System contract now uses this name", ErrConflict)
+			}
+		} else {
+			existingMatches = true
 		}
-		existingMatches = true
 	} else if !errors.Is(existingErr, ErrNotFound) {
 		return existingErr
 	}
@@ -424,7 +511,13 @@ func (d *InitialDeploymentDispatcher) execute(ctx context.Context, execution Ini
 			existingRaw, _ := json.Marshal(existing.Contract)
 			approvedRaw, _ := json.Marshal(system)
 			if string(existingRaw) != string(approvedRaw) {
-				return "", fmt.Errorf("%w: a different System contract now uses this name", ErrConflict)
+				if !replacementAllowed {
+					return "", fmt.Errorf("%w: a different System contract now uses this name", ErrConflict)
+				}
+				if _, putErr := d.Store.PutSystem(ctx, execution.WorkspaceID, system); putErr != nil {
+					return "", putErr
+				}
+				return "failed pre-runtime System contract replaced by the corrected approved contract", nil
 			}
 			return "approved System contract already registered", nil
 		}
