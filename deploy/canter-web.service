@@ -1,0 +1,28 @@
+[Unit]
+Description=Canter web
+After=network-online.target canter-controlplane.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=canter
+Group=canter
+WorkingDirectory=/opt/canter/web
+EnvironmentFile=/etc/canter/web.env
+ExecStart=/usr/bin/node /opt/canter/web/server.js
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=15
+SuccessExitStatus=143
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

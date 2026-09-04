@@ -1,0 +1,17 @@
+apiVersion: canter.dev/v1alpha1
+kind: Sandbox
+metadata:
+  name: agent-sandbox
+spec:
+  intent: Give an agent one disposable Linux workspace and preserve verifiable lifecycle receipts.
+  compute:
+    class: c1
+    image: ubuntu-24.04
+    replicas: 1
+    bootstrap: |
+      install -d -m 0755 /opt/canter
+      printf 'ready\n' > /opt/canter/bootstrap-status
+  m1:
+    prefix: sandboxes/agent-sandbox
+  policy:
+    maxReplicas: 1
