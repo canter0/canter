@@ -1,0 +1,23 @@
+apiVersion: canter.dev/v1alpha1
+kind: Change
+metadata:
+  name: enable-confirmations
+spec:
+  system: flash-allotment
+  summary: Enable database-backed allotment confirmations.
+  release:
+    artifact: tmp/blackout-flash-allotment/flash-v2.tar.gz
+    command: ["./app"]
+    environment:
+      ENABLE_CONFIRMATIONS: "true"
+    healthPath: /health
+    publicPort: 8080
+  migration:
+    path: examples/blackout-flash-allotment/migrations/confirmations-v2.sql
+    id: confirmations-v2
+    service: database
+  verification:
+    method: GET
+    path: /change-proof
+    expectedStatus: 200
+    bodyContains: '"confirmationsEnabled":true'
