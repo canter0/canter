@@ -1,67 +1,73 @@
 "use client";
 
-import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { type ReactNode, useEffect, useState } from "react";
-import { authorityLabel, canterFetch, CanterAPIError, relativeTime, type Installation, type Me } from "@/lib/canter-api";
+import { ConnectAgentButton } from "./connect-agent-button";
+import { useSurfaceWorkspace } from "./embedded-app-surface";
+import { agentIsConnected } from "@/lib/canter-api";
 
-type NavItem = "System" | "Changes" | "Agents" | "Account";
-const navigation: Array<{ label: Exclude<NavItem, "Account">; href: string }> = [
-  { label: "System", href: "/app" },
-  { label: "Changes", href: "/app/changes" },
-  { label: "Agents", href: "/app/agents" },
+import Link from "next/link";
+import { type ReactNode, useState } from "react";
+import { useWorkspace } from "./workspace-context";
+import { WorkspaceIcon, type WorkspaceIconName } from "./workspace-icon";
+import { taskStatus } from "@/lib/task-options";
+import styles from "./workspace.module.css";
+
+type NavItem = "Home" | "Task" | "System" | "Changes" | "Agents" | "Account";
+const navigation: Array<{ label: string; active: NavItem; href: string; icon: WorkspaceIconName }> = [
+  { label: "New conversation", active: "Home", href: "/app", icon: "plus" },
+  { label: "Apps", active: "System", href: "/app/system", icon: "apps" },
+  { label: "Activity", active: "Changes", href: "/app/changes", icon: "activity" },
+  { label: "Agents", active: "Agents", href: "/app/agents", icon: "agent" },
 ];
 
-export function AppShell({ active, context = "canter / default", children }: { active: NavItem; context?: string; children: ReactNode }) {
-  const router = useRouter();
-  const [workspaceName, setWorkspaceName] = useState("default");
-  const [installation, setInstallation] = useState<Installation | null>(null);
+export function AppShell({ active, context, children, onNewInstruction, agentView }: { active: NavItem; context?: string; children: ReactNode; onNewInstruction?: () => void; agentView?: boolean }) {
+  const { data } = useWorkspace();
+  const embedded = useSurfaceWorkspace();
+  const [collapsed, setCollapsed] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const workspaceName = !data?.workspace.name || data.workspace.name === "default" ? "Your workspace" : data.workspace.name;
+  const recent = data?.tasks.slice(0, 8) ?? [];
+  const connected = data?.installations.filter(agentIsConnected) ?? [];
+  const pageName = active === "Task" ? "Task" : active === "Account" ? "Settings" : navigation.find(item => item.active === active)?.label;
 
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      try {
-        const me = await canterFetch<Me>("/me");
-        const workspace = me.workspaces[0];
-        if (!workspace || cancelled) return;
-        setWorkspaceName(workspace.name);
-        const result = await canterFetch<{ installations: Installation[] }>(`/installations?workspaceId=${encodeURIComponent(workspace.id)}`);
-        if (!cancelled) setInstallation(result.installations.find((item) => !item.revokedAt) ?? null);
-      } catch (error) {
-        if (!cancelled && error instanceof CanterAPIError && error.status === 401) router.replace("/sign-in");
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [router]);
-
-  const agentStatus = installation
-    ? `${installation.name} authorized · ${authorityLabel(installation.authority)} · seen ${relativeTime(installation.lastSeenAt)}`
-    : "No agent authorized";
+  if (embedded) return <>{children}</>;
 
   return (
-    <div className="min-h-screen bg-[var(--paper)] lg:grid lg:grid-cols-[216px_1fr]">
-      <aside className="border-b border-[var(--rule)] px-6 py-6 lg:flex lg:h-screen lg:flex-col lg:border-r lg:border-b-0 lg:px-8 lg:py-9">
-        <div className="flex items-center justify-between lg:block">
-          <Link href="/" className="wordmark text-[24px] leading-none">canter</Link>
-          <div className="flex items-center gap-2 lg:hidden"><span className="signal" /><span>{installation?.name ?? "No agent"}</span></div>
+    <div className={`dashboard-theme ${styles.shell}`} data-collapsed={collapsed} data-mobile-open={mobileOpen} data-agent-view={agentView}>
+      <div className={styles.mobileBar}>
+        <button className={styles.iconButton} aria-label="Open navigation" aria-expanded={mobileOpen} onClick={() => setMobileOpen(true)}><WorkspaceIcon name="panel" /></button>
+        <Link className="wordmark" href="/app">canter</Link>
+      </div>
+      {mobileOpen ? <button className={styles.sidebarBackdrop} aria-label="Close navigation" onClick={() => setMobileOpen(false)} /> : null}
+      <aside className={styles.sidebar} aria-label="Workspace sidebar">
+        <div className={styles.workspaceHeading}>
+          <span className={styles.workspaceAvatar}>{workspaceName.charAt(0).toUpperCase()}</span>
+          <span className={styles.workspaceName}>{workspaceName}</span>
+          <button className={`${styles.iconButton} ${styles.desktopToggle}`} aria-label="Collapse sidebar" onClick={() => setCollapsed(true)}><WorkspaceIcon name="panel" /></button>
+          <button className={`${styles.iconButton} ${styles.mobileClose}`} aria-label="Close navigation" onClick={() => setMobileOpen(false)}><WorkspaceIcon name="close" /></button>
         </div>
-        <nav className="mt-8 flex gap-5 lg:mt-24 lg:flex-col lg:gap-7">
-          {navigation.map((item) => (
-            <Link key={item.label} href={item.href} className={`flex items-center gap-3 ${active === item.label ? "text-[var(--ink)]" : "text-[var(--muted)]"}`}>
-              <span className={`signal ${active === item.label ? "opacity-100" : "opacity-0"}`} />{item.label}
-            </Link>
-          ))}
+        <nav className={styles.navigation} aria-label="Main navigation">
+          {navigation.map(item => <Link key={item.active} href={item.href} aria-current={active === item.active ? "page" : undefined} className={styles.navLink} onClick={event => {
+            setMobileOpen(false);
+            if (item.active === "Home" && active === "Home" && onNewInstruction) { event.preventDefault(); onNewInstruction(); }
+          }}><WorkspaceIcon name={item.icon} /><span>{item.label}</span></Link>)}
         </nav>
-        <div className="mt-8 hidden text-[11px] text-[var(--muted)] lg:mt-auto lg:block">
-          <div>{workspaceName} workspace</div>
-          <Link href="/app/account" className="rule-link mt-4 inline-block text-[var(--ink)]">Account ↗</Link>
+        <div className={styles.recentSection}>
+          <div className={styles.sidebarLabel}>Conversations</div>
+          {data?.conversations.length ? data.conversations.map(item => <Link key={item.id} className={styles.recentLink} href={`/app/conversations/${encodeURIComponent(item.id)}`} title={item.title}><span>{item.title}</span><small>{["queued", "running"].includes(item.status) ? "Working…" : item.status === "failed" ? "Needs attention" : ""}</small></Link>) : <p className={styles.sidebarEmpty}>Your conversations will appear here.</p>}
+        </div>
+        {recent.length ? <div className={styles.recentSection}>
+          <div className={styles.sidebarLabel}>External agent tasks</div>
+          {recent.length ? recent.map(item => <Link key={item.id} className={styles.recentLink} href={`/app/tasks/${encodeURIComponent(item.id)}`} title={item.prompt}><span>{item.prompt}</span><small>{taskStatus[item.status]}</small></Link>) : <p className={styles.sidebarEmpty}>No tasks yet.</p>}
+        </div> : null}
+        <div className={styles.sidebarBottom}>
+          {connected.length ? <Link href="/app/agents" className={styles.agentLink}><span className={styles.connectionDot} data-connected /><span>{connected.length} agent{connected.length === 1 ? "" : "s"} connected</span><WorkspaceIcon name="external" width="14" height="14" /></Link> : <ConnectAgentButton className={styles.agentLink}><span className={styles.connectionDot} /><span>Connect your agent</span><WorkspaceIcon name="external" width="14" height="14" /></ConnectAgentButton>}
+          <Link href="/app/billing" className={styles.navLink}><WorkspaceIcon name="file" /><span>Billing</span></Link>
+          <Link href="/app/account" className={styles.navLink} aria-current={active === "Account" ? "page" : undefined}><WorkspaceIcon name="settings" /><span>Settings</span></Link>
         </div>
       </aside>
-      <main className="min-w-0">
-        <header className="hidden h-20 items-center justify-between border-b border-[var(--rule)] px-8 text-[11px] lg:flex lg:px-14">
-          <div className="flex items-center gap-4"><span className="text-[var(--muted)]">WORKSPACE</span><span>{context === "canter / default" ? `canter / ${workspaceName}` : context}</span></div>
-          <div className="flex items-center gap-3"><span className={`signal ${installation ? "" : "opacity-20"}`} /><span>{agentStatus}</span></div>
-        </header>
+      <main className={styles.main}>
+        {collapsed ? <button className={`${styles.iconButton} ${styles.reopen}`} aria-label="Expand sidebar" onClick={() => setCollapsed(false)}><WorkspaceIcon name="panel" /></button> : null}
+        {active === "Task" || active === "Account" ? <header className={styles.pageBar}><span>{pageName}</span>{context && context !== "canter / default" ? <span className={styles.breadcrumb}>{context}</span> : null}</header> : null}
         {children}
       </main>
     </div>
@@ -73,5 +79,5 @@ export function Metric({ label, value }: { label: string; value: string }) {
 }
 
 export function SectionHeader({ left, right }: { left: string; right?: string }) {
-  return <div className="flex justify-between border-b border-[var(--ink)] pb-3 text-[10px] tracking-[0.075em]"><span>{left}</span>{right ? <span>{right}</span> : null}</div>;
+  return <div className="flex justify-between border-b border-[var(--rule-strong)] pb-3 text-[10px] tracking-[0.075em]"><span>{left}</span>{right ? <span>{right}</span> : null}</div>;
 }

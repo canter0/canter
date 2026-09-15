@@ -15,6 +15,9 @@
 
 # next.js
 /.next/
+/.next-*/
+/.next-operator/
+/.next-demo/
 /out/
 
 # production

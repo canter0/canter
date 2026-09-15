@@ -9,6 +9,43 @@ export type Account = {
   email: string;
 };
 
+export type TaskContext = {
+  id: string;
+  kind: "attachment" | "repository" | "app" | "task";
+  name: string;
+  referenceId?: string;
+  url?: string;
+  mediaType?: string;
+  dataBase64?: string;
+  size?: number;
+};
+
+export type WorkspaceTask = {
+  id: string;
+  workspaceId: string;
+  prompt: string;
+  status: "queued" | "working" | "completed" | "failed";
+  requestedBy: string;
+  targetInstallationId?: string;
+  claimedBy?: string;
+  result?: string;
+  model: string;
+  reasoning: string;
+  context?: TaskContext[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type WorkspaceAction = {
+  id: string;
+  workspaceId: string;
+  actor: { kind: string; id: string; displayName?: string; sessionId?: string };
+  action: string;
+  subject: string;
+  metadata: { system?: string; tool?: string; outcome?: string; taskId?: string; deploymentId?: string; changeId?: string };
+  occurredAt: string;
+};
+
 export type Workspace = {
   id: string;
   name: string;
@@ -25,6 +62,8 @@ export type Installation = {
   lastSeenAt?: string | null;
   revokedAt?: string | null;
   activeSessions?: number;
+  expiresAt?: string | null;
+  workers?: Array<{ id: string; workerName: string; parentSessionId: string; expiresAt: string; workerDraft: boolean }>;
 };
 
 export type DeviceAuthorization = {
@@ -115,6 +154,7 @@ export type InitialDeploymentSummary = {
   summary: string;
   phase: "drafted" | "authorized" | "queued" | "running" | "succeeded" | "failed" | string;
   digest: string;
+  createdAt?: string;
 };
 
 export type InitialDeploymentOperation = {
@@ -342,3 +382,5 @@ export function authorityLabel(authority: Authority): string {
   if (authority.inspect) return "inspect";
   return "none";
 }
+
+export function agentIsConnected(agent: Installation) { return !agent.revokedAt && (!agent.expiresAt || Date.parse(agent.expiresAt) > Date.now()); }
