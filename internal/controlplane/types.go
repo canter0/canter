@@ -27,25 +27,31 @@ type Authority struct {
 }
 
 type Installation struct {
-	ID          string     `json:"id"`
-	WorkspaceID string     `json:"workspaceId"`
-	Name        string     `json:"name"`
-	Harness     string     `json:"harness"`
-	Authority   Authority  `json:"authority"`
-	CreatedBy   string     `json:"createdBy"`
-	CreatedAt   time.Time  `json:"createdAt"`
-	LastSeenAt  *time.Time `json:"lastSeenAt,omitempty"`
-	RevokedAt   *time.Time `json:"revokedAt,omitempty"`
+	ActiveSessions int            `json:"activeSessions,omitempty"`
+	ExpiresAt      *time.Time     `json:"expiresAt,omitempty"`
+	Workers        []AgentSession `json:"workers,omitempty"`
+	ID             string         `json:"id"`
+	WorkspaceID    string         `json:"workspaceId"`
+	Name           string         `json:"name"`
+	Harness        string         `json:"harness"`
+	Authority      Authority      `json:"authority"`
+	CreatedBy      string         `json:"createdBy"`
+	CreatedAt      time.Time      `json:"createdAt"`
+	LastSeenAt     *time.Time     `json:"lastSeenAt,omitempty"`
+	RevokedAt      *time.Time     `json:"revokedAt,omitempty"`
 }
 
 type AgentSession struct {
-	ID             string     `json:"id"`
-	InstallationID string     `json:"installationId"`
-	ClientInstance string     `json:"clientInstance,omitempty"`
-	CreatedAt      time.Time  `json:"createdAt"`
-	LastSeenAt     time.Time  `json:"lastSeenAt"`
-	ExpiresAt      time.Time  `json:"expiresAt"`
-	EndedAt        *time.Time `json:"endedAt,omitempty"`
+	ParentSessionID string     `json:"parentSessionId,omitempty"`
+	WorkerName      string     `json:"workerName,omitempty"`
+	WorkerDraft     bool       `json:"workerDraft,omitempty"`
+	ID              string     `json:"id"`
+	InstallationID  string     `json:"installationId"`
+	ClientInstance  string     `json:"clientInstance,omitempty"`
+	CreatedAt       time.Time  `json:"createdAt"`
+	LastSeenAt      time.Time  `json:"lastSeenAt"`
+	ExpiresAt       time.Time  `json:"expiresAt"`
+	EndedAt         *time.Time `json:"endedAt,omitempty"`
 }
 
 type DeviceAuthorization struct {
@@ -82,6 +88,7 @@ type Bootstrap struct {
 	Changes            []ChangeIndex            `json:"changes"`
 	PendingChanges     []ChangeIndex            `json:"pendingChanges"`
 	InitialDeployments []InitialDeploymentIndex `json:"initialDeployments"`
+	Tasks              []WorkspaceTask          `json:"tasks"`
 	Capabilities       map[string]any           `json:"capabilities"`
 	Incidents          []any                    `json:"incidents"`
 }

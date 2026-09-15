@@ -21,16 +21,21 @@ type HTTPConfig struct {
 	PublicURL     string
 	CookieSecure  bool
 	RequireInvite bool
+	GoogleOAuth   OAuthCredentials
+	GitHubOAuth   OAuthCredentials
+	Billing       *BillingGateway
+	Operator      OperatorConfig
 }
 
 type HTTPServer struct {
 	service *Service
 	config  HTTPConfig
 	limits  *requestLimiter
+	oauth   map[string]*oauthProvider
 }
 
 func NewHTTPServer(service *Service, config HTTPConfig) http.Handler {
-	return &HTTPServer{service: service, config: config, limits: newRequestLimiter()}
+	return &HTTPServer{service: service, config: config, limits: newRequestLimiter(), oauth: newOAuthProviders(config)}
 }
 
 func (h *HTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -74,11 +79,17 @@ func (h *HTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch parts[1] {
+	case "billing":
+		h.billingPublic(w, r, parts[2:])
+		return
 	case "auth":
 		h.auth(w, r, parts[2:])
 		return
 	case "me":
 		h.me(w, r)
+		return
+	case "agent-pairings":
+		h.agentPairings(w, r, parts[2:])
 		return
 	case "device":
 		h.device(w, r, parts[2:])
@@ -223,11 +234,17 @@ func nodeRequestIsHTTPS(r *http.Request) bool {
 }
 
 func (h *HTTPServer) auth(w http.ResponseWriter, r *http.Request, parts []string) {
+	if len(parts) > 0 && parts[0] == "oauth" {
+		h.oauthAuth(w, r, parts[1:])
+		return
+	}
 	if len(parts) != 1 {
 		writeError(w, http.StatusNotFound, ErrNotFound)
 		return
 	}
 	switch parts[0] {
+	case "providers":
+		h.oauthProviders(w, r)
 	case "signup":
 		if r.Method != http.MethodPost {
 			methodNotAllowed(w)
@@ -415,6 +432,18 @@ func (h *HTTPServer) agent(w http.ResponseWriter, r *http.Request, parts []strin
 		writeStoreError(w, err)
 		return
 	}
+	if len(parts) == 1 && parts[0] == "workers" && r.Method == http.MethodPost {
+		h.workerRequest(w, r, p)
+		return
+	}
+	if len(parts) == 1 && parts[0] == "disconnect" && r.Method == http.MethodPost {
+		if err := h.service.Store.DisconnectAgent(r.Context(), p); err != nil {
+			writeStoreError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if len(parts) == 1 && parts[0] == "whoami" && r.Method == http.MethodGet {
 		writeJSON(w, http.StatusOK, map[string]any{"installation": p.Installation, "session": p.Session})
 		return
@@ -455,6 +484,16 @@ func (h *HTTPServer) installations(w http.ResponseWriter, r *http.Request, parts
 		if err != nil {
 			writeStoreError(w, err)
 			return
+		}
+		for index := range items {
+			if items[index].RevokedAt == nil && (items[index].ExpiresAt == nil || items[index].ExpiresAt.After(h.service.Store.now())) {
+				workers, err := h.service.Store.AgentWorkers(r.Context(), items[index].ID)
+				if err != nil {
+					writeStoreError(w, err)
+					return
+				}
+				items[index].Workers = workers
+			}
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"installations": items})
 		return
@@ -568,6 +607,31 @@ func (h *HTTPServer) workspaces(w http.ResponseWriter, r *http.Request, parts []
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"protocolVersion": "v1", "workspace": workspace, "systems": systems, "changes": changes, "initialDeployments": deployments, "capabilities": initialDeploymentCapabilities(workspaceID), "incidents": []any{}})
+		return
+	}
+	if parts[1] == "billing" {
+		h.workspaceBilling(w, r, p, workspaceID, parts[2:])
+		return
+	}
+	if parts[1] == "conversations" {
+		h.conversations(w, r, p, workspaceID, parts[2:])
+		return
+	}
+	if parts[1] == "github" {
+		h.workspaceGitHub(w, r, p, workspaceID, parts[2:])
+		return
+	}
+	if parts[1] == "activity" && len(parts) == 2 && r.Method == http.MethodGet {
+		actions, err := h.service.Store.ListWorkspaceActions(r.Context(), workspaceID)
+		if err != nil {
+			writeStoreError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"actions": actions})
+		return
+	}
+	if parts[1] == "tasks" {
+		h.workspaceTasks(w, r, p, workspaceID, parts[2:])
 		return
 	}
 	if parts[1] == "changes" && len(parts) == 2 && r.Method == http.MethodGet {

@@ -79,6 +79,7 @@ type DeviceAuthorization struct {
 }
 
 type Installation struct {
+	ExpiresAt   *time.Time `json:"expiresAt,omitempty"`
 	ID          string     `json:"id"`
 	WorkspaceID string     `json:"workspaceId"`
 	Name        string     `json:"name"`
@@ -90,12 +91,15 @@ type Installation struct {
 }
 
 type Session struct {
-	ID             string    `json:"id"`
-	InstallationID string    `json:"installationId"`
-	ClientInstance string    `json:"clientInstance,omitempty"`
-	CreatedAt      time.Time `json:"createdAt"`
-	LastSeenAt     time.Time `json:"lastSeenAt"`
-	ExpiresAt      time.Time `json:"expiresAt"`
+	ParentSessionID string    `json:"parentSessionId,omitempty"`
+	WorkerName      string    `json:"workerName,omitempty"`
+	WorkerDraft     bool      `json:"workerDraft,omitempty"`
+	ID              string    `json:"id"`
+	InstallationID  string    `json:"installationId"`
+	ClientInstance  string    `json:"clientInstance,omitempty"`
+	CreatedAt       time.Time `json:"createdAt"`
+	LastSeenAt      time.Time `json:"lastSeenAt"`
+	ExpiresAt       time.Time `json:"expiresAt"`
 }
 
 type TokenPair struct {
