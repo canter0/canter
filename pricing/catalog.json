@@ -1,0 +1,8 @@
+{
+  "version": "2026-09-15",
+  "currency": "usd",
+  "plans": [
+    { "id": "payg", "name": "Pay as you go", "monthlyCents": 0, "includedUsageCents": 0 },
+    { "id": "pro", "name": "Pro", "monthlyCents": 2000, "includedUsageCents": 2000 }
+  ]
+}

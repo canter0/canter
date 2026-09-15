@@ -1,0 +1,17 @@
+{
+  "version": "2026-09-15",
+  "kind": "illustrative-monthly-quotes",
+  "currency": "usd",
+  "hours": 720,
+  "sharedWorkload": {
+    "objectStorageGB": 10,
+    "objectWrites": 10000,
+    "objectReads": 100000,
+    "objectDownloadsGB": 5,
+    "appTransferGB": 5
+  },
+  "quotes": [
+    { "name": "Small app", "averageMemoryGB": 0.25, "averageVCPU": 0.01, "canterCents": 325, "railwayCents": 500, "awsCents": 1205, "awsInstance": "t3.micro" },
+    { "name": "Steady app", "averageMemoryGB": 1, "averageVCPU": 0.05, "canterCents": 450, "railwayCents": 1140, "awsCents": 1961, "awsInstance": "t3.small" }
+  ]
+}
