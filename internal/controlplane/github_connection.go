@@ -189,7 +189,7 @@ func (h *HTTPServer) workspaceGitHub(w http.ResponseWriter, r *http.Request, p P
 		writeJSON(w, http.StatusOK, githubConnection{Enabled: h.oauth["github"] != nil})
 		return
 	}
-	if r.Method != http.MethodGet || len(parts) > 1 || (len(parts) == 1 && parts[0] != "repositories") {
+	if r.Method != http.MethodGet || len(parts) > 1 || (len(parts) == 1 && parts[0] != "repositories" && parts[0] != "compare" && parts[0] != "file") {
 		writeError(w, http.StatusNotFound, ErrNotFound)
 		return
 	}
@@ -200,6 +200,31 @@ func (h *HTTPServer) workspaceGitHub(w http.ResponseWriter, r *http.Request, p P
 	}
 	if len(parts) == 0 {
 		writeJSON(w, http.StatusOK, state)
+		return
+	}
+	if parts[0] == "compare" || parts[0] == "file" {
+		repo, err := normalizeRepository(r.URL.Query().Get("repository"))
+		commit := r.URL.Query().Get("commit")
+		if err != nil || !repositoryCommit.MatchString(commit) {
+			writeError(w, http.StatusBadRequest, fmt.Errorf("a repository and immutable commit are required"))
+			return
+		}
+		if state.Reconnect {
+			writeError(w, http.StatusUnauthorized, errGitHubReconnect)
+			return
+		}
+		ctx := context.WithValue(r.Context(), githubTokenKey{}, token)
+		var value any
+		if parts[0] == "compare" {
+			value, err = compareRepository(ctx, repo, r.URL.Query().Get("base"), commit)
+		} else {
+			value, err = readRepositoryFile(ctx, repo, commit, r.URL.Query().Get("path"))
+		}
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, value)
 		return
 	}
 	page := 1

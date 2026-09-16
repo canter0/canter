@@ -41,7 +41,7 @@ func (c OperatorConfig) complete(ctx context.Context, messages []modelMessage, t
 	for _, tool := range tools {
 		functions = append(functions, map[string]any{"type": "function", "function": map[string]any{"name": tool.Name, "description": tool.Description, "parameters": tool.InputSchema}})
 	}
-	body, err := json.Marshal(map[string]any{"model": c.Model, "messages": messages, "tools": functions, "stream": true, "max_tokens": 4096, "reasoning": map[string]any{"enabled": false}, "provider": map[string]any{"require_parameters": true}})
+	body, err := json.Marshal(map[string]any{"model": c.Model, "messages": messages, "tools": functions, "stream": true, "max_tokens": 4096, "reasoning": map[string]any{"effort": "none"}, "provider": map[string]any{"require_parameters": true}})
 	if err != nil {
 		return modelMessage{}, err
 	}

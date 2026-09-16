@@ -186,13 +186,19 @@ func TestOperatorRuntimeExecutesToolAndPersistsFollowup(t *testing.T) {
 	calls := 0
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var request struct {
-			Messages []modelMessage `json:"messages"`
+			Messages  []modelMessage `json:"messages"`
+			Reasoning struct {
+				Effort string `json:"effort"`
+			} `json:"reasoning"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 			t.Error(err)
 			return
 		}
 		calls++
+		if request.Reasoning.Effort != "none" {
+			t.Error("tool calling must explicitly disable unsupported reasoning")
+		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		emit := func(delta any) {
 			b, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"delta": delta}}})

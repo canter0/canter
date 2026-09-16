@@ -96,6 +96,7 @@ type RepositoryInspection struct {
 	Description string   `json:"description"`
 	Branch      string   `json:"branch"`
 	Commit      string   `json:"commit"`
+	Parent      string   `json:"parent,omitempty"`
 	Files       []string `json:"files"`
 	Truncated   bool     `json:"truncated"`
 }
@@ -123,7 +124,10 @@ func inspectRepository(ctx context.Context, repo, ref string) (RepositoryInspect
 		return out, err
 	}
 	var commit struct {
-		SHA string `json:"sha"`
+		SHA     string `json:"sha"`
+		Parents []struct {
+			SHA string `json:"sha"`
+		} `json:"parents"`
 	}
 	if err = json.Unmarshal(data, &commit); err != nil {
 		return out, err
@@ -132,6 +136,9 @@ func inspectRepository(ctx context.Context, repo, ref string) (RepositoryInspect
 		return out, fmt.Errorf("GitHub did not return an immutable commit")
 	}
 	out.Commit = commit.SHA
+	if len(commit.Parents) > 0 && repositoryCommit.MatchString(commit.Parents[0].SHA) {
+		out.Parent = commit.Parents[0].SHA
+	}
 	data, err = githubBytes(ctx, "https://api.github.com/repos/"+repo+"/git/trees/"+commit.SHA+"?recursive=1", 4<<20)
 	if err != nil {
 		return out, err
@@ -342,4 +349,53 @@ func staticRepositoryFiles(archive []byte, directory string) (map[string][]byte,
 		return nil, fmt.Errorf("no index.html found in the selected static directory")
 	}
 	return files, nil
+}
+
+// GitHub omits patches for binary/large files and limits the comparison to 300 files.
+// Preserve those limits explicitly instead of suggesting this is a complete patch.
+type RepositoryDiffFile struct {
+	Filename         string `json:"filename"`
+	PreviousFilename string `json:"previous_filename,omitempty"`
+	Status           string `json:"status"`
+	Additions        int    `json:"additions"`
+	Deletions        int    `json:"deletions"`
+	Patch            string `json:"patch,omitempty"`
+	PatchUnavailable bool   `json:"patchUnavailable"`
+}
+type RepositoryComparison struct {
+	Repository string               `json:"repository"`
+	Base       string               `json:"base"`
+	Commit     string               `json:"commit"`
+	Files      []RepositoryDiffFile `json:"files"`
+	Truncated  bool                 `json:"truncated"`
+}
+
+func compareRepository(ctx context.Context, repo, base, commit string) (RepositoryComparison, error) {
+	out := RepositoryComparison{Repository: repo, Base: base, Commit: commit, Files: []RepositoryDiffFile{}}
+	if !repositoryCommit.MatchString(base) || !repositoryCommit.MatchString(commit) {
+		return out, fmt.Errorf("two immutable commit SHAs are required")
+	}
+	raw, err := githubBytes(ctx, "https://api.github.com/repos/"+repo+"/compare/"+base+"..."+commit+"?per_page=1", 4<<20)
+	if err != nil {
+		return out, err
+	}
+	var value struct {
+		Files []RepositoryDiffFile `json:"files"`
+	}
+	if err = json.Unmarshal(raw, &value); err != nil {
+		return out, err
+	}
+	out.Files = value.Files
+	if out.Files == nil {
+		out.Files = []RepositoryDiffFile{}
+	}
+	out.Truncated = len(out.Files) >= 300
+	for i := range out.Files {
+		if len(out.Files[i].Patch) > 200000 {
+			out.Files[i].Patch = ""
+			out.Truncated = true
+		}
+		out.Files[i].PatchUnavailable = out.Files[i].Patch == ""
+	}
+	return out, nil
 }

@@ -133,7 +133,7 @@ func main() {
 		operator.BaseURL = "https://openrouter.ai/api/v1"
 	}
 	if operator.Model == "" {
-		operator.Model = "anthropic/claude-sonnet-4.6"
+		operator.Model = "openai/gpt-5.6-luna"
 	}
 	handler := controlplane.NewHTTPServer(service, controlplane.HTTPConfig{PublicURL: publicURL, CookieSecure: cookieSecure, RequireInvite: strings.EqualFold(os.Getenv("CANTER_REQUIRE_INVITE"), "true"), GoogleOAuth: googleOAuth, GitHubOAuth: githubOAuth, Billing: billing, Operator: operator})
 	if operator.Ready() {
