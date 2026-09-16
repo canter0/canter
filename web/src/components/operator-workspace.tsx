@@ -143,12 +143,11 @@ export function OperatorWorkspace({ id, githubResult }: { id?: string; githubRes
   const github = workspace ? <GitHubRepositories inline workspaceId={workspace} conversationId={id} result={githubResult} busy={sending || running || !data?.agent.available} onDeploy={repository => send(undefined, repository)} /> : null;
 
   return <AppShell active="Home" agentView onNewInstruction={() => { if (id) router.push("/app"); else { editDraft(""); setSelected(null); setInlineGitHub(false); composer.current?.focus(); } }}>
-    <div className={styles.workspace} data-has-surface={showPanel} data-working={running}>
-      <header className={styles.conversationHeader}><span>{detail?.conversation.title ?? "Your workspace"}</span><button className={styles.panelToggle} aria-label={showPanel ? "Hide right panel" : "Show right panel"} aria-expanded={showPanel} onClick={() => { if (!selected) setSelected(shownSurfaces.at(-1) ?? { kind: "apps" }); setPanelOpen(!showPanel); }}><WorkspaceIcon name="panel" /></button></header>
+    <div className={styles.workspace} data-has-surface={showPanel} data-working={running} data-empty={!id && !hasMessages && !inlineGitHub}>
+      <header className={styles.conversationHeader}><span>{detail?.conversation.title ?? ""}</span><button className={styles.panelToggle} aria-label={showPanel ? "Hide right panel" : "Show right panel"} aria-expanded={showPanel} onClick={() => { if (!selected) setSelected(shownSurfaces.at(-1) ?? { kind: "apps" }); setPanelOpen(!showPanel); }}><WorkspaceIcon name="panel" /></button></header>
       <section className={styles.conversation} aria-label="Canter conversation">
         <div className={styles.transcript} ref={transcript} onWheel={event => { if (event.deltaY < 0) followScroll.current = false; }} onTouchMove={() => { followScroll.current = false; }} onKeyDown={event => { if (["ArrowUp", "PageUp", "Home"].includes(event.key)) followScroll.current = false; }} onScroll={() => { const element = transcript.current; if (element && element.scrollHeight - element.scrollTop - element.clientHeight < 50) followScroll.current = true; }}>
           <div ref={transcriptContent}>
-          {!id && !hasMessages ? <div className={styles.welcome}><h1>What would you like to do?</h1><p>Deploy a repository, check on your apps, or manage your workspace.</p></div> : null}
           {id && !detail && !connectionError ? <p className={styles.note} role="status">Loading your conversation…</p> : null}
           {detail?.messages.filter(message => message.role === "user").map(message => <OperatorTurn key={message.id} message={message} answer={detail.messages.find(answer => answer.role === "assistant" && answer.runId === message.runId)} events={events.filter(event => event.runId === message.runId)} running={running && message.runId === detail.run?.id} onSelect={openSurface} inline={!inlineGitHub && githubRun === message.runId ? github : undefined} />)}
           {inlineGitHub ? github : null}
@@ -157,11 +156,12 @@ export function OperatorWorkspace({ id, githubResult }: { id?: string; githubRes
           </div>
         </div>
         <div className={styles.composerArea}>
+          {!id && !hasMessages ? <div className={styles.startBrand}><span className="wordmark">canter</span></div> : null}
           {workspaceError || error ? <p className={styles.error} role="alert">{error || workspaceError}{workspaceError ? <button onClick={refreshWorkspace}>Retry</button> : null}</p> : null}
           {connectionError ? <p className={styles.error} role="status">Updates disconnected. Reconnecting… <button onClick={() => setAttempt(value => value + 1)}>Retry now</button></p> : null}
           {data && !data.agent.available ? <p className={styles.error} role="alert">The workspace agent is unavailable. Ask your administrator to configure its model connection.</p> : null}
           <OperatorComposer draft={draft} onChange={editDraft} onSend={() => void send()} onStop={() => void stop()} running={running} disabled={sending || !data?.agent.available} inputRef={composer} selected={selected} model={data?.agent.model} onSelect={openSurface} />
-          {!id ? <div className={styles.suggestions}>{["Show my deployments", "Show billing", "Help me deploy a repository"].map(prompt => <button key={prompt} onClick={() => { editDraft(prompt); composer.current?.focus(); }}>{prompt}</button>)}</div> : null}
+
         </div>
       </section>
       {showPanel && selected && workspace ? <aside className={styles.surface} data-workspace-surface aria-label={`${surfaceLabels[selected.kind]} view`}><header className={styles.surfaceHeader}><nav className={styles.surfaceTabs} aria-label="Workspace views">{shownSurfaces.map(surface => <button key={surfaceKey(surface)} aria-pressed={surfaceKey(surface) === surfaceKey(selected)} onClick={() => openSurface(surface)} title={surface.path ?? surface.repository ?? surfaceLabels[surface.kind]}><WorkspaceIcon name={surface.kind === "file" || surface.kind === "repository-changes" ? "file" : "panel"} width="14" height="14" /><span>{surface.path?.split("/").at(-1) ?? surface.system ?? surfaceLabels[surface.kind]}</span></button>)}</nav><button className={styles.closePanel} aria-label="Close view" onClick={() => setPanelOpen(false)}><span className={styles.backToConversation}>Back</span><WorkspaceIcon name="close" /></button></header><div className={styles.surfaceContent}><OperatorSurfaceView key={surfaceKey(selected)} surface={selected} workspaceId={workspace} onSelect={openSurface} conversationId={id} githubResult={githubResult} busy={sending || running || !data?.agent.available} onDeploy={repository => send(undefined, repository)} /></div></aside> : null}

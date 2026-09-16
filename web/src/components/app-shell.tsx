@@ -8,7 +8,6 @@ import Link from "next/link";
 import { type ReactNode, useState } from "react";
 import { useWorkspace } from "./workspace-context";
 import { WorkspaceIcon, type WorkspaceIconName } from "./workspace-icon";
-import { taskStatus } from "@/lib/task-options";
 import styles from "./workspace.module.css";
 
 type NavItem = "Home" | "Task" | "System" | "Changes" | "Agents" | "Account" | "Billing";
@@ -25,7 +24,6 @@ export function AppShell({ active, context, children, onNewInstruction, agentVie
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const workspaceName = !data?.workspace.name || data.workspace.name === "default" ? "Your workspace" : data.workspace.name;
-  const recent = data?.tasks.slice(0, 8) ?? [];
   const connected = data?.installations.filter(agentIsConnected) ?? [];
   const pageName = active === "Task" ? "Task" : active === "Account" ? "Settings" : navigation.find(item => item.active === active)?.label;
 
@@ -55,10 +53,6 @@ export function AppShell({ active, context, children, onNewInstruction, agentVie
           <div className={styles.sidebarLabel}>Conversations</div>
           {data?.conversations.length ? data.conversations.map(item => <Link key={item.id} className={styles.recentLink} href={`/app/conversations/${encodeURIComponent(item.id)}`} title={item.title}><span>{item.title}</span><small>{["queued", "running"].includes(item.status) ? "Working…" : item.status === "failed" ? "Needs attention" : ""}</small></Link>) : <p className={styles.sidebarEmpty}>Your conversations will appear here.</p>}
         </div>
-        {recent.length ? <div className={styles.recentSection}>
-          <div className={styles.sidebarLabel}>External agent tasks</div>
-          {recent.length ? recent.map(item => <Link key={item.id} className={styles.recentLink} href={`/app/tasks/${encodeURIComponent(item.id)}`} title={item.prompt}><span>{item.prompt}</span><small>{taskStatus[item.status]}</small></Link>) : <p className={styles.sidebarEmpty}>No tasks yet.</p>}
-        </div> : null}
         <div className={styles.sidebarBottom}>
           {connected.length ? <Link href="/app/agents" className={styles.agentLink}><span className={styles.connectionDot} data-connected /><span>{connected.length} agent{connected.length === 1 ? "" : "s"} connected</span><WorkspaceIcon name="external" width="14" height="14" /></Link> : <ConnectAgentButton className={styles.agentLink}><span className={styles.connectionDot} /><span>Connect your agent</span><WorkspaceIcon name="external" width="14" height="14" /></ConnectAgentButton>}
           <Link href="/app/billing" className={styles.navLink} aria-current={active === "Billing" ? "page" : undefined}><WorkspaceIcon name="file" /><span>Billing</span></Link>
