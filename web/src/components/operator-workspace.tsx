@@ -108,14 +108,14 @@ export function OperatorWorkspace({ id, githubResult }: { id?: string; githubRes
   }
   async function send(event?: FormEvent, chosenRepository?: string) {
     event?.preventDefault();
-    const message = chosenRepository ? `Deploy @${chosenRepository}` : (composer.current?.value ?? draft).trim();
+    const message = chosenRepository ? `Deploy https://github.com/${chosenRepository}` : (composer.current?.value ?? draft).trim();
     if (!workspace || !message || sending || running || !data?.agent.available) return;
     setSending(true); setError(""); followScroll.current = true;
     if (!pending.current || pending.current.message !== message) pending.current = { id: id ?? `conv_${crypto.randomUUID()}`, requestId: crypto.randomUUID(), message };
     const request = pending.current;
     try {
       const base = conversationBase(workspace);
-      await canterFetch(id ? `${base}/${encodeURIComponent(id)}/messages` : base, { method: "POST", body: JSON.stringify(id ? { requestId: request.requestId, message, surface: selected } : { ...request, surface: selected }) });
+      await canterFetch(id ? `${base}/${encodeURIComponent(id)}/messages` : base, { method: "POST", body: JSON.stringify(id ? { requestId: request.requestId, message, surface: chosenRepository ? { kind: "repository", repository: chosenRepository } : selected } : { ...request, surface: chosenRepository ? { kind: "repository", repository: chosenRepository } : selected }) });
       if (!chosenRepository) editDraft("");
       else if (!id && draft) { try { sessionStorage.setItem(`canter:conversation-draft:${workspace}:${request.id}`, draft); } catch { /* Nonessential storage. */ } }
       pending.current = null;
@@ -146,7 +146,7 @@ export function OperatorWorkspace({ id, githubResult }: { id?: string; githubRes
     <div className={styles.workspace} data-has-surface={showPanel} data-working={running}>
       <header className={styles.conversationHeader}><span>{detail?.conversation.title ?? "Your workspace"}</span><button className={styles.panelToggle} aria-label={showPanel ? "Hide right panel" : "Show right panel"} aria-expanded={showPanel} onClick={() => { if (!selected) setSelected(shownSurfaces.at(-1) ?? { kind: "apps" }); setPanelOpen(!showPanel); }}><WorkspaceIcon name="panel" /></button></header>
       <section className={styles.conversation} aria-label="Canter conversation">
-        <div className={styles.transcript} ref={transcript} onScroll={() => { const element = transcript.current; if (element) followScroll.current = element.scrollHeight - element.scrollTop - element.clientHeight < 100; }}>
+        <div className={styles.transcript} ref={transcript} onWheel={event => { if (event.deltaY < 0) followScroll.current = false; }} onTouchMove={() => { followScroll.current = false; }} onKeyDown={event => { if (["ArrowUp", "PageUp", "Home"].includes(event.key)) followScroll.current = false; }} onScroll={() => { const element = transcript.current; if (element && element.scrollHeight - element.scrollTop - element.clientHeight < 50) followScroll.current = true; }}>
           <div ref={transcriptContent}>
           {!id && !hasMessages ? <div className={styles.welcome}><h1>What would you like to do?</h1><p>Deploy a repository, check on your apps, or manage your workspace.</p></div> : null}
           {id && !detail && !connectionError ? <p className={styles.note} role="status">Loading your conversation…</p> : null}

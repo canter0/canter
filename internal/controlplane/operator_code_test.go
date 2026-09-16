@@ -55,3 +55,19 @@ func TestRepositoryCodeRoutesRequireWorkspaceMembership(t *testing.T) {
 		}
 	}
 }
+
+func TestRepositoryRevisionErrorKeepsValidRepositoryContext(t *testing.T) {
+	old := githubHTTPClient
+	t.Cleanup(func() { githubHTTPClient = old })
+	githubHTTPClient = &http.Client{Transport: githubRoundTrip(func(r *http.Request) (*http.Response, error) {
+		status, body := 200, `{"default_branch":"main"}`
+		if strings.Contains(r.URL.Path, "/commits/") {
+			status, body = 422, `{"message":"invalid ref"}`
+		}
+		return &http.Response{StatusCode: status, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(body))}, nil
+	})}
+	_, err := inspectRepository(context.Background(), "o/r", "o/r")
+	if err == nil || !strings.Contains(err.Error(), "repository exists") || !strings.Contains(err.Error(), "ref omitted") {
+		t.Fatalf("invalid revision misidentified as missing repository: %v", err)
+	}
+}

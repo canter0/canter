@@ -121,7 +121,7 @@ func inspectRepository(ctx context.Context, repo, ref string) (RepositoryInspect
 	out.Branch = ref
 	data, err = githubBytes(ctx, "https://api.github.com/repos/"+repo+"/commits/"+url.PathEscape(ref), 1<<20)
 	if err != nil {
-		return out, err
+		return out, fmt.Errorf("repository exists, but revision %q could not be resolved: %w; if no revision was requested, retry inspection with ref omitted to use the default branch %q", ref, err, metadata.DefaultBranch)
 	}
 	var commit struct {
 		SHA     string `json:"sha"`
