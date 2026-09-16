@@ -30,3 +30,34 @@
 .back { display: inline-block; color: var(--muted); margin-top: 35px; font-size: 12px; }
 .page a:focus-visible, .page button:focus-visible { outline: 2px solid #9ab781; outline-offset: 5px; }
 @media(max-width:600px) { .page { padding: 25px 20px 50px; } .heading { align-items: flex-start; } .heading h1 { font-size: 24px; } .plans { grid-template-columns: 1fr; } .current { align-items: flex-start; flex-direction: column; } .statement header { align-items: flex-start; flex-direction: column; gap: 0; } }
+
+.period { display: flex; justify-content: space-between; gap: 12px; color: var(--muted); font-size: 11px; margin: 0 0 24px; }
+.period span { color: #777; }
+.metrics { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 22px; margin-bottom: 42px; }
+.metrics > div { display: flex; flex-direction: column; gap: 13px; min-width: 0; }
+.metrics span { color: var(--muted); font-size: 12px; }
+.metrics strong { font-size: clamp(25px,3vw,36px); font-weight: 400; letter-spacing: -.04em; font-variant-numeric: tabular-nums; }
+.metrics small { color: #858585; font-size: 11px; line-height: 1.6; }
+.increase { color: #ddbc97; }.decrease { color: #a9c99a; }
+.usageSection { margin: 34px 0 38px; }
+.usageSection header,.forecast header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 22px; }
+.usageSection h2,.forecast h2 { font-size: 16px; font-weight: 400; margin: 0; }
+.usageSection header > span { color: var(--muted); font-size: 11px; }
+.chart { height: 150px; display: flex; gap: 5px; align-items: stretch; }
+.chart button { display: flex; align-items: flex-end; justify-content: center; flex: 1; min-width: 0; border-radius: 5px; }
+.chart button span { display: block; width: 100%; min-height: 2px; border-radius: 3px 3px 1px 1px; background: #829a70; }
+.chart button:hover span,.chart button[data-selected="true"] span { background: #c4d4ad; }
+.chartAxis { display: flex; justify-content: space-between; gap: 10px; margin-top: 12px; color: #878787; font-size: 10px; }
+.emptyChart { background: #202020; border-radius: 14px; padding: 27px; }
+.emptyChartIcon { color: #9aae8b; font-size: 28px; }.emptyChart h3 { font-size: 15px; margin: 10px 0; font-weight: 400; }
+.emptyChart p,.forecast p { font-size: 12px; line-height: 1.8; color: var(--muted); max-width: 490px; }
+.capacityMetrics { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 15px; margin: 25px 0; }
+.capacityMetrics > div { display: flex; flex-direction: column; gap: 8px; }.capacityMetrics strong { font-size: 21px; font-weight: 400; }.capacityMetrics span { color: var(--muted); font-size: 10px; line-height: 1.5; }
+.resourceList { display: flex; flex-direction: column; gap: 5px; }.resourceList > div { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 13px 0; font-size: 13px; }
+.resourceList > div > span { min-width: 0; overflow-wrap: anywhere; }.resourceList small { display: block; color: var(--muted); font-size: 10px; margin-top: 7px; }.resourceList strong { font-size: 13px; font-weight: 400; white-space: nowrap; }
+.forecast { padding: 24px; background: #21241f; border-radius: 14px; margin: 32px 0; }.forecast header > span { font-size: 23px; letter-spacing: -.03em; }.forecast strong { color: var(--ink); font-weight: 500; }
+.forecast label { display: flex; justify-content: space-between; font-size: 12px; margin: 25px 0 12px; }.forecast input { width: 100%; accent-color: #afc69c; }
+.forecastFactors { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; margin-top: 23px; }.forecastFactors span { font-size: 12px; }.forecastFactors p { font-size: 11px; margin-top: 8px; }
+.paymentSettings { margin-top: 34px; }.paymentSettings > summary { display: flex; justify-content: space-between; gap: 12px; padding: 15px 0; cursor: pointer; font-size: 14px; }.paymentSettings > summary:before { content: '›'; color: var(--muted); }.paymentSettings > summary > span { margin-left: auto; color: var(--muted); font-size: 12px; }.paymentSettings[open] > summary:before { content: '⌄'; }
+@container (max-width: 480px) { .metrics { gap: 14px; }.metrics strong { font-size: 25px; }.metrics small { font-size: 10px; }.capacityMetrics { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+@media(max-width:420px) { .metrics { grid-template-columns: 1fr 1fr; gap: 24px; }.metrics > div:last-child { grid-column: 1/-1; }.capacityMetrics { grid-template-columns: 1fr 1fr; }.forecastFactors { grid-template-columns: 1fr; }.period { flex-wrap: wrap; } }

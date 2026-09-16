@@ -11,7 +11,7 @@ import { WorkspaceIcon, type WorkspaceIconName } from "./workspace-icon";
 import { taskStatus } from "@/lib/task-options";
 import styles from "./workspace.module.css";
 
-type NavItem = "Home" | "Task" | "System" | "Changes" | "Agents" | "Account";
+type NavItem = "Home" | "Task" | "System" | "Changes" | "Agents" | "Account" | "Billing";
 const navigation: Array<{ label: string; active: NavItem; href: string; icon: WorkspaceIconName }> = [
   { label: "New conversation", active: "Home", href: "/app", icon: "plus" },
   { label: "Apps", active: "System", href: "/app/system", icon: "apps" },
@@ -61,7 +61,7 @@ export function AppShell({ active, context, children, onNewInstruction, agentVie
         </div> : null}
         <div className={styles.sidebarBottom}>
           {connected.length ? <Link href="/app/agents" className={styles.agentLink}><span className={styles.connectionDot} data-connected /><span>{connected.length} agent{connected.length === 1 ? "" : "s"} connected</span><WorkspaceIcon name="external" width="14" height="14" /></Link> : <ConnectAgentButton className={styles.agentLink}><span className={styles.connectionDot} /><span>Connect your agent</span><WorkspaceIcon name="external" width="14" height="14" /></ConnectAgentButton>}
-          <Link href="/app/billing" className={styles.navLink}><WorkspaceIcon name="file" /><span>Billing</span></Link>
+          <Link href="/app/billing" className={styles.navLink} aria-current={active === "Billing" ? "page" : undefined}><WorkspaceIcon name="file" /><span>Billing</span></Link>
           <Link href="/app/account" className={styles.navLink} aria-current={active === "Account" ? "page" : undefined}><WorkspaceIcon name="settings" /><span>Settings</span></Link>
         </div>
       </aside>

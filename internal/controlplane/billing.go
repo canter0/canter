@@ -18,6 +18,7 @@ import (
 )
 
 type BillingState struct {
+	Usage                BillingUsage `json:"usage"`
 	HasBillingAccount    bool         `json:"hasBillingAccount"`
 	PlanID               string       `json:"planId"`
 	Status               string       `json:"status"`
@@ -45,6 +46,10 @@ func (s *Store) billingState(ctx context.Context, workspace string) (BillingStat
 		}
 	}
 	out.Bill, err = pricing.Calculate(out.PlanID, usage)
+	if err != nil {
+		return out, err
+	}
+	out.Usage, err = s.billingUsage(ctx, workspace, subscription, out)
 	return out, err
 }
 

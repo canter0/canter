@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { BillingUsageView, type BillingUsage } from "./billing-usage";
 import { useSurfaceWorkspace } from "./embedded-app-surface";
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/app-shell";
@@ -10,6 +11,7 @@ import { dollars, estimateBill, type PlanID } from "@/lib/pricing";
 import styles from "@/app/app/billing/billing.module.css";
 
 type BillingState = {
+ usage: BillingUsage;
   planId: PlanID; status: string; checkoutEnabled: boolean; hasBillingAccount: boolean; periodStart: string | null; periodEnd: string | null; cancelAtPeriodEnd: boolean;
   bill: ReturnType<typeof estimateBill> & { creditRemainingCents: number }; pendingEvents: number; reconciliationEvents: number;
 };
@@ -51,10 +53,12 @@ export function BillingSettings({ initialPlan, checkoutReturned }: { initialPlan
     } catch (cause) { setError(cause instanceof Error ? cause.message : "The payment provider could not be reached."); setBusy(false); }
   }
   const started = !!state && !["not_started", "canceled", "incomplete_expired"].includes(state.status);
-  return <AppShell active="Account" context="Billing"><div className={styles.page}>
-    <div className={styles.heading}><div><p className="meta">Account / Billing</p><h1>Plan & usage</h1><p>Your subscription, usage credit, and monthly charges.</p></div><Link href="/pricing">View pricing ↗</Link></div>
+  return <AppShell active="Billing"><div className={styles.page}>
+    <div className={styles.heading}><div><h1>Usage & spending</h1><p>Where your resources go, and what comes next.</p></div><Link href="/pricing">View pricing ↗</Link></div>
     {error ? <div className={styles.notice} role="alert">{error} <button onClick={() => setReload((value) => value + 1)}>Retry</button></div> : null}
     {!state && !error ? <p role="status">Loading billing…</p> : null}
+    {state?.usage ? <BillingUsageView usage={state.usage} plan={state.planId} /> : null}
+    <details className={styles.paymentSettings}><summary>Plan & payment<span>{state?.planId === "pro" ? "Pro" : "Pay as you go"}</span></summary>
     {state && !state.checkoutEnabled ? <div className={styles.notice} role="status">Payments are not open yet. You can review both plans below; no subscription will start and no payment will be taken.</div> : null}
     {awaitingPayment && state?.status !== "active" ? <div className={styles.notice} role="status">Waiting for payment confirmation. Your plan changes only after the payment provider confirms it. <button onClick={() => setReload((value) => value + 1)}>Refresh</button></div> : null}
     {state && started ? <>
@@ -70,6 +74,7 @@ export function BillingSettings({ initialPlan, checkoutReturned }: { initialPlan
       <button className={styles.checkout} disabled={busy || !state?.checkoutEnabled} onClick={() => openPayment("checkout")}>{busy ? "Opening secure checkout…" : "Continue to payment"}</button>
     </section>}
     {!started && state?.hasBillingAccount ? <p><button className={styles.checkout} disabled={busy || !state.checkoutEnabled} onClick={() => openPayment("portal")}>Invoices & payment methods</button></p> : null}
+    </details>
     <Link className={styles.back} href="/app/account">← Account settings</Link>
   </div></AppShell>;
 }

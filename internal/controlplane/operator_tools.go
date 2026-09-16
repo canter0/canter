@@ -56,7 +56,7 @@ func (o *OperatorRuntime) tools() []mcpTool {
 	for _, item := range []struct{ name, description string }{
 		{"canter_show_apps", "Read this workspace's real applications and open the Apps view."},
 		{"canter_show_deployments", "Read real deployment proposals and Changes, and open the Deployments view."},
-		{"canter_show_billing", "Read current billing and pricing data and open Billing. not_started means no billing period has begun; do not call its calculated zeros an invoice. Payments require the human's UI."},
+		{"canter_show_billing", "Read recorded spending, daily usage, resource capacity, trends and forecasts, and open Billing. A null forecast means there is not enough recorded history; do not invent predictions. Capacity is configured allocation, not measured CPU utilization. not_started means no billing period has begun; do not call its calculated zeros an invoice. Payments require the human's UI."},
 		{"canter_show_activity", "Read audited workspace actions and open Activity."},
 		{"canter_show_agents", "Read agent installations and their grants and open Access. Revocation requires the human's UI."},
 		{"canter_show_repositories", "Open GitHub connection and repository picker in the conversation. Use this first when the user wants to deploy but has not chosen a repository, wants to connect GitHub, or supplies an ambiguous @name. Shows Connect GitHub if disconnected, otherwise lists their accessible repositories. The user selects a repository in the UI to continue."},
