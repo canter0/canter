@@ -124,8 +124,8 @@
 .workspace[data-empty="true"] .composerArea { padding-bottom: 60px; }
 .startBrand { margin: 0 16px 20px; font-size: 28px; }
 
-.contextPicker.contextPicker { width: 280px; max-width: calc(100vw - 64px); padding: 10px; border-radius: 16px; border-color: #303030; box-shadow: 0 16px 40px #0005; }
-.contextPicker.contextPicker > button { min-height: 42px; padding: 9px 10px; gap: 14px; border-radius: 8px; font-size: 15px; }
-.contextPicker.contextPicker > button > svg { width: 20px; height: 20px; }
+.contextPicker.contextPicker { width: 208px; max-width: calc(100vw - 64px); padding: 5px; border-radius: 10px; border-color: #303030; box-shadow: 0 16px 40px #0005; }
+.contextPicker.contextPicker > button { min-height: 32px; padding: 6px 8px; gap: 9px; border-radius: 6px; font-size: 12px; }
+.contextPicker.contextPicker > button > svg { width: 16px; height: 16px; }
 .workspace[data-empty="true"] .contextPicker { top: calc(100% + 10px) !important; bottom: auto; }
 @media (max-height: 600px) { .workspace[data-empty="true"] .contextPicker { top: auto !important; bottom: calc(100% + 10px); } }
