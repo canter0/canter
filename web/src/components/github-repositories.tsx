@@ -18,7 +18,7 @@ const connectionErrors: Record<string, string> = {
   connection_failed: "GitHub could not be connected. Please try again.",
 };
 
-export function GitHubRepositories({ workspaceId, conversationId, result, busy, onDeploy }: { workspaceId: string; conversationId?: string; result?: string; busy: boolean; onDeploy: (repository: string) => Promise<void> }) {
+export function GitHubRepositories({ workspaceId, conversationId, result, busy, onDeploy, inline = false }: { inline?: boolean; workspaceId: string; conversationId?: string; result?: string; busy: boolean; onDeploy: (repository: string) => Promise<void> }) {
   const [data, setData] = useState<Result | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -65,7 +65,7 @@ export function GitHubRepositories({ workspaceId, conversationId, result, busy, 
   }
   const connection = data?.connection;
   const repos = data?.repositories.filter(repo => repo.full_name.toLowerCase().includes(filter.toLowerCase())) ?? [];
-  return <section className={styles.panel} aria-label="GitHub repositories">
+  return <section className={styles.panel} data-inline={inline} aria-label="GitHub repositories">
     <div className={styles.icon}><ProviderIcon provider="github" /></div>
     <h2>{connection?.connected ? "Choose a repository" : "Start with your repository"}</h2>
     <p className={styles.description}>{connection?.connected ? `Connected as ${connection.login}. Choose what you’d like to deploy.` : "Connect GitHub and choose the repository you want Canter to deploy."}</p>

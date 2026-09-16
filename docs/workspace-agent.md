@@ -1,6 +1,6 @@
 # Workspace agent
 
-The dashboard starts a persistent conversation with the hosted Canter agent. It uses the control plane's `OPENROUTER_API_KEY`; the browser never receives that key. The default model is `anthropic/claude-sonnet-4.6`. Override it with `CANTER_OPERATOR_MODEL` when needed.
+The dashboard starts a persistent conversation with the hosted Canter agent. It uses the control plane's `OPENROUTER_API_KEY`; the browser never receives that key. The default model is `openai/gpt-5.6-luna`. Override it with `CANTER_OPERATOR_MODEL` when needed.
 
 ## Run locally
 
@@ -17,11 +17,11 @@ This builds both the current control plane and its trusted Linux static server, 
 - Real streamed model responses and multi-turn conversation history.
 - Workspace-scoped reads for apps, deployments, changes, agent access, audit activity, and billing.
 - Native billing, app, deployment, and change views opened alongside the conversation.
-- Public GitHub repository inspection at an immutable commit, plus bounded file reads.
-- Packaging and uploading public static websites, creating an immutable initial deployment proposal, and showing the real approval UI.
+- Public and connected private GitHub repository inspection at an immutable commit, plus bounded file reads.
+- Packaging and uploading static websites, creating an immutable initial deployment proposal, and showing the real approval UI.
 - Existing governed Change tools for deployed applications.
 
-Static preparation accepts a checked-in `index.html` at the repository root or a selected output directory. It does not run repository build scripts on the control-plane host. Private repository authorization and hosted source builds are not implemented. Payments require configured Stripe billing and the human checkout UI; the agent cannot initiate checkout or grant itself infrastructure approval.
+Static preparation accepts a checked-in `index.html` at the repository root or a selected output directory. It does not run repository build scripts on the control-plane host. Hosted source builds are not implemented. Payments require configured Stripe billing and the human checkout UI; the agent cannot initiate checkout or grant itself infrastructure approval.
 
 ## Persistence and authority
 
@@ -36,7 +36,7 @@ Deployments remain proposals until the authenticated user approves the exact dig
 `operator_integration_test.go` covers actual PostgreSQL persistence, isolation, membership changes, revocation, idempotency, cancellation, stale-worker fencing, interrupted writes, and multi-turn tool protocol. These tests use `CANTER_TEST_DATABASE_URL` and truncate that database; use an isolated database.
 
 The live browser workflow also uses the configured external model, real GitHub reads, actual artifact storage, and stored deployment proposals. It must leave infrastructure proposals awaiting human approval unless deployment was explicitly authorized.
-# GitHub inside the workspace
+## GitHub inside the workspace
 
 An unspecific deployment request opens the GitHub connection panel in the current
 conversation. Users authorize the existing OAuth app, return to the same
@@ -65,3 +65,13 @@ signed archive redirect is restricted to HTTPS `codeload.github.com` and receive
 no Authorization header. Repository contents remain untrusted input. Hosted
 preparation currently supports static websites and checked-in static build output;
 it does not execute arbitrary package install or source build commands.
+
+## Conversation and code views
+
+The hosted model defaults to `openai/gpt-5.6-luna` through OpenRouter, with explicit `none` reasoning for Chat Completions tool calls. The composer displays the server configuration, rather than an unrelated model preference.
+
+Every turn replays its public preamble, nearby tool activity, and final answer from durable events. Work expands while running and collapses after completion. GitHub connection and repository selection appear inline; resource results automatically open a toggleable right panel. The plus menu opens real workspace context, and drafts survive navigation and GitHub connection.
+
+Source reads open syntax-highlighted, line-numbered files at an immutable commit. `canter_show_repository_changes` compares two exact GitHub commits and opens a red/green diff. Both views use the signed-in member's server-held repository connection; they do not expose credentials or borrow another member's access. Binary or oversized patches are identified as unavailable. These are repository reading and comparison capabilities, not source editing.
+
+Focused presentation checks: `node --test web/tests/operator-presentation.test.mjs`. Database integration checks must use an isolated `CANTER_TEST_DATABASE_URL`; the integration fixture truncates its database.

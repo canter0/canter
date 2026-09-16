@@ -1,5 +1,6 @@
 "use client";
 import Link from "next/link";
+import { RepositoryCode } from "./repository-code";
 import { useEffect, useState } from "react";
 import { canterFetch, type SystemRecord, type Installation, type InitialDeploymentSummary, type ChangeSummary, type WorkspaceAction } from "@/lib/canter-api";
 import { type OperatorSurface, surfaceKey } from "@/lib/operator-api";
@@ -39,6 +40,7 @@ export function OperatorSurfaceView({ surface, workspaceId, onSelect, conversati
     return () => { controller.abort(); clearInterval(timer); };
   }, [surface.kind, workspaceId, retry]);
   return <EmbeddedAppSurface workspaceId={workspaceId}><div className={styles.embedded} key={surfaceKey(surface)}>
+    {surface.kind === "file" || surface.kind === "repository-changes" ? <RepositoryCode surface={surface} workspaceId={workspaceId} /> : null}
     {surface.kind === "github" ? <GitHubRepositories workspaceId={workspaceId} conversationId={conversationId} result={githubResult} busy={busy} onDeploy={onDeploy} /> : null}
     {surface.kind === "billing" ? <BillingSettings initialPlan="payg" checkoutReturned={false} /> : null}
     {surface.kind === "deployment" && surface.id ? <InitialDeploymentReview id={surface.id} /> : null}

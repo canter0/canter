@@ -31,3 +31,12 @@
 .linkForm button { display: grid; place-items: center; flex-shrink: 0; width: 30px; height: 30px; border-radius: 50%; background: #3a3a3a; }
 .linkForm button:disabled { opacity: .3; }
 @media (max-width: 760px) { .panel { padding: 25px 22px; } }
+
+.panel[data-inline="true"] { padding: 22px 24px; margin: 18px 0 24px; border-radius: 16px; background: #1e1e1e; max-width: 540px; }
+.panel[data-inline="true"] .icon { width: 30px; height: 30px; margin-bottom: 14px; background: none; }
+.panel[data-inline="true"] h2 { font-size: 18px; letter-spacing: -.02em; }
+.panel[data-inline="true"] .description { margin: 8px 0 16px; font-size: 13px; }
+.panel[data-inline="true"] .connect { margin: 18px 0; }
+.panel[data-inline="true"] .permission { max-width: none; }
+.panel[data-inline="true"] .linkForm { margin-top: 22px; }
+.panel[data-inline="true"] .repositories { max-height: 320px; overflow: auto; }
