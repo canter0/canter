@@ -189,7 +189,7 @@ func (h *HTTPServer) workspaceGitHub(w http.ResponseWriter, r *http.Request, p P
 		writeJSON(w, http.StatusOK, githubConnection{Enabled: h.oauth["github"] != nil})
 		return
 	}
-	if r.Method != http.MethodGet || len(parts) > 1 || (len(parts) == 1 && parts[0] != "repositories" && parts[0] != "compare" && parts[0] != "file") {
+	if r.Method != http.MethodGet || len(parts) > 1 || (len(parts) == 1 && parts[0] != "repositories" && parts[0] != "compare" && parts[0] != "file" && parts[0] != "inspect") {
 		writeError(w, http.StatusNotFound, ErrNotFound)
 		return
 	}
@@ -202,7 +202,7 @@ func (h *HTTPServer) workspaceGitHub(w http.ResponseWriter, r *http.Request, p P
 		writeJSON(w, http.StatusOK, state)
 		return
 	}
-	if parts[0] == "compare" || parts[0] == "file" {
+	if parts[0] == "compare" || parts[0] == "file" || parts[0] == "inspect" {
 		repo, err := normalizeRepository(r.URL.Query().Get("repository"))
 		commit := r.URL.Query().Get("commit")
 		if err != nil || !repositoryCommit.MatchString(commit) {
@@ -215,7 +215,9 @@ func (h *HTTPServer) workspaceGitHub(w http.ResponseWriter, r *http.Request, p P
 		}
 		ctx := context.WithValue(r.Context(), githubTokenKey{}, token)
 		var value any
-		if parts[0] == "compare" {
+		if parts[0] == "inspect" {
+			value, err = inspectRepository(ctx, repo, commit)
+		} else if parts[0] == "compare" {
 			value, err = compareRepository(ctx, repo, r.URL.Query().Get("base"), commit)
 		} else {
 			value, err = readRepositoryFile(ctx, repo, commit, r.URL.Query().Get("path"))

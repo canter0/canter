@@ -1,5 +1,6 @@
 "use client";
 import Link from "next/link";
+import { RepositoryOverview } from "./repository-overview";
 import { RepositoryCode } from "./repository-code";
 import { useEffect, useState } from "react";
 import { canterFetch, type SystemRecord, type Installation, type InitialDeploymentSummary, type ChangeSummary, type WorkspaceAction } from "@/lib/canter-api";
@@ -46,7 +47,7 @@ export function OperatorSurfaceView({ surface, workspaceId, onSelect, conversati
     {surface.kind === "deployment" && surface.id ? <InitialDeploymentReview id={surface.id} /> : null}
     {surface.kind === "change" && surface.id && surface.system ? <ChangeReview id={surface.id} system={surface.system} /> : null}
     {surface.kind === "app" && surface.system ? <SystemDetail name={surface.system} /> : null}
-    {surface.kind === "repository" ? <div className={styles.resourceBody}><h2>{surface.repository}</h2><p>GitHub repository</p><dl><dt>Inspected commit</dt><dd className={styles.digest}>{surface.id}</dd></dl><a href={`https://github.com/${surface.repository}/tree/${surface.id}`} target="_blank" rel="noreferrer">Open source <WorkspaceIcon name="external" width="14" height="14" /></a><p className={styles.note}>Ask Canter to read a file, explain the runtime, or prepare a supported deployment.</p></div> : null}
+    {surface.kind === "repository" ? <RepositoryOverview surface={surface} workspaceId={workspaceId} onSelect={onSelect} /> : null}
     {error ? <p className={styles.error} role="alert">{error} <button onClick={() => setRetry(value => value + 1)}>Retry</button></p> : null}
     {!data && !error && ["apps", "deployments", "activity", "agents"].includes(surface.kind) ? <p className={styles.note} role="status">Loading current workspace state…</p> : null}
     {data ? <div className={styles.resourceBody}>

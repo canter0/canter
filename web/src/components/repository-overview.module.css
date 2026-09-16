@@ -1,0 +1,14 @@
+.overview { padding: 28px 28px 35px; }
+.header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; color: var(--muted); }
+.identity { display: flex; align-items: center; gap: 10px; font-size: 12px; }.identity svg { width: 22px; height: 22px; color: var(--ink); }
+.overview h2 { font-size: 25px; line-height: 1.25; letter-spacing: -.03em; font-weight: 450; overflow-wrap: anywhere; }
+.description { color: var(--muted); font-size: 13px; line-height: 1.8; margin-top: 14px; }
+.metadata { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 17px; color: #919191; font-size: 11px; }.metadata span:first-child { color: #bfccae; }
+.actions { display: flex; flex-wrap: wrap; gap: 9px; margin: 24px 0; }.actions button { display: flex; align-items: center; gap: 8px; padding: 9px 12px; background: #292929; border-radius: 8px; font-size: 12px; }.actions button:hover { background: #333; }
+.runtime { display: flex; align-items: flex-start; gap: 13px; background: #232720; padding: 18px; border-radius: 12px; margin: 23px 0 30px; }.runtime > svg { color: #a6b796; flex-shrink: 0; margin-top: 2px; }.runtime strong { font-size: 12px; font-weight: 450; }.runtime p { font-size: 11px; line-height: 1.8; color: #9ca494; margin-top: 6px; }.runtime button { margin-left: auto; }
+.fileHeading { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }.fileHeading h3 { font-size: 14px; font-weight: 400; }.fileHeading > span { color: var(--muted); font-size: 11px; }
+.search { display: flex; align-items: center; gap: 9px; background: #252525; border-radius: 8px; padding: 11px 13px; color: var(--muted); margin-bottom: 12px; }.search input { color: var(--ink); font-size: 12px; background: none; outline: none; border: 0; width: 100%; min-width: 0; }.search:focus-within { box-shadow: 0 0 0 1px #555; }
+.fileList { display: flex; flex-direction: column; gap: 2px; }.fileList button { display: flex; align-items: center; gap: 11px; text-align: left; padding: 10px 9px; border-radius: 7px; font-size: 12px; }.fileList button:hover { background: #272727; }.fileList button > svg { color: #8d958a; flex-shrink: 0; }.fileList button > span { flex: 1; overflow-wrap: anywhere; }
+.parent { font-size: 11px; color: var(--muted); padding: 8px 0 13px; overflow-wrap: anywhere; }.footer { font-size: 10px; color: #808080; line-height: 1.7; margin-top: 28px; }
+.note { font-size: 12px; line-height: 1.8; color: var(--muted); margin: 18px 0; }.note button { text-decoration: underline; }
+@media(max-width:600px) { .overview { padding: 24px 20px; } }

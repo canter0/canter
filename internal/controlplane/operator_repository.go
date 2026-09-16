@@ -92,13 +92,16 @@ func githubBytes(ctx context.Context, address string, max int64) ([]byte, error)
 }
 
 type RepositoryInspection struct {
-	Repository  string   `json:"repository"`
-	Description string   `json:"description"`
-	Branch      string   `json:"branch"`
-	Commit      string   `json:"commit"`
-	Parent      string   `json:"parent,omitempty"`
-	Files       []string `json:"files"`
-	Truncated   bool     `json:"truncated"`
+	DefaultBranch string   `json:"defaultBranch"`
+	Language      string   `json:"language"`
+	Private       bool     `json:"private"`
+	Repository    string   `json:"repository"`
+	Description   string   `json:"description"`
+	Branch        string   `json:"branch"`
+	Commit        string   `json:"commit"`
+	Parent        string   `json:"parent,omitempty"`
+	Files         []string `json:"files"`
+	Truncated     bool     `json:"truncated"`
 }
 
 func inspectRepository(ctx context.Context, repo, ref string) (RepositoryInspection, error) {
@@ -110,11 +113,14 @@ func inspectRepository(ctx context.Context, repo, ref string) (RepositoryInspect
 	var metadata struct {
 		Description   string `json:"description"`
 		DefaultBranch string `json:"default_branch"`
+		Language      string `json:"language"`
+		Private       bool   `json:"private"`
 	}
 	if err = json.Unmarshal(data, &metadata); err != nil {
 		return out, err
 	}
 	out.Description = metadata.Description
+	out.DefaultBranch, out.Language, out.Private = metadata.DefaultBranch, metadata.Language, metadata.Private
 	if ref == "" {
 		ref = metadata.DefaultBranch
 	}
