@@ -38,6 +38,7 @@ func TestBillingSignatureRejectsTamperingAndStaleEvents(t *testing.T) {
 }
 
 type billingFixture struct {
+	checkoutStatus         string
 	expectedMeterValue     string
 	mu                     sync.Mutex
 	active                 bool
@@ -105,6 +106,12 @@ func billingTestGateway(t *testing.T) (*BillingGateway, *billingFixture) {
 				data = append(data, map[string]any{"id": "sub_test", "customer": "cus_test", "status": status, "latest_invoice": map[string]string{"status": invoiceStatus}, "items": map[string]any{"data": []any{map[string]any{"quantity": 1, "price": map[string]string{"id": "price_pro"}, "current_period_start": f.periodStart, "current_period_end": f.periodEnd}, map[string]any{"price": map[string]string{"id": "price_overage"}, "current_period_start": f.periodStart, "current_period_end": f.periodEnd}}}})
 			}
 			respond(map[string]any{"data": data})
+		case r.URL.Path == "/v1/checkout/sessions/cs_test":
+			status := f.checkoutStatus
+			if status == "" {
+				status = "open"
+			}
+			respond(map[string]string{"status": status, "customer": "cus_test"})
 		case r.URL.Path == "/v1/checkout/sessions":
 			r.ParseForm()
 			f.checkoutKeys = append(f.checkoutKeys, r.Header.Get("Idempotency-Key"))
@@ -374,5 +381,33 @@ func TestBillingUsageIngestRequiresPrivateToken(t *testing.T) {
 	handler.ServeHTTP(rec, req)
 	if rec.Code != 401 {
 		t.Fatal("unsigned webhook accepted")
+	}
+}
+
+func TestBillingCheckoutReplacesExpiredSessionAndBlocksCompletion(t *testing.T) {
+	s := integrationStore(t)
+	ctx := context.Background()
+	_, w, _, err := s.Signup(ctx, "checkout-expiry@example.com", "correct horse battery staple", "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gateway, f := billingTestGateway(t)
+	h := &HTTPServer{service: &Service{Store: s}, config: HTTPConfig{Billing: gateway, PublicURL: "https://canter.dev"}}
+	if _, err = h.startBillingCheckout(ctx, w.ID, "checkout-expiry@example.com", "payg"); err != nil {
+		t.Fatal(err)
+	}
+	f.checkoutStatus = "expired"
+	if _, err = h.startBillingCheckout(ctx, w.ID, "checkout-expiry@example.com", "payg"); err != nil {
+		t.Fatal(err)
+	}
+	if f.sessions != 2 || f.checkoutKeys[0] == f.checkoutKeys[1] {
+		t.Fatal("expired checkout did not start a fresh idempotent attempt")
+	}
+	f.checkoutStatus = "complete"
+	if _, err = h.startBillingCheckout(ctx, w.ID, "checkout-expiry@example.com", "payg"); err == nil {
+		t.Fatal("completed checkout accepted duplicate attempt")
+	}
+	if f.sessions != 2 {
+		t.Fatal("duplicate session created")
 	}
 }

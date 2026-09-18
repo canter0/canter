@@ -243,13 +243,30 @@ func (h *HTTPServer) startBillingCheckout(ctx context.Context, workspace, email,
 		}
 	}
 	if checkoutURL != "" && expires != nil && expires.After(time.Now()) {
-		if checkoutPlan == plan {
-			return checkoutURL, tx.Commit(ctx)
+		var session struct {
+			Status   string `json:"status"`
+			Customer string `json:"customer"`
 		}
-		if err = b.request(ctx, http.MethodPost, "/v1/checkout/sessions/"+url.PathEscape(checkoutID)+"/expire", nil, "", nil); err != nil {
+		if err = b.request(ctx, http.MethodGet, "/v1/checkout/sessions/"+url.PathEscape(checkoutID), nil, "", &session); err != nil {
 			return "", err
 		}
+		if session.Customer != customer {
+			return "", fmt.Errorf("%w: checkout customer mismatch", ErrConflict)
+		}
+		switch session.Status {
+		case "open":
+			if checkoutPlan == plan {
+				return checkoutURL, tx.Commit(ctx)
+			}
+			if err = b.request(ctx, http.MethodPost, "/v1/checkout/sessions/"+url.PathEscape(checkoutID)+"/expire", nil, "", nil); err != nil {
+				return "", err
+			}
+		case "expired": // Start a fresh attempt even when the cached expiry is later.
+		default:
+			return "", fmt.Errorf("%w: checkout is completing; refresh billing before trying again", ErrConflict)
+		}
 	}
+
 	if customer == "" {
 		var result struct {
 			ID string `json:"id"`
