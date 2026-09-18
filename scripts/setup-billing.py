@@ -50,7 +50,7 @@ def main():
 
     product_id = "canter_hosting_v1"
     if not api("GET", "products/" + product_id):
-        api("POST", "products", {"id": product_id, "name": "Canter hosting", "description": "Monthly resource usage. No fixed subscription fee."}, "canter-product-v1")
+        api("POST", "products", {"id": product_id, "name": "Canter hosting", "description": "Compute and object storage. Pro costs $20 per month and includes $20 of resource usage; pay as you go has no subscription fee."}, "canter-product-v1")
     meter = next((item for item in api("GET", "billing/meters", {"status": "active", "limit": 100})["data"] if item["event_name"] == EVENT), None)
     if not meter:
         meter = api("POST", "billing/meters", {"display_name": "Canter rated usage (USD cents)", "event_name": EVENT, "default_aggregation[formula]": "sum", "customer_mapping[type]": "by_id", "customer_mapping[event_payload_key]": "stripe_customer_id", "value_settings[event_payload_key]": "value"}, "canter-meter-v1")
