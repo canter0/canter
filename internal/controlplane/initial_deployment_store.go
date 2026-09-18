@@ -161,7 +161,7 @@ func (s *Store) EnqueueInitialDeployment(ctx context.Context, workspaceID, deplo
 		return InitialDeploymentExecution{}, ErrNotFound
 	}
 	if err != nil {
-		return InitialDeploymentExecution{}, err
+		return InitialDeploymentExecution{}, enqueueInitialDeploymentError(err)
 	}
 	recomputed, digestErr := digestInitialDeployment(deployment.Plan)
 	if digestErr != nil {
