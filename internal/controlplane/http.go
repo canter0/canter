@@ -24,6 +24,8 @@ type HTTPConfig struct {
 	RequireInvite bool
 	GoogleOAuth   OAuthCredentials
 	GitHubOAuth   OAuthCredentials
+	GitHubApp     OAuthCredentials
+	GitHubAppSlug string
 	Billing       *BillingGateway
 	Operator      OperatorConfig
 }

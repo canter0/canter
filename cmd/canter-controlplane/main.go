@@ -79,7 +79,8 @@ func main() {
 	}
 	googleOAuth := controlplane.OAuthCredentials{ClientID: os.Getenv("CANTER_GOOGLE_CLIENT_ID"), ClientSecret: os.Getenv("CANTER_GOOGLE_CLIENT_SECRET")}
 	githubOAuth := controlplane.OAuthCredentials{ClientID: os.Getenv("CANTER_GITHUB_CLIENT_ID"), ClientSecret: os.Getenv("CANTER_GITHUB_CLIENT_SECRET")}
-	for name, credentials := range map[string]controlplane.OAuthCredentials{"Google": googleOAuth, "GitHub": githubOAuth} {
+	githubApp := controlplane.OAuthCredentials{ClientID: os.Getenv("CANTER_GITHUB_APP_CLIENT_ID"), ClientSecret: os.Getenv("CANTER_GITHUB_APP_CLIENT_SECRET")}
+	for name, credentials := range map[string]controlplane.OAuthCredentials{"Google": googleOAuth, "GitHub": githubOAuth, "GitHub App": githubApp} {
 		if err := controlplane.ValidateOAuthCredentials(name, credentials); err != nil {
 			log.Fatal(err)
 		}
@@ -157,7 +158,7 @@ func main() {
 			log.Fatal(err)
 		}
 	}
-	handler := controlplane.NewHTTPServer(service, controlplane.HTTPConfig{PublicURL: publicURL, CookieSecure: cookieSecure, RequireInvite: strings.EqualFold(os.Getenv("CANTER_REQUIRE_INVITE"), "true"), GoogleOAuth: googleOAuth, GitHubOAuth: githubOAuth, Billing: billing, Operator: operator, Secrets: vault})
+	handler := controlplane.NewHTTPServer(service, controlplane.HTTPConfig{PublicURL: publicURL, CookieSecure: cookieSecure, RequireInvite: strings.EqualFold(os.Getenv("CANTER_REQUIRE_INVITE"), "true"), GoogleOAuth: googleOAuth, GitHubOAuth: githubOAuth, GitHubApp: githubApp, GitHubAppSlug: os.Getenv("CANTER_GITHUB_APP_SLUG"), Billing: billing, Operator: operator, Secrets: vault})
 	if operator.Ready() || vault != nil {
 		for i := 0; i < 2; i++ {
 			go func() {

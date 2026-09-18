@@ -65,6 +65,9 @@ var operatorConversationsMigration string
 //go:embed migrations/016_github_connections.sql
 var githubConnectionsMigration string
 
+//go:embed migrations/021_github_app_connections.sql
+var githubAppConnectionsMigration string
+
 //go:embed migrations/017_operator_attachments.sql
 var operatorAttachmentsMigration string
 
@@ -232,6 +235,12 @@ func (s *Store) Migrate(ctx context.Context) error {
 		return err
 	}
 
+	if _, err := tx.Exec(ctx, githubAppConnectionsMigration); err != nil {
+		return fmt.Errorf("apply GitHub App connections migration: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('021_github_app_connections') ON CONFLICT DO NOTHING`); err != nil {
+		return err
+	}
 	return tx.Commit(ctx)
 }
 

@@ -6,7 +6,7 @@ import { ProviderIcon } from "./provider-icon";
 import { WorkspaceIcon } from "./workspace-icon";
 import styles from "./github-repositories.module.css";
 
-type Connection = { enabled: boolean; connected: boolean; reconnect?: boolean; login?: string };
+import { githubConnectURL, type GitHubConnection as Connection } from "@/lib/github-connection";
 type Repository = { full_name: string; description: string; private: boolean; default_branch: string };
 type Result = { connection: Connection; repositories: Repository[]; page: number; hasMore: boolean };
 const connectionErrors: Record<string, string> = {
@@ -27,7 +27,7 @@ export function GitHubRepositories({ workspaceId, conversationId, result, busy, 
   const [repository, setRepository] = useState("");
   const base = `/workspaces/${encodeURIComponent(workspaceId)}/github`;
   const next = conversationId ? `/app/conversations/${encodeURIComponent(conversationId)}` : "/app";
-  const connectURL = `/api/canter/auth/oauth/github?${new URLSearchParams({ mode: "repository", workspace: workspaceId, next })}`;
+  const connectURL = githubConnectURL(data?.connection, workspaceId, next);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -36,6 +36,12 @@ export function GitHubRepositories({ workspaceId, conversationId, result, busy, 
     }).catch(cause => { if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : "Could not load repositories."); });
     return () => controller.abort();
   }, [base, retry]);
+
+  useEffect(() => {
+    const refresh = () => setRetry(value => value + 1);
+    window.addEventListener("focus", refresh);
+    return () => window.removeEventListener("focus", refresh);
+  }, []);
 
   async function more() {
     if (!data || loading) return;
@@ -74,14 +80,14 @@ export function GitHubRepositories({ workspaceId, conversationId, result, busy, 
     {connection && !connection.connected ? <div className={styles.connect}>
       {connection.enabled ? <a className={styles.primary} href={connectURL}><ProviderIcon provider="github" />{connection.reconnect ? "Reconnect GitHub" : "Connect GitHub"}<WorkspaceIcon name="external" width="15" height="15" /></a> : <p className={styles.error}>GitHub connection is not configured on this server. You can still use a public repository below.</p>}
       {connection.reconnect ? <p className={styles.muted}>Your saved connection needs to be renewed.</p> : null}
-      {connection.enabled ? <p className={styles.permission}>GitHub requests repository access, including write permission. Canter uses this connection to read your source for deployment.</p> : null}
+      {connection.enabled ? <p className={styles.permission}>{connection.appEnabled ? "Authorize Canter, then select private repositories it can read. Public repositories are also available. Access is read-only." : "GitHub requests repository access, including write permission. Canter uses this connection to read your source for deployment."}</p> : null}
     </div> : null}
     {connection?.connected ? <>
       <label className={styles.search}><WorkspaceIcon name="search" width="16" height="16" /><input aria-label="Filter repositories" placeholder="Find a repository…" value={filter} onChange={event => setFilter(event.target.value)} /></label>
       <div className={styles.repositories}>{repos.map(repo => <button disabled={busy || loading} key={repo.full_name} className={styles.repository} onClick={() => void onDeploy(repo.full_name)}><span><strong>{repo.full_name}</strong><small>{repo.private ? "Private" : "Public"} · {repo.default_branch}</small>{repo.description ? <p>{repo.description}</p> : null}</span><WorkspaceIcon name="chevron" width="16" height="16" /></button>)}</div>
       {!repos.length ? <p className={styles.muted}>{filter ? "No matching repositories in this list." : "No repositories are available to this GitHub connection."}</p> : null}
       {data?.hasMore ? <button disabled={loading} className={styles.secondary} onClick={() => void more()}>{loading ? "Loading…" : "Load more repositories"}</button> : null}
-      <div className={styles.accountActions}><a href={connectURL}>Reconnect</a><button disabled={loading || busy} onClick={() => void disconnect()}>Disconnect</button></div>
+      <div className={styles.accountActions}>{connection.installUrl ? <a href={connection.installUrl} target="_blank" rel="noopener noreferrer">Select repositories ↗</a> : null}<button disabled={loading} onClick={() => setRetry(value => value + 1)}>Refresh</button><a href={connectURL}>{connection.provider === "github" && connection.appEnabled ? "Switch to GitHub App" : "Reconnect"}</a><button disabled={loading || busy} onClick={() => void disconnect()}>Disconnect</button></div>
     </> : null}
     {error ? <p className={styles.error} role="alert">{error} <button onClick={() => { setRetry(value => value + 1); setError(""); }}>Try again</button></p> : null}
     <form className={styles.linkForm} onSubmit={event => void submit(event)}><label htmlFor="github-repository">{connection?.connected ? "Or use a repository link" : "Or paste a public repository link"}</label><div><input id="github-repository" placeholder="github.com/owner/repository" autoComplete="off" autoCapitalize="none" spellCheck={false} value={repository} onChange={event => setRepository(event.target.value)} maxLength={240} disabled={busy} /><button type="submit" aria-label="Deploy repository" disabled={busy || !repository.trim()}><WorkspaceIcon name="arrow" width="18" height="18" /></button></div></form>

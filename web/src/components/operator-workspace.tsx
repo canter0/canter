@@ -6,6 +6,7 @@ import { useOperatorAttachmentDraft } from "@/lib/operator-attachment-draft";
 import { OperatorTurn } from "./operator-turn";
 import { WorkspaceLoading } from "./workspace-loading";
 import { OperatorComposer } from "./operator-composer";
+import { ResourceRequest, type ResourceKind } from "./resource-request";
 import { GitHubRepositories } from "./github-repositories";
 import { AppShell } from "./app-shell";
 import { useWorkspace } from "./workspace-context";
@@ -31,6 +32,7 @@ export function OperatorWorkspace({ id, githubResult }: { id?: string; githubRes
   const [showScroll, setShowScroll] = useState(false);
   const [panelOpen, setPanelOpen] = useState<boolean | null>(null);
   const panelId = useId();
+  const [inlineResource, setInlineResource] = useState<ResourceKind | null>(null);
   const [inlineGitHub, setInlineGitHub] = useState(!!githubResult);
   const [fallbackDraft, setFallbackDraft] = useState("");
   const [error, setError] = useState("");
@@ -70,9 +72,10 @@ export function OperatorWorkspace({ id, githubResult }: { id?: string; githubRes
           const batch = result.events ?? [];
           if (batch.length) {
             if (!restoring && batch.some(event => event.kind === "surface" && event.data.kind === "github")) setInlineGitHub(false);
+            if (!restoring && batch.some(event => event.kind === "surface" && ["compute", "storage"].includes(String(event.data.kind)))) setInlineResource(null);
             cursor = batch[batch.length - 1].sequence;
             setEvents(current => [...current.filter(event => !batch.some(next => next.sequence === event.sequence)), ...batch].sort((a, b) => a.sequence - b.sequence));
-            const surfaces = batch.filter(event => event.kind === "surface" && isSurface(event.data) && event.data.kind !== "github");
+            const surfaces = batch.filter(event => event.kind === "surface" && isSurface(event.data) && !["github", "compute", "storage"].includes(String(event.data.kind)));
             const last = surfaces[surfaces.length - 1];
             // A newly requested view can open immediately, while a form the user
             // is editing stays in place. Every view also remains in the transcript.
@@ -138,20 +141,21 @@ export function OperatorWorkspace({ id, githubResult }: { id?: string; githubRes
     setFallbackDraft(value);
     if (storageKey) { try { sessionStorage.setItem(storageKey, value); window.dispatchEvent(new Event("canter-draft")); } catch { /* Nonessential storage. */ } }
   }
-  async function send(event?: FormEvent, chosenRepository?: string) {
+  async function send(event?: FormEvent, chosenRepository?: string, resourceMessage?: string, resourceKind?: ResourceKind) {
     event?.preventDefault();
-    const message = chosenRepository ? `Deploy https://github.com/${chosenRepository}` : ((composer.current?.value ?? draft).trim() || (attachmentDraft.items.length ? "Please review the attached files." : ""));
-    const attachments = chosenRepository ? [] : attachmentDraft.items;
-    const signature = JSON.stringify({ message, attachments, surface: (attachedContext === undefined ? selected : attachedContext) });
-    if (!workspace || !message || sending || running || !data?.agent.available) return;
+    const message = resourceMessage ?? (chosenRepository ? `Deploy https://github.com/${chosenRepository}` : ((composer.current?.value ?? draft).trim() || (attachmentDraft.items.length ? "Please review the attached files." : "")));
+    const attachments = chosenRepository || resourceMessage ? [] : attachmentDraft.items;
+    const requestSurface: OperatorSurface | null = resourceKind ? { kind: resourceKind } : chosenRepository ? { kind: "repository", repository: chosenRepository } : (attachedContext === undefined ? selected : attachedContext);
+    const signature = JSON.stringify({ message, attachments, surface: requestSurface });
+    if (!workspace || !message || sending || running || !data?.agent.available) return false;
     setSending(true); setError(""); followScroll.current = true;
     if (!pending.current || pending.current.signature !== signature) pending.current = { id: id ?? `conv_${crypto.randomUUID()}`, requestId: crypto.randomUUID(), message, signature };
     const { id: requestConversationId, requestId } = pending.current;
     const request = { id: requestConversationId, requestId, message, attachments };
     try {
       const base = conversationBase(workspace);
-      await canterFetch(id ? `${base}/${encodeURIComponent(id)}/messages` : base, { method: "POST", body: JSON.stringify(id ? { requestId: request.requestId, message, attachments, surface: chosenRepository ? { kind: "repository", repository: chosenRepository } : (attachedContext === undefined ? selected : attachedContext) } : { ...request, surface: chosenRepository ? { kind: "repository", repository: chosenRepository } : (attachedContext === undefined ? selected : attachedContext) }) });
-      if (!chosenRepository) { editDraft(""); attachmentDraft.update([]); }
+      await canterFetch(id ? `${base}/${encodeURIComponent(id)}/messages` : base, { method: "POST", body: JSON.stringify(id ? { requestId: request.requestId, message, attachments, surface: requestSurface } : { ...request, surface: requestSurface }) });
+      if (!chosenRepository && !resourceMessage) { editDraft(""); attachmentDraft.update([]); }
       else if (!id) {
         if (draft) { try { sessionStorage.setItem(`canter:conversation-draft:${workspace}:${request.id}`, draft); } catch { /* Nonessential storage. */ } }
         if (attachmentDraft.items.length) attachmentDraft.update(attachmentDraft.items, `canter:conversation-draft:${workspace}:${request.id}`);
@@ -160,7 +164,8 @@ export function OperatorWorkspace({ id, githubResult }: { id?: string; githubRes
       refreshWorkspace();
       if (!id) router.push(`/app/conversations/${encodeURIComponent(request.id)}`);
       else setDetail(await conversationDetail(workspace, id));
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Your message could not be sent. It is saved here so you can retry."); }
+      return true;
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Your message could not be sent. It is saved here so you can retry."); return false; }
     finally { setSending(false); }
   }
   async function stop() {
@@ -171,7 +176,8 @@ export function OperatorWorkspace({ id, githubResult }: { id?: string; githubRes
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not stop this response."); }
   }
   function openSurface(surface: OperatorSurface) {
-    if (surface.kind === "github") { setInlineGitHub(true); setPanelOpen(false); followScroll.current = true; requestAnimationFrame(() => transcript.current?.scrollTo({ top: transcript.current.scrollHeight })); return; }
+    if (surface.kind === "compute" || surface.kind === "storage") { setInlineResource(surface.kind); setInlineGitHub(false); setPanelOpen(false); followScroll.current = true; requestAnimationFrame(() => transcript.current?.scrollTo({ top: transcript.current.scrollHeight })); return; }
+    if (surface.kind === "github") { setInlineResource(null); setInlineGitHub(true); setPanelOpen(false); followScroll.current = true; requestAnimationFrame(() => transcript.current?.scrollTo({ top: transcript.current.scrollHeight })); return; }
     setOpened(current => current.some(item => surfaceKey(item) === surfaceKey(surface)) ? current : [...current, surface]);
     setSelected(surface); setPanelOpen(true); setViewMenu(false);
   }
@@ -183,20 +189,25 @@ export function OperatorWorkspace({ id, githubResult }: { id?: string; githubRes
   }
   const tabLabel = (surface: OperatorSurface) => surface.path?.split("/").at(-1) ?? (surface.kind === "repository" ? surface.repository?.split("/").at(-1) : undefined) ?? surface.system ?? surfaceLabels[surface.kind];
   const githubRun = events.findLast(event => event.kind === "surface" && event.data.kind === "github")?.runId;
+  const resourceEvents = events.filter(event => event.kind === "surface" && ["compute", "storage"].includes(String(event.data.kind)));
+  const latestResource = resourceEvents.at(-1);
+  const resourceKind = inlineResource ?? latestResource?.data.kind as ResourceKind | undefined;
+  const resource = resourceKind ? <ResourceRequest key={resourceKind} kind={resourceKind} busy={sending || running || !data?.agent.available} onContinue={message => send(undefined, undefined, message, resourceKind)} onGitHub={() => openSurface({ kind: "github" })} /> : null;
   const hasMessages = !!detail?.messages.length;
   const showPanel = panelOpen ?? !!selected;
-  const github = workspace ? <GitHubRepositories inline workspaceId={workspace} conversationId={id} result={githubResult} busy={sending || running || !data?.agent.available} onDeploy={repository => send(undefined, repository)} /> : null;
+  const github = workspace ? <GitHubRepositories inline workspaceId={workspace} conversationId={id} result={githubResult} busy={sending || running || !data?.agent.available} onDeploy={async repository => { await send(undefined, repository); }} /> : null;
 
-  return <AppShell active="Home" agentView onNewInstruction={() => { if (id) router.push("/app"); else { editDraft(""); attachmentDraft.update([]); setAttachedContext(null); setOpened([]); setSelected(null); setPanelOpen(null); setInlineGitHub(false); composer.current?.focus(); } }}>
-    <div className={styles.workspace} data-has-surface={showPanel} data-working={running} data-wide={wide && showPanel} data-empty={!id && !hasMessages && !inlineGitHub}>
+  return <AppShell active="Home" agentView onNewInstruction={() => { if (id) router.push("/app"); else { editDraft(""); attachmentDraft.update([]); setAttachedContext(null); setOpened([]); setSelected(null); setPanelOpen(null); setInlineGitHub(false); setInlineResource(null); composer.current?.focus(); } }}>
+    <div className={styles.workspace} data-has-surface={showPanel} data-working={running} data-wide={wide && showPanel} data-empty={!id && !hasMessages && !inlineGitHub && !inlineResource}>
       <div className={styles.conversationPane} inert={wide && showPanel}>
         <header className={styles.conversationHeader}><span>{detail?.conversation.title ?? ""}</span></header>
         <section className={styles.conversation} aria-label="Canter conversation">
           <div className={styles.transcript} ref={transcript} onWheel={event => { if (event.deltaY < 0) followScroll.current = false; }} onTouchMove={() => { followScroll.current = false; }} onKeyDown={event => { if (["ArrowUp", "PageUp", "Home"].includes(event.key)) followScroll.current = false; }} onScroll={() => { const element = transcript.current; if (element) { const away = element.scrollHeight - element.scrollTop - element.clientHeight >= 80; setShowScroll(away); if (!away) followScroll.current = true; } }}>
             <div ref={transcriptContent}>
             {id && !detail && !connectionError ? <WorkspaceLoading variant="conversation" /> : null}
-            {detail?.messages.filter(message => message.role === "user").map(message => <OperatorTurn key={message.id} message={message} answer={detail.messages.find(answer => answer.role === "assistant" && answer.runId === message.runId)} events={events.filter(event => event.runId === message.runId)} running={running && message.runId === detail.run?.id} onSelect={openSurface} inline={!inlineGitHub && githubRun === message.runId ? github : undefined} />)}
+            {detail?.messages.filter(message => message.role === "user").map(message => <OperatorTurn key={message.id} message={message} answer={detail.messages.find(answer => answer.role === "assistant" && answer.runId === message.runId)} events={events.filter(event => event.runId === message.runId)} running={running && message.runId === detail.run?.id} onSelect={openSurface} inline={<>{!inlineGitHub && githubRun === message.runId ? github : null}{!inlineResource && latestResource?.runId === message.runId ? resource : null}</>} />)}
             {inlineGitHub ? github : null}
+            {inlineResource ? resource : null}
             {detail?.run?.status === "failed" ? <p className={styles.error} role="alert">{detail.run.failure || "The response failed."} You can continue below.</p> : null}
             {detail?.run?.status === "cancelled" ? <p className={styles.note}>Stopped. Completed operations remain saved.</p> : null}
             </div>
@@ -208,7 +219,8 @@ export function OperatorWorkspace({ id, githubResult }: { id?: string; githubRes
             {connectionError ? <p className={styles.error} role="status">Updates disconnected. Reconnecting… <button onClick={() => setAttempt(value => value + 1)}>Retry now</button></p> : null}
             {data && !data.agent.available ? <p className={styles.error} role="alert">The workspace agent is unavailable. Ask your administrator to configure its model connection.</p> : null}
             {attachmentDraft.error ? <p className={styles.error} role="status">{attachmentDraft.error}</p> : null}
-            <OperatorComposer attachments={attachmentDraft.items} onAttachments={attachmentDraft.update} sending={sending} context={(attachedContext === undefined ? selected : attachedContext)} onClearContext={() => setAttachedContext(null)} draft={draft} onChange={editDraft} onSend={() => void send()} onStop={() => void stop()} running={running} disabled={sending || !data?.agent.available || !attachmentDraft.loaded} inputRef={composer} model={data?.agent.model} onSelect={setAttachedContext} />
+            {!id && !hasMessages ? <div className={styles.starters} aria-label="Try a workspace action"><button onClick={() => openSurface({ kind: "compute" })}>Plan a VPS</button><button onClick={() => openSurface({ kind: "storage" })}>Plan a bucket</button><button onClick={() => openSurface({ kind: "github" })}>Connect GitHub</button></div> : null}
+            <OperatorComposer attachments={attachmentDraft.items} onAttachments={attachmentDraft.update} sending={sending} context={(attachedContext === undefined ? selected : attachedContext)} onClearContext={() => setAttachedContext(null)} draft={draft} onChange={editDraft} onSend={() => void send()} onStop={() => void stop()} running={running} disabled={sending || !data?.agent.available || !attachmentDraft.loaded} inputRef={composer} model={data?.agent.model} onSelect={surface => { setAttachedContext(surface); if (surface.kind === "github") openSurface(surface); }} />
 
           </div>
         </section>
@@ -220,12 +232,12 @@ export function OperatorWorkspace({ id, githubResult }: { id?: string; githubRes
             <button type="button" className={styles.closeTab} aria-label={`Close ${tabLabel(surface)} tab`} onClick={() => closeSurface(surface)}><WorkspaceIcon name="close" width="12" height="12" /></button>
           </div>)}</div>
           <div className={styles.surfaceTools}>
-            <div ref={viewMenuAnchor} className={styles.menuAnchor}><button type="button" className={styles.surfaceTool} aria-label="Open workspace view" aria-expanded={viewMenu} onClick={() => setViewMenu(!viewMenu)}><WorkspaceIcon name="plus" width="17" height="17" /></button>{viewMenu ? <div className={styles.viewMenu} onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) setViewMenu(false); }} onKeyDown={event => { if (event.key === "Escape") setViewMenu(false); }}>{(["github", "apps", "deployments", "activity"] as const).map(kind => <button type="button" key={kind} onClick={() => { openSurface({kind}); setViewMenu(false); }}>{kind === "github" ? "GitHub repositories" : surfaceLabels[kind]}</button>)}</div> : null}</div>
+            <div ref={viewMenuAnchor} className={styles.menuAnchor}><button type="button" className={styles.surfaceTool} aria-label="Open workspace view" aria-expanded={viewMenu} onClick={() => setViewMenu(!viewMenu)}><WorkspaceIcon name="plus" width="17" height="17" /></button>{viewMenu ? <div className={styles.viewMenu} onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) setViewMenu(false); }} onKeyDown={event => { if (event.key === "Escape") setViewMenu(false); }}>{(["compute", "storage", "github", "apps", "deployments", "activity"] as const).map(kind => <button type="button" key={kind} onClick={() => { openSurface({kind}); setViewMenu(false); }}>{kind === "github" ? "GitHub repositories" : surfaceLabels[kind]}</button>)}</div> : null}</div>
             <button type="button" className={styles.surfaceTool} aria-label={wide ? "Restore split view" : "Expand workspace view"} aria-pressed={wide} onClick={() => setWide(!wide)}><WorkspaceIcon name={wide ? "collapse" : "expand"} width="17" height="17" /></button>
           </div>
         </div>
         <div className={styles.surfaceContent}>
-          {opened.length && workspace ? opened.map((surface, index) => <div key={surfaceKey(surface)} role="tabpanel" id={`${panelId}-view-${index}`} aria-labelledby={`${panelId}-tab-${index}`} hidden={!selected || surfaceKey(selected) !== surfaceKey(surface)}><OperatorSurfaceView surface={surface} workspaceId={workspace} onSelect={openSurface} conversationId={id} githubResult={githubResult} busy={sending || running || !data?.agent.available} onDeploy={repository => send(undefined, repository)} /></div>) : <div className={styles.surfacePlaceholder}>
+          {opened.length && workspace ? opened.map((surface, index) => <div key={surfaceKey(surface)} role="tabpanel" id={`${panelId}-view-${index}`} aria-labelledby={`${panelId}-tab-${index}`} hidden={!selected || surfaceKey(selected) !== surfaceKey(surface)}><OperatorSurfaceView surface={surface} workspaceId={workspace} onSelect={openSurface} conversationId={id} githubResult={githubResult} busy={sending || running || !data?.agent.available} onDeploy={async repository => { await send(undefined, repository); }} /></div>) : <div className={styles.surfacePlaceholder}>
             <div className={styles.surfaceHints}>
               <div><WorkspaceIcon name="apps" /><p>Apps<span>Apps your agent opens</span></p></div>
               <div><WorkspaceIcon name="file" /><p>Files<span>Code and files it works with</span></p></div>

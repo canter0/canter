@@ -39,26 +39,27 @@ The live browser workflow also uses the configured external model, real GitHub r
 ## GitHub inside the workspace
 
 An unspecific deployment request opens the GitHub connection panel in the current
-conversation. Users authorize the existing OAuth app, return to the same
+conversation. Users authorize the GitHub App when configured, return to the same
 conversation, choose a repository, and continue with the hosted agent. Public
 repository URLs work without connecting. Unsent conversation drafts survive the
 round trip, and selecting a repository does not overwrite them.
 
-Repository authorization is separate from GitHub sign-in. The existing GitHub
-OAuth client requests `repo` only for the explicit repository connection flow;
-sign-in retains its identity scopes. GitHub's `repo` scope includes write access,
-which the connection panel discloses. Canter's repository client only performs
-reads. See [GitHub OAuth scopes](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/scopes-for-oauth-apps).
+Repository authorization is separate from GitHub sign-in. The GitHub App requests
+read-only code and metadata access, with private repository selection managed on
+GitHub. Public repositories are also readable. Legacy OAuth repository connections
+remain supported until users reconnect through the App.
 
-The registered callback remains `/api/canter/auth/oauth/github/callback`. PKCE,
+The App callback is `/api/canter/auth/oauth/github-app/callback`; legacy OAuth
+uses `/api/canter/auth/oauth/github/callback`. PKCE,
 single-use state, browser binding, signed-in account binding, and workspace
 membership are checked before storing the credential. Tokens are encrypted with
 AES-GCM and bound to the account and workspace. The encryption key derives from
-the OAuth client secret with domain separation; rotating that secret requires
+the respective provider client secret with domain separation; rotating that secret requires
 reconnecting repository access. Tokens are never returned to the browser, model,
 conversation, or audit event. Disconnect removes the local connection for this
 user and workspace. GitHub-side revocation and expired credentials prompt a
-reconnect.
+reconnect. App refresh tokens are separately encrypted; concurrent refreshes are
+serialized in the database to prevent reusing a rotated token.
 
 Private archive downloads authenticate only to `api.github.com`; the subsequent
 signed archive redirect is restricted to HTTPS `codeload.github.com` and receives

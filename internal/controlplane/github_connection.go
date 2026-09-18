@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/aes"
 	"crypto/cipher"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
@@ -24,10 +23,13 @@ var errGitHubReconnect = errors.New("Reconnect GitHub to access this repository.
 type githubTokenKey struct{}
 
 type githubConnection struct {
-	Enabled   bool   `json:"enabled"`
-	Connected bool   `json:"connected"`
-	Reconnect bool   `json:"reconnect,omitempty"`
-	Login     string `json:"login,omitempty"`
+	Enabled    bool   `json:"enabled"`
+	Connected  bool   `json:"connected"`
+	Reconnect  bool   `json:"reconnect,omitempty"`
+	Login      string `json:"login,omitempty"`
+	Provider   string `json:"provider,omitempty"`
+	AppEnabled bool   `json:"appEnabled"`
+	InstallURL string `json:"installUrl,omitempty"`
 }
 
 type githubRepository struct {
@@ -40,11 +42,17 @@ type githubRepository struct {
 // Domain separation makes this key independent of OAuth protocol secrets. A
 // client-secret rotation intentionally requires users to reconnect repositories.
 // Ciphertext is bound to its account and workspace; it cannot be moved between them.
-func (h *HTTPServer) githubCipher() (cipher.AEAD, error) {
-	if h.config.GitHubOAuth.ClientSecret == "" {
+func (h *HTTPServer) githubCipher(providers ...string) (cipher.AEAD, error) {
+	secret := h.config.GitHubOAuth.ClientSecret
+	domain := "canter:github-repository-token:v1\x00"
+	if len(providers) > 0 && providers[0] == "github-app" {
+		secret = h.config.GitHubApp.ClientSecret
+		domain = "canter:github-app-repository-token:v1\x00"
+	}
+	if secret == "" {
 		return nil, errGitHubReconnect
 	}
-	key := sha256.Sum256([]byte("canter:github-repository-token:v1\x00" + h.config.GitHubOAuth.ClientSecret))
+	key := sha256.Sum256([]byte(domain + secret))
 	block, err := aes.NewCipher(key[:])
 	if err != nil {
 		return nil, err
@@ -57,43 +65,87 @@ func githubTokenBinding(account, workspace string) []byte {
 }
 
 func (h *HTTPServer) saveGitHubConnection(ctx context.Context, account, workspace, id, login, scope string, token *oauth2.Token) error {
-	aead, err := h.githubCipher()
+	return h.saveGitHubProviderConnection(ctx, account, workspace, id, login, scope, "github", token)
+}
+
+func (h *HTTPServer) saveGitHubProviderConnection(ctx context.Context, account, workspace, id, login, scope, provider string, token *oauth2.Token) error {
+	access, refresh, refreshExpiry, err := h.sealGitHubTokens(provider, account, workspace, token)
 	if err != nil {
 		return err
 	}
-	nonce := make([]byte, aead.NonceSize())
-	if _, err = rand.Read(nonce); err != nil {
-		return err
-	}
-	sealed := aead.Seal(nonce, nonce, []byte(token.AccessToken), githubTokenBinding(account, workspace))
 	var expires *time.Time
 	if !token.Expiry.IsZero() {
 		expires = &token.Expiry
 	}
-	_, err = h.service.Store.pool.Exec(ctx, `INSERT INTO github_repository_connections(account_id,workspace_id,github_id,login,encrypted_token,scopes,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(account_id,workspace_id) DO UPDATE SET github_id=EXCLUDED.github_id,login=EXCLUDED.login,encrypted_token=EXCLUDED.encrypted_token,scopes=EXCLUDED.scopes,expires_at=EXCLUDED.expires_at,updated_at=now()`, account, workspace, id, login, sealed, scope, expires)
+	_, err = h.service.Store.pool.Exec(ctx, `INSERT INTO github_repository_connections(account_id,workspace_id,github_id,login,encrypted_token,scopes,expires_at,auth_provider,encrypted_refresh_token,refresh_expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT(account_id,workspace_id) DO UPDATE SET github_id=EXCLUDED.github_id,login=EXCLUDED.login,encrypted_token=EXCLUDED.encrypted_token,scopes=EXCLUDED.scopes,expires_at=EXCLUDED.expires_at,auth_provider=EXCLUDED.auth_provider,encrypted_refresh_token=EXCLUDED.encrypted_refresh_token,refresh_expires_at=EXCLUDED.refresh_expires_at,updated_at=now()`, account, workspace, id, login, access, scope, expires, provider, refresh, refreshExpiry)
 	return err
 }
 
 func (h *HTTPServer) githubAccess(ctx context.Context, account, workspace string) (githubConnection, string, error) {
-	state := githubConnection{Enabled: h.oauth["github"] != nil}
-	var sealed []byte
-	var expires *time.Time
-	err := h.service.Store.pool.QueryRow(ctx, `SELECT login,encrypted_token,expires_at FROM github_repository_connections WHERE account_id=$1 AND workspace_id=$2`, account, workspace).Scan(&state.Login, &sealed, &expires)
+	state := h.githubConnectionDefaults()
+	// Serialize rotation against other reads, disconnects and reconnects. Refresh
+	// tokens are single-use; two callers must never redeem the same token.
+	tx, err := h.service.Store.pool.Begin(ctx)
+	if err != nil {
+		return state, "", err
+	}
+	defer tx.Rollback(ctx)
+	var sealed, refresh []byte
+	var expires, refreshExpires *time.Time
+	err = tx.QueryRow(ctx, `SELECT login,encrypted_token,expires_at,auth_provider,encrypted_refresh_token,refresh_expires_at FROM github_repository_connections WHERE account_id=$1 AND workspace_id=$2 FOR UPDATE`, account, workspace).Scan(&state.Login, &sealed, &expires, &state.Provider, &refresh, &refreshExpires)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return state, "", nil
 	}
 	if err != nil {
 		return state, "", err
 	}
-	aead, err := h.githubCipher()
-	if err != nil || !state.Enabled || (expires != nil && !expires.After(time.Now())) || len(sealed) < aead.NonceSize() {
+	aead, err := h.githubCipher(state.Provider)
+	if err != nil || h.oauth[state.Provider] == nil {
 		state.Reconnect = true
 		return state, "", nil
 	}
-	plain, err := aead.Open(nil, sealed[:aead.NonceSize()], sealed[aead.NonceSize():], githubTokenBinding(account, workspace))
-	if err != nil || len(plain) == 0 {
+	plain, err := openGitHubToken(aead, sealed, githubTokenBinding(account, workspace))
+	if err != nil {
 		state.Reconnect = true
 		return state, "", nil
+	}
+	if expires != nil && !expires.After(time.Now().Add(time.Minute)) {
+		if state.Provider != "github-app" || refreshExpires == nil || !refreshExpires.After(time.Now()) {
+			state.Reconnect = true
+			return state, "", nil
+		}
+		refreshToken, err := openGitHubToken(aead, refresh, githubRefreshBinding(account, workspace))
+		if err != nil {
+			state.Reconnect = true
+			return state, "", nil
+		}
+		refreshCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+		defer cancel()
+		refreshCtx = context.WithValue(refreshCtx, oauth2.HTTPClient, oauthHTTPClient)
+		// Force renewal inside the safety window rather than returning a token
+		// that could expire during an artifact read.
+		token, err := h.oauth["github-app"].config.TokenSource(refreshCtx, &oauth2.Token{RefreshToken: string(refreshToken), Expiry: time.Now().Add(-time.Hour)}).Token()
+		if err != nil {
+			var rejected *oauth2.RetrieveError
+			if errors.As(err, &rejected) && (rejected.ErrorCode == "bad_refresh_token" || rejected.ErrorCode == "invalid_grant" || rejected.ErrorCode == "incorrect_client_credentials") {
+				state.Reconnect = true
+				return state, "", nil
+			}
+			return state, "", fmt.Errorf("GitHub token renewal is temporarily unavailable; try again")
+		}
+		access, rotated, rotatedExpiry, err := h.sealGitHubTokens(state.Provider, account, workspace, token)
+		if err != nil {
+			state.Reconnect = true
+			return state, "", nil
+		}
+		_, err = tx.Exec(ctx, `UPDATE github_repository_connections SET encrypted_token=$3,encrypted_refresh_token=$4,expires_at=$5,refresh_expires_at=$6,updated_at=now() WHERE account_id=$1 AND workspace_id=$2`, account, workspace, access, rotated, token.Expiry, rotatedExpiry)
+		if err != nil {
+			return state, "", err
+		}
+		plain = []byte(token.AccessToken)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return state, "", err
 	}
 	state.Connected = true
 	return state, string(plain), nil
@@ -111,7 +163,7 @@ func (h *HTTPServer) githubReturn(w http.ResponseWriter, r *http.Request, next, 
 func (h *HTTPServer) finishGitHubConnection(w http.ResponseWriter, r *http.Request, ctx context.Context, login oauthLoginState, token *oauth2.Token) {
 	fail := func(code string) { h.githubReturn(w, r, login.Next, code) }
 	p, err := h.human(r)
-	if err != nil || login.Provider != "github" || login.LinkAccountID == nil || p.Actor.ID != *login.LinkAccountID || login.WorkspaceID == nil {
+	if err != nil || (login.Provider != "github" && login.Provider != "github-app") || login.LinkAccountID == nil || p.Actor.ID != *login.LinkAccountID || login.WorkspaceID == nil {
 		fail("session_expired")
 		return
 	}
@@ -126,7 +178,7 @@ func (h *HTTPServer) finishGitHubConnection(w http.ResponseWriter, r *http.Reque
 			hasRepo = true
 		}
 	}
-	if !hasRepo || token.AccessToken == "" {
+	if (login.Provider == "github" && !hasRepo) || token.AccessToken == "" {
 		fail("repository_access_required")
 		return
 	}
@@ -144,7 +196,7 @@ func (h *HTTPServer) finishGitHubConnection(w http.ResponseWriter, r *http.Reque
 		fail("connection_failed")
 		return
 	}
-	if err = h.saveGitHubConnection(ctx, p.Actor.ID, *login.WorkspaceID, strconv.FormatInt(user.ID, 10), user.Login, scope, token); err != nil {
+	if err = h.saveGitHubProviderConnection(ctx, p.Actor.ID, *login.WorkspaceID, strconv.FormatInt(user.ID, 10), user.Login, scope, login.Provider, token); err != nil {
 		fail("connection_failed")
 		return
 	}
@@ -186,7 +238,7 @@ func (h *HTTPServer) workspaceGitHub(w http.ResponseWriter, r *http.Request, p P
 			writeStoreError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, githubConnection{Enabled: h.oauth["github"] != nil})
+		writeJSON(w, http.StatusOK, h.githubConnectionDefaults())
 		return
 	}
 	if r.Method != http.MethodGet || len(parts) > 1 || (len(parts) == 1 && parts[0] != "repositories" && parts[0] != "compare" && parts[0] != "file" && parts[0] != "inspect") {

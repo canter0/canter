@@ -9,6 +9,7 @@ import { WorkspaceIcon } from "./workspace-icon";
 import styles from "./operator-workspace.module.css";
 
 const toolLabels: Record<string, string> = {
+  canter_show_compute: "Opening VPS setup", canter_show_storage: "Opening bucket setup",
   canter_show_repositories: "Opening GitHub repositories", canter_show_repository_changes: "Reading code changes",
   canter_show_apps: "Reading apps", canter_show_deployments: "Reading deployments", canter_show_billing: "Reading billing", canter_show_activity: "Reading activity", canter_show_agents: "Reading agent access",
   canter_inspect_repository: "Inspecting repository", canter_read_repository_file: "Reading source", canter_prepare_repository_deployment: "Preparing deployment", canter_capabilities: "Checking capabilities",

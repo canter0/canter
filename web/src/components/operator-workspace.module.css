@@ -201,3 +201,7 @@
 .attachment[data-image="true"] .attachmentPreview > span { display: none; }
 .attachment[data-image="true"] .removeAttachment { right: -6px; top: -6px; width: 23px; height: 23px; border: 2px solid #202020; }
 .attachmentError { white-space: pre-line; }
+
+.starters { display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; margin: 0 0 18px; }
+.starters button { padding: 8px 12px; border: 1px solid #393939; border-radius: 20px; color: #aaa; font-size: 12px; }
+.starters button:hover { color: #eee; background: #252525; border-color: #555; }

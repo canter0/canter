@@ -49,6 +49,12 @@ func newOAuthProviders(config HTTPConfig) map[string]*oauthProvider {
 			},
 		}
 	}
+	if c := config.GitHubApp; c.ClientID != "" && c.ClientSecret != "" {
+		providers["github-app"] = &oauthProvider{config: oauth2.Config{
+			ClientID: c.ClientID, ClientSecret: c.ClientSecret, RedirectURL: callback("github-app"),
+			Endpoint: oauth2.Endpoint{AuthURL: "https://github.com/login/oauth/authorize", TokenURL: "https://github.com/login/oauth/access_token", AuthStyle: oauth2.AuthStyleInParams},
+		}}
+	}
 	return providers
 }
 
@@ -212,7 +218,7 @@ func (h *HTTPServer) oauthAuth(w http.ResponseWriter, r *http.Request, parts []s
 	if mode != "create-account" && mode != "link" && mode != "repository" {
 		mode = "sign-in"
 	}
-	if mode == "repository" && name != "github" {
+	if (mode == "repository" && name != "github" && name != "github-app") || (name == "github-app" && mode != "repository") {
 		writeStoreError(w, ErrForbidden)
 		return
 	}
@@ -266,7 +272,7 @@ func (h *HTTPServer) oauthAuth(w http.ResponseWriter, r *http.Request, parts []s
 	}
 	h.setOAuthCookie(w, browser, 600)
 	options := []oauth2.AuthCodeOption{oauth2.S256ChallengeOption(login.Verifier), oauth2.SetAuthURLParam("nonce", nonce)}
-	if mode == "repository" {
+	if mode == "repository" && name == "github" {
 		options = append(options, oauth2.SetAuthURLParam("scope", "repo"))
 	}
 	if name == "google" {
@@ -312,6 +318,10 @@ func (h *HTTPServer) oauthCallback(w http.ResponseWriter, r *http.Request, name 
 	token, err := provider.config.Exchange(ctx, code, oauth2.VerifierOption(login.Verifier))
 	if err != nil {
 		fail("sign_in_failed")
+		return
+	}
+	if name == "github-app" && login.Mode != "repository" {
+		fail("access_restricted")
 		return
 	}
 	if login.Mode == "repository" {

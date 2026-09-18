@@ -25,7 +25,7 @@ func validateOperatorSurface(surface *OperatorSurface) error {
 		return nil
 	}
 	switch surface.Kind {
-	case "apps", "deployments", "billing", "activity", "agents", "app", "deployment", "change", "repository", "github", "repository-changes", "file":
+	case "compute", "storage", "apps", "deployments", "billing", "activity", "agents", "app", "deployment", "change", "repository", "github", "repository-changes", "file":
 	default:
 		return fmt.Errorf("unknown workspace view")
 	}
@@ -54,6 +54,8 @@ func (o *OperatorRuntime) tools() []mcpTool {
 	}
 	str := map[string]string{"type": "string"}
 	for _, item := range []struct{ name, description string }{
+		{"canter_show_compute", "Open an interactive VPS planning form in chat. Use immediately when asked to make a VPS or server. This collects requirements only: standalone VPS provisioning is unavailable; managed compute is provisioned through app deployments. Never claim a server was created."},
+		{"canter_show_storage", "Open an interactive storage bucket planning form in chat. Use immediately when asked to create a bucket or object storage. This collects requirements only: standalone bucket provisioning is unavailable. Never claim a bucket was created."},
 		{"canter_show_apps", "Read this workspace's real applications and open the Apps view."},
 		{"canter_show_deployments", "Read real deployment proposals and Changes, and open the Deployments view."},
 		{"canter_show_billing", "Read recorded spending, daily usage, resource capacity, trends and forecasts, and open Billing. A null forecast means there is not enough recorded history; do not invent predictions. Capacity is configured allocation, not measured CPU utilization. not_started means no billing period has begun; do not call its calculated zeros an invoice. Payments require the human's UI."},
@@ -75,6 +77,13 @@ func (o *OperatorRuntime) tools() []mcpTool {
 func (o *OperatorRuntime) localTool(ctx context.Context, r OperatorRun, c Conversation, p Principal, name string, raw json.RawMessage) (any, bool, error) {
 	s := o.Server.service.Store
 	switch name {
+	case "canter_show_compute", "canter_show_storage":
+		kind := "compute"
+		if name == "canter_show_storage" {
+			kind = "storage"
+		}
+		err := o.surface(ctx, r, OperatorSurface{Kind: kind})
+		return map[string]any{"view": kind, "status": "planning_only", "standaloneProvisioning": false, "next": "The form collects requirements. No resource, price quote, or authorization is created. After form submission, explain the supported next step without reopening the form."}, true, err
 	case "canter_show_repositories":
 		state, token, err := o.Server.githubAccess(ctx, c.AccountID, c.WorkspaceID)
 		if err != nil {
@@ -128,7 +137,7 @@ func (o *OperatorRuntime) localTool(ctx context.Context, r OperatorRun, c Conver
 		}
 		return map[string]any{"installations": agents}, true, err
 	case "canter_capabilities":
-		return map[string]any{"deployment": initialDeploymentCapabilities(c.WorkspaceID), "operator": map[string]any{"publicRepositoryInspection": true, "staticRepositoryDeployment": o.Config.StaticBinary != "", "privateRepositoryConnection": o.Server.oauth["github"] != nil, "hostedSourceBuilds": false, "canAuthorizeInfrastructure": false}}, true, nil
+		return map[string]any{"deployment": initialDeploymentCapabilities(c.WorkspaceID), "operator": map[string]any{"publicRepositoryInspection": true, "staticRepositoryDeployment": o.Config.StaticBinary != "", "privateRepositoryConnection": o.Server.githubConnectionDefaults().Enabled, "hostedSourceBuilds": false, "canAuthorizeInfrastructure": false}}, true, nil
 	case "canter_inspect_repository", "canter_read_repository_file", "canter_show_repository_changes", "canter_prepare_repository_deployment":
 		connection, token, err := o.Server.githubAccess(ctx, c.AccountID, c.WorkspaceID)
 		if err != nil {
