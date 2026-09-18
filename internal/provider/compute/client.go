@@ -812,3 +812,40 @@ func (c *Client) request(ctx context.Context, method, url string, payload, targe
 	}
 	return json.NewDecoder(resp.Body).Decode(target)
 }
+
+// ServerShape resolves the allocated server's actual flavor, never its class ordinal.
+func (c *Client) ServerShape(ctx context.Context, id string) (Shape, error) {
+	s, err := c.authenticate(ctx)
+	if err != nil {
+		return Shape{}, err
+	}
+	var out struct {
+		Server struct {
+			Flavor struct {
+				ID     string `json:"id"`
+				VCPU   int    `json:"vcpus"`
+				Memory int    `json:"ram"`
+			} `json:"flavor"`
+		} `json:"server"`
+	}
+	if err := c.get(ctx, s.ComputeURL+"/servers/"+id, &out); err != nil {
+		return Shape{}, err
+	}
+	f := out.Server.Flavor
+	if f.VCPU > 0 && f.Memory > 0 {
+		return Shape{ID: f.ID, VCPU: f.VCPU, Memory: f.Memory}, nil
+	}
+	if f.ID == "" {
+		return Shape{}, fmt.Errorf("server flavor missing")
+	}
+	var detail struct {
+		Flavor struct {
+			VCPU   int `json:"vcpus"`
+			Memory int `json:"ram"`
+		} `json:"flavor"`
+	}
+	if err := c.get(ctx, s.ComputeURL+"/flavors/"+f.ID, &detail); err != nil {
+		return Shape{}, err
+	}
+	return Shape{ID: f.ID, VCPU: detail.Flavor.VCPU, Memory: detail.Flavor.Memory}, nil
+}

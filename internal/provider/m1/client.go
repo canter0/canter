@@ -197,3 +197,27 @@ func isPrecondition(err error) bool {
 	var apiErr smithy.APIError
 	return errors.As(err, &apiErr) && (apiErr.ErrorCode() == "PreconditionFailed" || apiErr.ErrorCode() == "ConditionalRequestConflict")
 }
+
+// StoredBytes returns a complete, paginated inventory of current objects.
+// A partial or failed listing is never used for billing.
+func (c *Client) StoredBytes(ctx context.Context, prefix string) (int64, error) {
+	if prefix == "" || prefix[len(prefix)-1] != '/' {
+		return 0, fmt.Errorf("metering requires a delimited namespace")
+	}
+	paginator := s3.NewListObjectsV2Paginator(c.s3, &s3.ListObjectsV2Input{Bucket: &c.bucket, Prefix: &prefix})
+	var total int64
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
+		if err != nil {
+			return 0, err
+		}
+		for _, object := range page.Contents {
+			size := aws.ToInt64(object.Size)
+			if size < 0 || total > 1<<60-size {
+				return 0, fmt.Errorf("invalid storage inventory size")
+			}
+			total += size
+		}
+	}
+	return total, nil
+}

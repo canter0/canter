@@ -68,6 +68,9 @@ var githubConnectionsMigration string
 //go:embed migrations/017_operator_attachments.sql
 var operatorAttachmentsMigration string
 
+//go:embed migrations/019_resource_metering.sql
+var resourceMeteringMigration string
+
 //go:embed migrations/018_workspace_secrets.sql
 var workspaceSecretsMigration string
 
@@ -222,6 +225,13 @@ func (s *Store) Migrate(ctx context.Context) error {
 	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('018_workspace_secrets') ON CONFLICT DO NOTHING`); err != nil {
 		return err
 	}
+	if _, err := tx.Exec(ctx, resourceMeteringMigration); err != nil {
+		return fmt.Errorf("apply resource metering: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('019_resource_metering') ON CONFLICT DO NOTHING`); err != nil {
+		return err
+	}
+
 	return tx.Commit(ctx)
 }
 

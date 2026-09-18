@@ -12,6 +12,7 @@ import { dollars, estimateBill, type PlanID } from "@/lib/pricing";
 import styles from "@/app/app/billing/billing.module.css";
 
 type BillingState = {
+  meteringIssue?: string; meteredAt?: string;
  usage: BillingUsage;
   pendingPlanId?: PlanID; pendingPlanAt?: string;
   paymentReady: boolean; paymentMethod: { brand: string; last4: string } | null;
@@ -111,10 +112,13 @@ export function BillingSettings({ initialPlan, checkoutReturned, showPlan = fals
       </section>
     </> : <section className={styles.current} aria-label="Current plan"><div><span className={styles.badge}>Current plan</span><h2>Pay as you go</h2><p>$0/month + resource usage. Add a payment method to deploy, or choose Pro below.</p></div></section>}
     {notice ? <p className={styles.notice} role="status">{notice}</p> : null}
+    {state?.meteringIssue ? <p className={styles.notice} role="status">{state.meteringIssue}</p> : null}
     {state?.pendingPlanId && state.pendingPlanAt ? <p className={styles.notice} role="status">Switching to {state.pendingPlanId === "pro" ? "Pro ($20/month)" : "Pay as you go ($0/month + usage)"} on {new Date(state.pendingPlanAt).toLocaleDateString()}. Your current plan and included credit remain until then.</p> : null}
     <section className={styles.selection} aria-labelledby="choose-plan"><h2 id="choose-plan">Choose your plan</h2>
       <div className={styles.plans} role="group" aria-label="Billing plan">{(["payg", "pro"] as const).map(plan => <button key={plan} aria-pressed={selected === plan} onClick={() => setSelected(plan)}><span>{plan === "pro" ? "Pro" : "Pay as you go"}{currentPlan === plan ? " · Current plan" : ""}</span><strong>{plan === "pro" ? "$20" : "$0"}<small>/month</small></strong><p>{plan === "pro" ? "Includes $20 of infrastructure usage each month. Pay only for usage above that." : "No subscription fee. Pay for the resources your apps use."}</p></button>)}</div>
       <p className={styles.small}>{selected === "pro" ? "$20 is paid each month and deducted from that month’s usage bill. $21 of usage costs $21 total: $20 subscription plus $1 overage. Unused credit expires at renewal." : "Save a card securely with Stripe. Recorded resource usage is charged monthly, with no subscription fee."} All prices are USD, before tax.</p>
+      <p className={styles.small}>Compute costs $3 per 720 hours for each allocated 1 vCPU / 1 GiB bundle, scaled by whichever resource requires more bundles. Stored objects cost $0.014 per GB per 720 hours. Reads, writes and direct downloads are free. Fractional cents accumulate within the billing period. <Link href="/pricing">See resource prices</Link>.</p>
+      <p className={styles.small}>Cancellation takes effect at renewal. New paid provisioning is blocked after cancellation or a payment failure. Existing resources and data are retained for owner review; time while billing is inactive is not charged. Contact support to arrange resource removal.</p>
       {started ? <><p className={styles.small}>Plan changes take effect at your next renewal{state?.periodEnd ? ` on ${new Date(state.periodEnd).toLocaleDateString()}` : ""}. This month’s usage and credit stay on your current plan.</p><button className={styles.checkout} disabled={busy || !state?.checkoutEnabled || !canManage || !state?.periodEnd || state?.status !== "active" || state?.cancelAtPeriodEnd || (selected === currentPlan && !state?.pendingPlanId) || selected === state?.pendingPlanId} onClick={schedulePlan}>{busy ? "Saving…" : selected === currentPlan ? state?.pendingPlanId ? "Cancel scheduled plan change" : "Current plan" : selected === "pro" ? "Switch to Pro — $20/month at renewal" : "Switch to pay as you go at renewal"}</button></> : <button className={styles.checkout} disabled={busy || !state?.checkoutEnabled || !canManage} onClick={() => openPayment("checkout")}>{busy ? "Opening secure checkout…" : selected === "pro" ? "Subscribe to Pro — $20/month" : "Add payment method"}</button>}
     </section>
     {!started && state?.hasBillingAccount ? <p><button className={styles.checkout} disabled={busy || !state.checkoutEnabled || !canManage} onClick={() => openPayment("portal")}>Invoices & payment methods</button></p> : null}

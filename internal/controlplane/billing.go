@@ -18,6 +18,8 @@ import (
 )
 
 type BillingState struct {
+	MeteringIssue        string                `json:"meteringIssue,omitempty"`
+	MeteredAt            *time.Time            `json:"meteredAt,omitempty"`
 	PendingPlanID        string                `json:"pendingPlanId,omitempty"`
 	PendingPlanAt        *time.Time            `json:"pendingPlanAt,omitempty"`
 	PaymentMethod        *BillingPaymentMethod `json:"paymentMethod"`
@@ -48,6 +50,10 @@ func (s *Store) billingState(ctx context.Context, workspace string) (BillingStat
 		if err != nil {
 			return out, err
 		}
+	}
+	err = s.pool.QueryRow(ctx, `SELECT succeeded_at,issue FROM billing_collection_status WHERE workspace_id=$1`, workspace).Scan(&out.MeteredAt, &out.MeteringIssue)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return out, err
 	}
 	out.Bill, err = pricing.Calculate(out.PlanID, usage)
 	if err != nil {
@@ -416,6 +422,9 @@ func (h *HTTPServer) billingWebhook(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		_, err = tx.Exec(r.Context(), `UPDATE workspace_billing SET subscription_id=$2,plan_id=$3,status=$4,period_start=$5,period_end=$6,cancel_at_period_end=$7,checkout_url='',checkout_expires_at=NULL,updated_at=now() WHERE workspace_id=$1`, workspace, current.ID, plan, status, time.Unix(start, 0), time.Unix(end, 0), current.CancelAtPeriodEnd)
+	}
+	if err == nil {
+		_, err = tx.Exec(r.Context(), `DELETE FROM billing_resource_samples WHERE workspace_id=$1 AND EXISTS(SELECT 1 FROM workspace_billing WHERE workspace_id=$1 AND status<>'active')`, workspace)
 	}
 	if err == nil {
 		err = tx.Commit(r.Context())

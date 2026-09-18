@@ -27,11 +27,35 @@ portal and webhook configuration. Unrelated customers' events are ignored.
 Credentials remain in ignored mode-0600 local environment files and the protected
 production control-plane environment; browser bundles never receive them.
 
-**Charging remains closed:** the app release includes both plans and the payment
-integration, but `CANTER_BILLING_ENABLED=false` until a billing-grade resource
-usage producer and retained-resource cancellation/failed-payment lifecycle are
-verified. The live Stripe webhook remains disabled. No tax registration or
-automatic tax collection was enabled.
+Resource collection now runs every minute when billing is enabled. It queries
+actual server flavors and complete paginated S3 inventories in each workspace's
+canonical system namespaces. Rates (`resources-2026-09-18-v1`) are $3 per 720
+hours per allocated 1-vCPU/1-GiB bundle (the larger CPU or memory requirement),
+and $0.014 per decimal GB per 720 hours. Reads, writes and direct downloads are
+free. Shared control-plane artifacts outside system namespaces are not billed.
+
+Only adjacent successful observations at most five minutes apart are charged,
+using the smaller of the two observed allocations. The first observation,
+unobserved outages, the final unobserved interval at deletion/renewal, and less
+than one remaining cent at period end are absorbed by Canter. No pre-signup or
+inactive-period usage is backfilled. Exact integer numerator remainders retain
+fractional cents within each resource and billing period. Snapshots and usage
+outbox events commit atomically under a workspace lock; provider reads also use
+an advisory lock. Failed or partial inventories never produce charges. The UI
+reports collection failures and retained-resource billing holds.
+
+Cancellation is scheduled at period end. Payment failure, cancellation, or an
+expired unreconciled period blocks new paid provisioning. Inactive billing
+clears sampling baselines and does not charge for retained resources. Existing
+resources and data are preserved for explicit owner/operator review; this is a
+manual retention policy, not automatic destruction or suspension. Canter bears
+the retention cost. Operators must review `billing_collection_status.issue`
+and arrange resource removal with the owner. Billing recovery starts a fresh
+observation interval, never charging the inactive interval retroactively.
+
+Live activation requires green database/provider/sandbox tests, catalog
+validation, the dedicated webhook enabled, and `CANTER_BILLING_ENABLED=true`.
+No tax registration or automatic tax collection is enabled.
 
 Validation includes database-backed checkout/webhook/idempotency tests, card
 readiness and provisioning checks, renewal schedule tests, and real Stripe

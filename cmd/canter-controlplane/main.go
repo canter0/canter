@@ -49,12 +49,7 @@ func main() {
 	service := &controlplane.Service{Store: store, Engine: client, NodeGateway: client, NodeGatewayURL: nodeGatewayURL}
 	workerID, _ := os.Hostname()
 	dispatcher := &controlplane.Dispatcher{Store: store, Engine: client, WorkerID: "control-plane/" + workerID}
-	go func() {
-		if err := dispatcher.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
-			log.Printf("execution dispatcher stopped: %v", err)
-			stop()
-		}
-	}()
+
 	var nodeBinary []byte
 	if nodePath := os.Getenv("CANTER_NODE_BINARY_PATH"); nodePath != "" {
 		nodeBinary, err = os.ReadFile(nodePath)
@@ -63,12 +58,7 @@ func main() {
 		}
 	}
 	initialDispatcher := &controlplane.InitialDeploymentDispatcher{Store: store, Service: service, Engine: client, NodeBinary: nodeBinary, WorkerID: "control-plane/initial/" + workerID}
-	go func() {
-		if err := initialDispatcher.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
-			log.Printf("initial deployment dispatcher stopped: %v", err)
-			stop()
-		}
-	}()
+
 	addr := os.Getenv("CANTER_CONTROLPLANE_ADDR")
 	if addr == "" {
 		addr = "127.0.0.1:8081"
@@ -110,13 +100,16 @@ func main() {
 			log.Fatalf("validate billing catalog: %v", err)
 		}
 		go func() {
-			ticker := time.NewTicker(15 * time.Second)
+			ticker := time.NewTicker(time.Minute)
 			defer ticker.Stop()
 			for {
 				select {
 				case <-ctx.Done():
 					return
 				case <-ticker.C:
+					if err := store.CollectUsage(ctx, client); err != nil && ctx.Err() == nil {
+						log.Printf("billing resource collection: %v", err)
+					}
 					if err := billing.DispatchUsage(ctx, store); err != nil && ctx.Err() == nil {
 						log.Printf("billing usage dispatch: %v", err)
 					}
@@ -124,6 +117,18 @@ func main() {
 			}
 		}()
 	}
+	go func() {
+		if err := dispatcher.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			log.Printf("execution dispatcher stopped: %v", err)
+			stop()
+		}
+	}()
+	go func() {
+		if err := initialDispatcher.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			log.Printf("initial deployment dispatcher stopped: %v", err)
+			stop()
+		}
+	}()
 	operator := controlplane.OperatorConfig{APIKey: os.Getenv("OPENROUTER_API_KEY"), BaseURL: os.Getenv("CANTER_OPERATOR_BASE_URL"), Model: os.Getenv("CANTER_OPERATOR_MODEL"), StaticBinary: os.Getenv("CANTER_STATIC_SERVER_BINARY")}
 	if operator.StaticBinary == "" {
 		if _, err := os.Stat("bin/canter-static-linux"); err == nil {

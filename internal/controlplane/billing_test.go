@@ -38,6 +38,7 @@ func TestBillingSignatureRejectsTamperingAndStaleEvents(t *testing.T) {
 }
 
 type billingFixture struct {
+	expectedMeterValue     string
 	mu                     sync.Mutex
 	active                 bool
 	canceled               bool
@@ -119,7 +120,11 @@ func billingTestGateway(t *testing.T) (*BillingGateway, *billingFixture) {
 		case r.URL.Path == "/v1/billing/meter_events":
 			r.ParseForm()
 			f.meterCalls++
-			if r.Form.Get("payload[value]") != "2100" {
+			expected := f.expectedMeterValue
+			if expected == "" {
+				expected = "2100"
+			}
+			if r.Form.Get("payload[value]") != expected {
 				t.Error("expected full rated usage before credit")
 			}
 			if f.failMeter {
