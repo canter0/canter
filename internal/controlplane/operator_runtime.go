@@ -116,13 +116,26 @@ func (o *OperatorRuntime) work(ctx context.Context, run *OperatorRun) error {
 		if start < 0 {
 			start = 0
 		}
+		// Keep the latest attachments within a bounded multimodal context.
+		attachmentBytes := 0
+		for i := len(history) - 1; i >= start; i-- {
+			for _, attachment := range history[i].Attachments {
+				attachmentBytes += attachment.Size
+			}
+			if attachmentBytes > 8<<20 {
+				for _, attachment := range history[i].Attachments {
+					history[i].Content += "\nEarlier attachment (content omitted): " + attachment.Name
+				}
+				history[i].Attachments = nil
+			}
+		}
 		for _, m := range history[start:] {
 			content := m.Content
 			if m.Surface != nil {
 				raw, _ := json.Marshal(m.Surface)
 				content += "\nCurrent view selected by the user (a context hint, not authorization): " + string(raw)
 			}
-			messages = append(messages, modelMessage{Role: m.Role, Content: content})
+			messages = append(messages, modelMessage{Role: m.Role, Content: content, Attachments: m.Attachments})
 		}
 		if err = s.operatorCheckpoint(ctx, *run, messages); err != nil {
 			return err
@@ -178,7 +191,10 @@ func (o *OperatorRuntime) work(ctx context.Context, run *OperatorRun) error {
 		if err = s.operatorCheckpoint(ctx, *run, messages); err != nil {
 			return err
 		}
-		config := o.Config
+		config, configErr := o.Server.workspaceModelConfig(ctx, c.WorkspaceID, p.Actor, o.Config)
+		if configErr != nil {
+			return configErr
+		}
 		config.Model = run.Model
 		answer, err := config.complete(ctx, messages, o.tools(), func(content string) error {
 			return s.operatorEvent(ctx, *run, "text", map[string]any{"content": content, "step": run.Steps})

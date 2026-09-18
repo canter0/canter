@@ -18,17 +18,21 @@ import (
 )
 
 type BillingState struct {
-	Usage                BillingUsage `json:"usage"`
-	HasBillingAccount    bool         `json:"hasBillingAccount"`
-	PlanID               string       `json:"planId"`
-	Status               string       `json:"status"`
-	CheckoutEnabled      bool         `json:"checkoutEnabled"`
-	PeriodStart          *time.Time   `json:"periodStart"`
-	PeriodEnd            *time.Time   `json:"periodEnd"`
-	CancelAtPeriodEnd    bool         `json:"cancelAtPeriodEnd"`
-	Bill                 pricing.Bill `json:"bill"`
-	PendingEvents        int          `json:"pendingEvents"`
-	ReconciliationEvents int          `json:"reconciliationEvents"`
+	PendingPlanID        string                `json:"pendingPlanId,omitempty"`
+	PendingPlanAt        *time.Time            `json:"pendingPlanAt,omitempty"`
+	PaymentMethod        *BillingPaymentMethod `json:"paymentMethod"`
+	PaymentReady         bool                  `json:"paymentReady"`
+	Usage                BillingUsage          `json:"usage"`
+	HasBillingAccount    bool                  `json:"hasBillingAccount"`
+	PlanID               string                `json:"planId"`
+	Status               string                `json:"status"`
+	CheckoutEnabled      bool                  `json:"checkoutEnabled"`
+	PeriodStart          *time.Time            `json:"periodStart"`
+	PeriodEnd            *time.Time            `json:"periodEnd"`
+	CancelAtPeriodEnd    bool                  `json:"cancelAtPeriodEnd"`
+	Bill                 pricing.Bill          `json:"bill"`
+	PendingEvents        int                   `json:"pendingEvents"`
+	ReconciliationEvents int                   `json:"reconciliationEvents"`
 }
 
 func (s *Store) billingState(ctx context.Context, workspace string) (BillingState, error) {
@@ -55,7 +59,8 @@ func (s *Store) billingState(ctx context.Context, workspace string) (BillingStat
 
 func (h *HTTPServer) billingPublic(w http.ResponseWriter, r *http.Request, parts []string) {
 	if len(parts) == 1 && parts[0] == "plans" && r.Method == http.MethodGet {
-		writeJSON(w, http.StatusOK, map[string]any{"catalog": pricing.Current(), "checkoutEnabled": h.config.Billing.Ready()})
+		catalog := pricing.Current()
+		writeJSON(w, http.StatusOK, map[string]any{"catalog": catalog, "checkoutEnabled": h.config.Billing.Ready()})
 		return
 	}
 	if len(parts) == 1 && parts[0] == "webhook" && r.Method == http.MethodPost {
@@ -95,6 +100,20 @@ func (h *HTTPServer) workspaceBilling(w http.ResponseWriter, r *http.Request, p 
 			return
 		}
 		state.CheckoutEnabled = h.config.Billing.Ready()
+		if state.CheckoutEnabled && state.HasBillingAccount {
+			state.PaymentMethod, state.PaymentReady, err = h.service.Store.billingPaymentReadiness(r.Context(), workspace, h.config.Billing)
+			if err != nil {
+				writeStoreError(w, err)
+				return
+			}
+		}
+		if state.CheckoutEnabled && state.Status == "active" {
+			state.PendingPlanID, state.PendingPlanAt, err = h.pendingBillingPlan(r.Context(), workspace)
+			if err != nil {
+				writeStoreError(w, err)
+				return
+			}
+		}
 		writeJSON(w, http.StatusOK, state)
 		return
 	}
@@ -124,6 +143,9 @@ func (h *HTTPServer) workspaceBilling(w http.ResponseWriter, r *http.Request, p 
 		if !decodeLimit(w, r, &request, 4096) {
 			return
 		}
+		if request.PlanID == "" {
+			request.PlanID = "payg"
+		}
 		if _, ok := pricing.Find(request.PlanID); !ok {
 			writeError(w, http.StatusBadRequest, fmt.Errorf("unknown billing plan"))
 			return
@@ -134,6 +156,25 @@ func (h *HTTPServer) workspaceBilling(w http.ResponseWriter, r *http.Request, p 
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"url": address})
+		return
+	}
+	if len(parts) == 1 && parts[0] == "plan-change" {
+		var input struct {
+			PlanID    string `json:"planId"`
+			PeriodEnd int64  `json:"periodEnd"`
+		}
+		if !decodeLimit(w, r, &input, 4096) {
+			return
+		}
+		if _, ok := pricing.Find(input.PlanID); !ok {
+			writeError(w, http.StatusBadRequest, fmt.Errorf("unknown billing plan"))
+			return
+		}
+		if err := h.changeBillingPlan(r.Context(), workspace, input.PlanID, input.PeriodEnd); err != nil {
+			writeStoreError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]bool{"scheduled": true})
 		return
 	}
 	if len(parts) == 1 && parts[0] == "portal" {
@@ -228,7 +269,7 @@ func (h *HTTPServer) startBillingCheckout(ctx context.Context, workspace, email,
 	attempt++
 	// Keep provider parameters identical when retrying after an uncertain result.
 	// In particular, a wall-clock expires_at would break Stripe idempotency.
-	values := url.Values{"mode": {"subscription"}, "customer": {customer}, "client_reference_id": {workspace}, "payment_method_collection": {"always"}, "success_url": {strings.TrimRight(h.config.PublicURL, "/") + "/app/billing?checkout=complete"}, "cancel_url": {strings.TrimRight(h.config.PublicURL, "/") + "/app/billing?checkout=canceled"}, "subscription_data[metadata][canter_workspace_id]": {workspace}, "subscription_data[metadata][canter_plan]": {plan}}
+	values := url.Values{"mode": {"subscription"}, "customer": {customer}, "client_reference_id": {workspace}, "payment_method_collection": {"always"}, "payment_method_types[]": {"card"}, "success_url": {strings.TrimRight(h.config.PublicURL, "/") + "/app/billing?checkout=complete"}, "cancel_url": {strings.TrimRight(h.config.PublicURL, "/") + "/app/billing?checkout=canceled"}, "subscription_data[metadata][canter_workspace_id]": {workspace}, "subscription_data[metadata][canter_plan]": {plan}}
 	if plan == "pro" {
 		values.Set("line_items[0][price]", b.Config.ProPriceID)
 		values.Set("line_items[0][quantity]", "1")
@@ -310,7 +351,13 @@ func (h *HTTPServer) billingWebhook(w http.ResponseWriter, r *http.Request) {
 	var workspace string
 	err = tx.QueryRow(r.Context(), `SELECT workspace_id FROM workspace_billing WHERE customer_id=$1 FOR UPDATE`, event.Data.Object.Customer).Scan(&workspace)
 	if errors.Is(err, pgx.ErrNoRows) {
-		writeError(w, http.StatusConflict, fmt.Errorf("billing customer is not linked yet"))
+		// A shared Stripe account also delivers Autodisc events. Ignore customers
+		// outside this application's durable association; never import them.
+		if err = tx.Commit(r.Context()); err != nil {
+			writeStoreError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]bool{"received": true})
 		return
 	}
 	if err != nil {

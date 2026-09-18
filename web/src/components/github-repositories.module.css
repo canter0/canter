@@ -12,7 +12,8 @@
 .error button { text-decoration: underline; margin-left: 5px; }
 .search { display: flex; align-items: center; gap: 11px; padding: 13px 15px; background: #252525; border-radius: 10px; color: var(--muted); margin-bottom: 16px; }
 .search input, .linkForm input { background: none; border: 0; outline: none; min-width: 0; width: 100%; font-size: 13px; color: var(--ink); }
-.search:focus-within, .linkForm > div:focus-within { box-shadow: 0 0 0 1px #555; }
+.panel .search input:focus-visible, .panel .linkForm input:focus-visible { outline: none; box-shadow: none; }
+.search:focus-within { box-shadow: 0 0 0 1px #777; }
 .repositories { display: flex; flex-direction: column; gap: 5px; }
 .repository { display: flex; align-items: center; justify-content: space-between; gap: 20px; text-align: left; padding: 16px 14px; margin: 0 -14px; border-radius: 12px; }
 .repository:hover { background: #252525; }
@@ -27,9 +28,13 @@
 .accountActions a:hover, .accountActions button:hover { color: var(--ink); }
 .linkForm { margin-top: 35px; }
 .linkForm label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 12px; }
-.linkForm > div { display: flex; gap: 10px; align-items: center; padding: 10px 11px 10px 15px; background: #252525; border-radius: 10px; }
-.linkForm button { display: grid; place-items: center; flex-shrink: 0; width: 30px; height: 30px; border-radius: 50%; background: #3a3a3a; }
-.linkForm button:disabled { opacity: .3; }
+.linkForm > div { display: flex; gap: 10px; align-items: center; min-height: 46px; padding: 6px 6px 6px 14px; border: 1px solid #3b3b3b; background: #252525; border-radius: 12px; transition: border-color .15s, box-shadow .15s; }
+.linkForm > div:focus-within { border-color: #858585; box-shadow: 0 0 0 2px #ffffff0a; }
+.linkForm input { flex: 1; height: 32px; padding: 0; line-height: 1.5; }
+.linkForm input::placeholder { color: #858585; opacity: 1; }
+.linkForm button { display: grid; place-items: center; flex-shrink: 0; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 50%; background: #e5e5e5; color: #1b1b1b; transition: background .15s, color .15s; }
+.linkForm button:hover:not(:disabled) { background: #fff; }
+.linkForm button:disabled { background: #303030; color: #737373; cursor: default; }
 @media (max-width: 760px) { .panel { padding: 25px 22px; } }
 
 .panel[data-inline="true"] { padding: 22px 24px; margin: 18px 0 24px; border-radius: 16px; background: #1e1e1e; max-width: 540px; }

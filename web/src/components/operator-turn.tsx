@@ -4,6 +4,7 @@ import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { elapsedLabel, turnTimeline } from "@/lib/operator-timeline";
 import { isSurface, surfaceKey, surfaceLabels, type OperatorEvent, type OperatorMessage, type OperatorSurface } from "@/lib/operator-api";
+import { OperatorAttachments } from "./operator-attachments";
 import { WorkspaceIcon } from "./workspace-icon";
 import styles from "./operator-workspace.module.css";
 
@@ -27,7 +28,7 @@ export function OperatorTurn({ message, answer, events, running, onSelect, inlin
   const surfaces = [...new Map(events.filter(event => event.kind === "surface" && isSurface(event.data) && event.data.kind !== "github").map(event => [surfaceKey(event.data as OperatorSurface), event.data as OperatorSurface])).values()];
   const open = expanded ?? running;
   return <section className={styles.turn} aria-label="Conversation turn">
-    <article className={styles.message} data-role="user"><div className={styles.messageText}>{message.content}</div></article>
+    <article className={styles.message} data-role="user"><div className={styles.messageText}>{message.content}</div>{message.attachments?.length ? <OperatorAttachments items={message.attachments} /> : null}</article>
     <div className={styles.agentTurn}>
       <ResponseText text={timeline.preamble?.data.content} />
       {timeline.work.length ? <div className={styles.operations}>

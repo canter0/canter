@@ -120,14 +120,14 @@ func initialDeploymentCapabilities(workspaceID string) map[string]any {
 				"CANTER_RELEASE_VERSION": "immutable content-derived release version",
 				"serviceBindingPattern":  "CANTER_SERVICE_<UPPERCASE_SERVICE_NAME>_URL",
 			},
-			"constraints": map[string]any{"hostCount": 1, "hostClasses": sdk.SupportedHostClasses(), "publicHTTPServices": 1, "authorization": "human approval of exact digest required"},
+			"constraints": map[string]any{"hostCount": 1, "hostClasses": sdk.SupportedHostClasses(), "publicHTTPServices": 1, "authorization": "exact digest authorization required; agents need automatic apply authority or human approval"},
 			"http": map[string]any{
 				"uploadArtifact": map[string]string{"method": "POST", "path": prefix + "/artifacts"},
 				"draft":          map[string]string{"method": "POST", "path": prefix + "/initial-deployments"},
 				"list":           map[string]string{"method": "GET", "path": prefix + "/initial-deployments"},
 				"inspect":        map[string]string{"method": "GET", "path": prefix + "/initial-deployments/{deploymentId}"},
-				"authorize":      map[string]string{"method": "POST", "path": prefix + "/initial-deployments/{deploymentId}/authorize", "principal": "human"},
-				"apply":          map[string]string{"method": "POST", "path": prefix + "/initial-deployments/{deploymentId}/apply", "principal": "human"},
+				"authorize":      map[string]string{"method": "POST", "path": prefix + "/initial-deployments/{deploymentId}/authorize", "principal": "human or automatic-write agent"},
+				"apply":          map[string]string{"method": "POST", "path": prefix + "/initial-deployments/{deploymentId}/apply", "principal": "human or automatic-write agent"},
 				"execution":      map[string]string{"method": "GET", "path": "/v1/initial-deployment-executions/{executionId}"},
 			},
 			"mcp": map[string]any{
@@ -278,7 +278,7 @@ func (s *Service) ApplyChangeUnderPolicy(ctx context.Context, workspaceID, syste
 	if s.Engine == nil {
 		return PolicyApplyResult{}, fmt.Errorf("execution engine is unavailable")
 	}
-	if principal.Installation == nil || principal.Session == nil || !principal.Installation.Authority.Draft {
+	if principal.Installation == nil || principal.Session == nil || !principal.Installation.Authority.Draft || principal.Installation.Authority.ApplyMode == "never" {
 		return PolicyApplyResult{}, ErrForbidden
 	}
 	record, err := s.Store.GetSystem(ctx, workspaceID, systemName)
@@ -448,6 +448,9 @@ func (d *Dispatcher) runOne(parent context.Context, execution Execution) {
 			if base := change.Plan.BaseRevision; base.SystemRevision != 0 && (base.SystemRevision != record.Revision || base.WorkspaceRevision != workspace.Revision) {
 				err = fmt.Errorf("%w: change base revision is stale", ErrConflict)
 			}
+		}
+		if err == nil && change.Plan.Impact.MonthlyCostDeltaCents > 0 {
+			err = d.Store.requireBillingPayment(ctx, execution.WorkspaceID)
 		}
 		if err == nil {
 			change, err = d.Engine.ApplyChange(sdk.WithActor(ctx, sdk.ActorRef{Kind: "canter", ID: d.WorkerID}), record.Contract, execution.ChangeID)

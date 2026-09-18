@@ -1,6 +1,10 @@
 import type { SVGProps } from "react";
 
 const paths = {
+  lock: "M5 10h14v11H5zM8 10V6a4 4 0 0 1 8 0v4M12 14v3",
+  changes: "M6 3v12a3 3 0 1 0 3 3H6M18 21V9a3 3 0 1 0-3-3h3M6 7h12",
+  expand: "M8 3H3v5M16 3h5v5M3 16v5h5M21 16v5h-5",
+  collapse: "M3 8h5V3M21 8h-5V3M8 21v-5H3M16 21v-5h5",
   plus: "M12 5v14M5 12h14",
   apps: "M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z",
   activity: "M3 12h4l3-8 4 16 3-8h4",

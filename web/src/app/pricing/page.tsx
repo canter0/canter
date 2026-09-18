@@ -4,10 +4,10 @@ import { SiteHeader } from "@/components/site-header";
 import { PricingPlans } from "@/components/pricing-plans";
 import styles from "./pricing.module.css";
 
-export const metadata: Metadata = { title: "Pricing", description: "Start with pay-as-you-go hosting, or put $20 a month toward usage. Bring your agent. Review your costs. Stay in control." };
+export const metadata: Metadata = { title: "Pricing", description: "Pay as you go, or choose Pro with $20 of monthly usage included. Bring your agent. Review your costs. Stay in control." };
 
 const questions = [
-  { question: "How does the $20 usage credit work?", answer: "Pro costs $20 per month and includes $20 of usage credit. If you use $21, you pay $1 in additional usage: $21 total for that month. The credit resets each billing month and does not roll over." },
+  { question: "When do I add a payment method?", answer: "Every workspace starts on pay as you go. You can choose Pro for $20/month, including $20 of infrastructure usage. Before deploying paid resources, the owner adds a card securely through Stripe." },
   { question: "Is pay as you go free?", answer: "There is no monthly subscription fee. You pay for the compute, object storage and transfer your apps use or reserve." },
   { question: "What will my app cost?", answer: "Your bill follows the resource prices below. Compute starts at $3 per month for 1 vCPU and 1 GB of RAM. Object storage costs $0.014/GB per month, with free reads, writes and direct downloads." },
   { question: "Is my coding agent included?", answer: "Bring your own coding agent. Your agent or model provider bills you separately from Canter hosting." },
@@ -30,7 +30,7 @@ export default function PricingPage() {
       <section className={styles.hero} aria-labelledby="pricing-title">
         <span className={styles.eyebrow}><span /> Pricing</span>
         <h1 id="pricing-title">A little to start.<br /><span>Room to keep going.</span></h1>
-        <p>Pay for what you run. Put $20 toward usage if you prefer.<br className={styles.desktopBreak} /> Your agent handles the setup. You stay in control.</p>
+        <p>Pay for what you run. Or choose $20/month Pro with $20 of usage included.<br className={styles.desktopBreak} /> Your agent handles the setup. You stay in control.</p>
       </section>
       <PricingPlans />
       <section className={styles.faq} aria-labelledby="questions-title">

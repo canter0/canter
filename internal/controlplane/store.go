@@ -65,6 +65,12 @@ var operatorConversationsMigration string
 //go:embed migrations/016_github_connections.sql
 var githubConnectionsMigration string
 
+//go:embed migrations/017_operator_attachments.sql
+var operatorAttachmentsMigration string
+
+//go:embed migrations/018_workspace_secrets.sql
+var workspaceSecretsMigration string
+
 var (
 	ErrNotFound      = errors.New("not found")
 	ErrUnauthorized  = errors.New("unauthorized")
@@ -77,8 +83,9 @@ var (
 )
 
 type Store struct {
-	pool *pgxpool.Pool
-	now  func() time.Time
+	billing *BillingGateway
+	pool    *pgxpool.Pool
+	now     func() time.Time
 }
 
 func Open(ctx context.Context, databaseURL string) (*Store, error) {
@@ -201,6 +208,18 @@ func (s *Store) Migrate(ctx context.Context) error {
 		return fmt.Errorf("apply GitHub connections migration: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('016_github_connections') ON CONFLICT DO NOTHING`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, operatorAttachmentsMigration); err != nil {
+		return fmt.Errorf("apply operator attachments migration: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('017_operator_attachments') ON CONFLICT DO NOTHING`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, workspaceSecretsMigration); err != nil {
+		return fmt.Errorf("apply workspace secrets migration: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('018_workspace_secrets') ON CONFLICT DO NOTHING`); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
@@ -628,6 +647,11 @@ func (s *Store) ResolveAgent(ctx context.Context, accessToken string) (Principal
 	session.InstallationID = installation.ID
 	if session.ParentSessionID != "" {
 		installation.Authority.Draft = installation.Authority.Draft && session.WorkerDraft
+		if !installation.Authority.Draft {
+			installation.Authority.ApplyMode = "never"
+		} else if installation.Authority.ApplyMode == "automatic" {
+			installation.Authority.ApplyMode = "human-approval-required"
+		}
 	}
 	now := s.now()
 	if installation.LastSeenAt == nil || session.LastSeenAt.Before(now.Add(-30*time.Second)) {

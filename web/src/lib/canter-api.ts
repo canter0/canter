@@ -50,6 +50,7 @@ export type Workspace = {
   id: string;
   name: string;
   revision?: number;
+  role?: "owner" | "operator" | "viewer";
 };
 
 export type Installation = {

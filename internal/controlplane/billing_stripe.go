@@ -36,7 +36,7 @@ func NewBillingGateway(config BillingConfig) *BillingGateway {
 	return &BillingGateway{Config: config, client: &http.Client{Timeout: 15 * time.Second}, baseURL: "https://api.stripe.com"}
 }
 func (b *BillingGateway) Ready() bool {
-	return b != nil && b.Config.Enabled && b.Config.SecretKey != "" && b.Config.WebhookSecret != "" && len(b.Config.IngestToken) >= 32 && b.Config.PaygPriceID != "" && b.Config.ProPriceID != "" && b.Config.ProUsagePriceID != "" && b.Config.MeterID != "" && b.Config.MeterEventName != "" && b.Config.PortalConfigurationID != ""
+	return b != nil && b.Config.Enabled && b.Config.SecretKey != "" && b.Config.WebhookSecret != "" && len(b.Config.IngestToken) >= 32 && b.Config.PaygPriceID != "" && b.Config.MeterID != "" && b.Config.MeterEventName != "" && b.Config.PortalConfigurationID != ""
 }
 func (b *BillingGateway) request(ctx context.Context, method, path string, values url.Values, key string, out any) error {
 	address := b.baseURL + path
@@ -83,7 +83,14 @@ func (b *BillingGateway) ValidatePrices(ctx context.Context) error {
 		return nil
 	}
 	pro, _ := pricing.Find("pro")
-	for _, spec := range []struct{ id, kind string }{{b.Config.PaygPriceID, "payg"}, {b.Config.ProPriceID, "base"}, {b.Config.ProUsagePriceID, "overage"}} {
+	specs := []struct{ id, kind string }{{b.Config.PaygPriceID, "payg"}}
+	if (b.Config.ProPriceID == "") != (b.Config.ProUsagePriceID == "") {
+		return fmt.Errorf("both legacy Pro prices must be configured together")
+	}
+	if b.Config.ProPriceID != "" {
+		specs = append(specs, struct{ id, kind string }{b.Config.ProPriceID, "base"}, struct{ id, kind string }{b.Config.ProUsagePriceID, "overage"})
+	}
+	for _, spec := range specs {
 		var p struct {
 			Active        bool            `json:"active"`
 			Currency      string          `json:"currency"`

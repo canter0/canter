@@ -7,6 +7,7 @@ import { canterFetch, CanterAPIError, type ChangeSummary, type InitialDeployment
 import type { Conversation } from "./operator-api";
 
 type Overview = {
+  account: Me["account"];
   conversations: Conversation[];
   agent: { available: boolean; model: string };
   workspace: Me["workspaces"][number];
@@ -47,7 +48,7 @@ export function useWorkspaceOverview() {
           canterFetch<{ conversations: Conversation[]; agent: Overview["agent"] }>(`${base}/conversations`, options),
         ]);
         if (controller.signal.aborted) return;
-        setData({ workspace, conversations: conversations.conversations ?? [], agent: conversations.agent, systems: systems.systems ?? [], installations: installations.installations ?? [], changes: changes.changes ?? [], initialDeployments: deployments.initialDeployments ?? [], tasks: tasks.tasks ?? [], actions: actions.actions ?? [] });
+        setData({ account: me.account, workspace, conversations: conversations.conversations ?? [], agent: conversations.agent, systems: systems.systems ?? [], installations: installations.installations ?? [], changes: changes.changes ?? [], initialDeployments: deployments.initialDeployments ?? [], tasks: tasks.tasks ?? [], actions: actions.actions ?? [] });
         setError("");
       } catch (cause) {
         if (cause instanceof CanterAPIError && cause.status === 401 && !controller.signal.aborted) { router.replace("/sign-in"); return; }

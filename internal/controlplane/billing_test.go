@@ -107,8 +107,8 @@ func billingTestGateway(t *testing.T) (*BillingGateway, *billingFixture) {
 		case r.URL.Path == "/v1/checkout/sessions":
 			r.ParseForm()
 			f.checkoutKeys = append(f.checkoutKeys, r.Header.Get("Idempotency-Key"))
-			if r.Form.Get("line_items[0][price]") != "price_pro" || r.Form.Get("line_items[1][price]") != "price_overage" || r.Form.Get("line_items[1][quantity]") != "" {
-				t.Error("incorrect checkout credit setup")
+			if r.Form.Get("line_items[0][price]") != "price_payg" || r.Form.Get("line_items[1][price]") != "" || r.Form.Get("line_items[1][quantity]") != "" {
+				t.Error("incorrect pay-as-you-go checkout setup")
 			}
 			if f.failCheckout {
 				http.Error(w, "uncertain checkout result", 500)
@@ -174,7 +174,7 @@ func TestBillingCheckoutWebhookAndUsageLifecycle(t *testing.T) {
 	var handler http.Handler = NewHTTPServer(&Service{Store: store}, HTTPConfig{PublicURL: "http://canter.test", Billing: b})
 	path := "/v1/workspaces/" + workspace.ID + "/billing"
 	// No auth, another workspace, and a viewer cannot open a checkout.
-	noAuth := requestJSON(t, handler, http.MethodPost, path+"/checkout", map[string]string{"planId": "pro"}, nil)
+	noAuth := requestJSON(t, handler, http.MethodPost, path+"/checkout", map[string]string{"planId": "payg"}, nil)
 	if noAuth.Code != 401 {
 		t.Fatalf("unauthenticated checkout: %d", noAuth.Code)
 	}
@@ -182,7 +182,7 @@ func TestBillingCheckoutWebhookAndUsageLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	denied := requestJSON(t, handler, http.MethodPost, "/v1/workspaces/"+otherWorkspace.ID+"/billing/checkout", map[string]string{"planId": "pro"}, cookie)
+	denied := requestJSON(t, handler, http.MethodPost, "/v1/workspaces/"+otherWorkspace.ID+"/billing/checkout", map[string]string{"planId": "payg"}, cookie)
 	if denied.Code != 403 && denied.Code != 404 {
 		t.Fatalf("cross workspace checkout: %d", denied.Code)
 	}
@@ -190,13 +190,13 @@ func TestBillingCheckoutWebhookAndUsageLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	denied = requestJSON(t, handler, http.MethodPost, path+"/checkout", map[string]string{"planId": "pro"}, &http.Cookie{Name: "canter_session", Value: otherToken})
+	denied = requestJSON(t, handler, http.MethodPost, path+"/checkout", map[string]string{"planId": "payg"}, &http.Cookie{Name: "canter_session", Value: otherToken})
 	if denied.Code != 403 {
 		t.Fatalf("viewer checkout: %d", denied.Code)
 	}
 	// A bearer principal must not get payment authority, even with owner data.
 	recorder := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, path+"/checkout", strings.NewReader(`{"planId":"pro"}`))
+	req := httptest.NewRequest(http.MethodPost, path+"/checkout", strings.NewReader(`{"planId":"payg"}`))
 	req.Header.Set("Authorization", "Bearer agent")
 	req.Header.Set("Origin", "http://canter.test")
 	handler.(*HTTPServer).workspaceBilling(recorder, req, Principal{Account: &account}, workspace.ID, []string{"checkout"})
@@ -205,7 +205,7 @@ func TestBillingCheckoutWebhookAndUsageLifecycle(t *testing.T) {
 	}
 	// Same-origin remains required for owner-cookie mutations.
 	recorder = httptest.NewRecorder()
-	req = httptest.NewRequest(http.MethodPost, path+"/checkout", strings.NewReader(`{"planId":"pro"}`))
+	req = httptest.NewRequest(http.MethodPost, path+"/checkout", strings.NewReader(`{"planId":"payg"}`))
 	req.AddCookie(cookie)
 	req.Header.Set("Origin", "https://evil.example")
 	handler.ServeHTTP(recorder, req)
@@ -215,7 +215,7 @@ func TestBillingCheckoutWebhookAndUsageLifecycle(t *testing.T) {
 	// A failed Checkout must retain its customer association. Otherwise a
 	// later retry could create a second customer with an untracked subscription.
 	f.failCheckout = true
-	failed := requestJSON(t, handler, http.MethodPost, path+"/checkout", map[string]string{"planId": "pro"}, cookie)
+	failed := requestJSON(t, handler, http.MethodPost, path+"/checkout", map[string]string{"planId": "payg"}, cookie)
 	if failed.Code < 400 {
 		t.Fatalf("expected provider failure: %d", failed.Code)
 	}
@@ -225,7 +225,7 @@ func TestBillingCheckoutWebhookAndUsageLifecycle(t *testing.T) {
 	}
 	f.failCheckout = false
 	for i := 0; i < 2; i++ {
-		response := requestJSON(t, handler, http.MethodPost, path+"/checkout", map[string]string{"planId": "pro"}, cookie)
+		response := requestJSON(t, handler, http.MethodPost, path+"/checkout", map[string]string{"planId": "payg"}, cookie)
 		if response.Code != 200 {
 			t.Fatalf("checkout: %d %s", response.Code, response.Body.String())
 		}
@@ -270,7 +270,7 @@ func TestBillingCheckoutWebhookAndUsageLifecycle(t *testing.T) {
 	if err != nil || state.Status != "active" || state.PlanID != "pro" {
 		t.Fatalf("state=%+v err=%v", state, err)
 	}
-	denied = requestJSON(t, handler, http.MethodPost, path+"/checkout", map[string]string{"planId": "pro"}, cookie)
+	denied = requestJSON(t, handler, http.MethodPost, path+"/checkout", map[string]string{"planId": "payg"}, cookie)
 	if denied.Code != 409 {
 		t.Fatal("second subscription was allowed")
 	}

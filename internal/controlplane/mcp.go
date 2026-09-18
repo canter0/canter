@@ -162,6 +162,8 @@ func mcpTools() []mcpTool {
 		{Name: "canter_inspect_change", Description: "Inspect a durable Change, its exact digest, authorization, operation ledger, and evidence.", InputSchema: object(map[string]any{"workspaceId": str, "system": str, "changeId": str}, "workspaceId", "system", "changeId")},
 		{Name: "canter_inspect_change_execution", Description: "Inspect the durable execution that was enqueued for a Change, including its stable ID, requester, attempts, phase, and timestamps.", InputSchema: object(map[string]any{"workspaceId": str, "system": str, "changeId": str}, "workspaceId", "system", "changeId")},
 		{Name: "canter_list_standing_policies", Description: "List the human-authored standing policy envelopes and their revocation or expiry state for a System. Agents cannot create or widen policies.", InputSchema: object(map[string]any{"workspaceId": str, "system": str}, "workspaceId", "system")},
+		{Name: "canter_apply_change", Description: "Authorize an exact Change digest and queue execution using the workspace owner's Write permission. Requires automatic apply authority; read-only and approval-required agents cannot use this tool.", InputSchema: object(map[string]any{"workspaceId": str, "system": str, "changeId": str, "digest": str}, "workspaceId", "system", "changeId", "digest")},
+		{Name: "canter_apply_initial_deployment", Description: "Authorize an exact initial deployment digest and queue execution using the workspace owner's Write permission. Requires automatic apply authority.", InputSchema: object(map[string]any{"workspaceId": str, "deploymentId": str, "digest": str}, "workspaceId", "deploymentId", "digest")},
 		{Name: "canter_apply_change_under_policy", Description: "Evaluate one exact drafted Change digest against active human-authored standing policies. If a policy matches, Canter authorizes and queues it under the immutable policy record; otherwise nothing is authorized and the result requires human approval.", InputSchema: object(map[string]any{"workspaceId": str, "system": str, "changeId": str, "digest": str}, "workspaceId", "system", "changeId", "digest")},
 		{Name: "canter_request_change_approval", Description: "Request a ten-minute, single-use human review URL bound to one exact drafted Change digest. The URL grants no agent authorization and must be shown only to the human who will review it.", InputSchema: object(map[string]any{"workspaceId": str, "system": str, "changeId": str, "digest": str}, "workspaceId", "system", "changeId", "digest")},
 		{Name: "canter_upload_artifact", Description: "Upload a base64 tar.gz application bundle through Canter into durable content-addressed storage. Provider credentials are never returned.", InputSchema: object(map[string]any{"workspaceId": str, "filename": str, "contentType": str, "dataBase64": map[string]any{"type": "string", "contentEncoding": "base64"}}, "workspaceId", "filename", "dataBase64")},
@@ -296,6 +298,32 @@ func (h *HTTPServer) callMCPTool(r *http.Request, p Principal, name string, raw 
 			return nil, err
 		}
 		return map[string]any{"policies": policies}, nil
+	case "canter_apply_change", "canter_apply_initial_deployment":
+		if !agentCanApply(p) {
+			return nil, ErrForbidden
+		}
+		if err := h.allowWorkspace(r, p, args.WorkspaceID, true); err != nil {
+			return nil, err
+		}
+		if name == "canter_apply_initial_deployment" {
+			if _, err := h.service.AuthorizeInitialDeployment(r.Context(), args.WorkspaceID, args.DeploymentID, args.Digest, p.Actor); err != nil {
+				return nil, err
+			}
+			execution, err := h.service.Store.EnqueueInitialDeployment(r.Context(), args.WorkspaceID, args.DeploymentID, p.Actor)
+			if err == nil {
+				_ = h.service.Store.Audit(r.Context(), args.WorkspaceID, p.Actor, "initial-deployment.queued", execution.ID, map[string]any{"deploymentId": args.DeploymentID, "authority": "automatic"})
+			}
+			return execution, err
+		}
+		if _, err := h.service.AuthorizeChange(r.Context(), args.WorkspaceID, args.System, args.ChangeID, args.Digest, p.Actor); err != nil {
+			return nil, err
+		}
+		execution, err := h.service.Store.EnqueueExecution(r.Context(), args.WorkspaceID, args.System, args.ChangeID, p.Actor)
+		if err == nil {
+			_ = h.service.Store.Audit(r.Context(), args.WorkspaceID, p.Actor, "execution.queued", execution.ID, map[string]any{"changeId": args.ChangeID, "authority": "automatic"})
+		}
+		return execution, err
+
 	case "canter_apply_change_under_policy":
 		if p.Installation == nil || p.Session == nil {
 			return nil, ErrForbidden

@@ -18,6 +18,7 @@ import (
 )
 
 type HTTPConfig struct {
+	Secrets       *SecretVault
 	PublicURL     string
 	CookieSecure  bool
 	RequireInvite bool
@@ -498,6 +499,27 @@ func (h *HTTPServer) installations(w http.ResponseWriter, r *http.Request, parts
 		writeJSON(w, http.StatusOK, map[string]any{"installations": items})
 		return
 	}
+	if len(parts) == 1 && r.Method == http.MethodPatch {
+		var in struct {
+			Authority Authority `json:"authority"`
+		}
+		if !decode(w, r, &in) {
+			return
+		}
+		if err := validateAgentAuthority(in.Authority); err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		installation, err := h.service.Store.UpdateAgentAuthority(r.Context(), p.Account.ID, workspaceID, parts[0], in.Authority)
+		if err != nil {
+			writeStoreError(w, err)
+			return
+		}
+		_ = h.service.Store.Audit(r.Context(), workspaceID, p.Actor, "agent.permissions.updated", parts[0], map[string]any{"authority": in.Authority})
+		writeJSON(w, http.StatusOK, installation)
+		return
+	}
+
 	if len(parts) == 1 && r.Method == http.MethodDelete {
 		role, err := h.service.Store.Membership(r.Context(), p.Account.ID, workspaceID)
 		if err != nil || role != "owner" {
@@ -607,6 +629,10 @@ func (h *HTTPServer) workspaces(w http.ResponseWriter, r *http.Request, parts []
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"protocolVersion": "v1", "workspace": workspace, "systems": systems, "changes": changes, "initialDeployments": deployments, "capabilities": initialDeploymentCapabilities(workspaceID), "incidents": []any{}})
+		return
+	}
+	if parts[1] == "secrets" {
+		h.workspaceSecrets(w, r, p, workspaceID, parts[2:])
 		return
 	}
 	if parts[1] == "billing" {
@@ -862,7 +888,7 @@ func (h *HTTPServer) workspaces(w http.ResponseWriter, r *http.Request, parts []
 				return
 			}
 			if len(parts) == 6 && parts[5] == "authorize" && r.Method == http.MethodPost {
-				if p.Account == nil {
+				if p.Account == nil && !agentCanApply(p) {
 					writeStoreError(w, ErrForbidden)
 					return
 				}
@@ -885,7 +911,7 @@ func (h *HTTPServer) workspaces(w http.ResponseWriter, r *http.Request, parts []
 				return
 			}
 			if len(parts) == 6 && parts[5] == "apply" && r.Method == http.MethodPost {
-				if p.Account == nil {
+				if p.Account == nil && !agentCanApply(p) {
 					writeStoreError(w, ErrForbidden)
 					return
 				}
@@ -957,7 +983,7 @@ func (h *HTTPServer) initialDeployments(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 	if len(parts) == 2 && parts[1] == "authorize" && r.Method == http.MethodPost {
-		if p.Account == nil {
+		if p.Account == nil && !agentCanApply(p) {
 			writeStoreError(w, ErrForbidden)
 			return
 		}
@@ -980,7 +1006,7 @@ func (h *HTTPServer) initialDeployments(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 	if len(parts) == 2 && parts[1] == "apply" && r.Method == http.MethodPost {
-		if p.Account == nil {
+		if p.Account == nil && !agentCanApply(p) {
 			writeStoreError(w, ErrForbidden)
 			return
 		}

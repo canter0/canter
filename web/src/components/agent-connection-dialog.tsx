@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { canterFetch } from "@/lib/canter-api";
+import { AgentPermissions, writeAuthority } from "./agent-permissions";
 import { WorkspaceIcon } from "./workspace-icon";
 import styles from "./agent-connection-dialog.module.css";
 
@@ -22,6 +23,7 @@ export function AgentConnectionDialog({ workspaceId, onClose, onConnected }: { w
   const [prompt, setPrompt] = useState("");
   const [copied, setCopied] = useState(false);
   const [manualCopy, setManualCopy] = useState(false);
+  const [authority, setAuthority] = useState(writeAuthority);
   const [remember, setRemember] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
@@ -80,7 +82,7 @@ export function AgentConnectionDialog({ workspaceId, onClose, onConnected }: { w
     if (!pairing || pending) return;
     setPending(true); setError("");
     try {
-      await canterFetch(`/agent-pairings/${encodeURIComponent(pairing.id)}/approve`, { method: "POST", body: JSON.stringify({ remember }) });
+      await canterFetch(`/agent-pairings/${encodeURIComponent(pairing.id)}/approve`, { method: "POST", body: JSON.stringify({ remember, authority }) });
       setPairing(current => current ? { ...current, status: "approved" } : current);
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Couldn’t connect. Try again."); }
     finally { setPending(false); }
@@ -94,13 +96,15 @@ export function AgentConnectionDialog({ workspaceId, onClose, onConnected }: { w
     <h2 id="connect-agent-title">{pairing?.status === "connected" ? `${name} connected` : pairing?.status === "ready" ? `${name} is ready to connect` : ended ? "Connection ended" : "Connect your agent"}</h2>
     {!pairing || pairing.status === "waiting" ? <>
       <p>Paste this message into your agent.</p>
+      <AgentPermissions value={authority} onChange={setAuthority} disabled={pending} />
       <button className={styles.primary} disabled={pending} onClick={() => void copyPrompt()}><WorkspaceIcon name={copied ? "check" : "copy"} width="15" height="15" />{pending ? "Preparing…" : copied ? "Copy again" : "Copy connection prompt"}</button>
       {manualCopy ? <><p>Copy this message:</p><textarea aria-label="Connection prompt" readOnly value={prompt} onFocus={event => event.currentTarget.select()} /></> : null}
       {pairing ? <p className={styles.waiting} role="status"><span />Waiting for your agent…</p> : null}
     </> : pairing.status === "ready" ? <>
       <p>{pairing.harness}</p>
+      <AgentPermissions value={authority} onChange={setAuthority} disabled={pending} />
       <label className={styles.remember}><input type="checkbox" checked={remember} onChange={event => setRemember(event.target.checked)} disabled={pending} />Remember this agent</label>
-      <details className={styles.details}><summary>Connection details</summary><p>{remember ? "This agent can reconnect until you disconnect it." : "Access ends after its task, or after 8 hours."} It can read your workspace and prepare changes. Deployments still require approval. Workers stay under this connection.</p></details>
+      <details className={styles.details}><summary>Connection details</summary><p>{remember ? "This agent can reconnect until you disconnect it." : "Access ends after its task, or after 8 hours."} Workers stay under this connection.</p></details>
       <button className={styles.primary} disabled={pending} onClick={() => void approve()}>{pending ? "Connecting…" : "Connect"}</button>
     </> : pairing.status === "approved" ? <p className={styles.waiting} role="status"><span />Finishing the connection…</p> : pairing.status === "connected" ? <><p>You’ll see its actions in Activity.</p><button className={styles.primary} onClick={() => void close()}>Done</button></> : <><p>{pairing.status === "expired" ? "The invitation expired. Copy a new one to try again." : "Start again whenever you’re ready."}</p><button className={styles.primary} onClick={() => { setPairing(null); setPrompt(""); setCopied(false); setManualCopy(false); setRemember(false); setError(""); }}>Start again</button></>}
     {error ? <p className={styles.error} role="alert">{error}</p> : null}

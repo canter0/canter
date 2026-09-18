@@ -101,6 +101,7 @@ func main() {
 		PaygPriceID: os.Getenv("CANTER_STRIPE_PAYG_PRICE_ID"), ProPriceID: os.Getenv("CANTER_STRIPE_PRO_PRICE_ID"), ProUsagePriceID: os.Getenv("CANTER_STRIPE_PRO_USAGE_PRICE_ID"),
 		MeterID: os.Getenv("CANTER_STRIPE_METER_ID"), MeterEventName: os.Getenv("CANTER_STRIPE_METER_EVENT_NAME"),
 	})
+	store.ConfigureBilling(billing)
 	if billing.Config.Enabled {
 		if !billing.Ready() {
 			log.Fatal("billing is enabled but its configuration is incomplete")
@@ -135,8 +136,24 @@ func main() {
 	if operator.Model == "" {
 		operator.Model = "openai/gpt-5.6-luna"
 	}
-	handler := controlplane.NewHTTPServer(service, controlplane.HTTPConfig{PublicURL: publicURL, CookieSecure: cookieSecure, RequireInvite: strings.EqualFold(os.Getenv("CANTER_REQUIRE_INVITE"), "true"), GoogleOAuth: googleOAuth, GitHubOAuth: githubOAuth, Billing: billing, Operator: operator})
-	if operator.Ready() {
+	var vault *controlplane.SecretVault
+	if keyFile := os.Getenv("CANTER_SECRETS_KEY_FILE"); keyFile != "" {
+		info, statErr := os.Stat(keyFile)
+		if statErr != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 {
+			log.Fatal("CANTER_SECRETS_KEY_FILE must be a private regular file (0600)")
+		}
+		raw, readErr := os.ReadFile(keyFile)
+		if readErr != nil {
+			log.Fatal("cannot read secrets keyring")
+		}
+		vault, err = controlplane.NewSecretVault(raw)
+		clear(raw)
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
+	handler := controlplane.NewHTTPServer(service, controlplane.HTTPConfig{PublicURL: publicURL, CookieSecure: cookieSecure, RequireInvite: strings.EqualFold(os.Getenv("CANTER_REQUIRE_INVITE"), "true"), GoogleOAuth: googleOAuth, GitHubOAuth: githubOAuth, Billing: billing, Operator: operator, Secrets: vault})
+	if operator.Ready() || vault != nil {
 		for i := 0; i < 2; i++ {
 			go func() {
 				if err := (&controlplane.OperatorRuntime{Server: handler.(*controlplane.HTTPServer), Config: operator}).Run(ctx); err != nil && ctx.Err() == nil {

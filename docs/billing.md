@@ -1,6 +1,46 @@
 # Canter billing
 
-## Plan contract
+## Current integration (2026-09-18)
+
+Every workspace defaults to **Pay as you go: $0/month plus resource usage**.
+Owners may instead select **Pro: $20/month including $20 of infrastructure
+usage**. At $21 of usage, Pro costs $20 upfront plus $1 overage. Unused credit
+expires at renewal. This does not include AI model credit.
+
+The Plans screen always labels the current plan and offers both options. New
+subscribers use hosted Stripe Checkout. Existing active subscribers can schedule
+an upgrade or downgrade for their next renewal, or cancel the pending switch.
+Stripe Subscription Schedules preserve the current period without proration or
+resetting paid credit. Requests are owner-only, require same-origin authentication,
+serialize on the workspace, and reject stale renewal dates. The existing
+subscription changes only when Stripe reports its actual new prices.
+
+The server checks current Stripe subscription status, automatic collection,
+card ownership/expiry and settled Pro payment; it never trusts a return URL.
+With billing enabled, initial deployment enqueue and execution require payment
+readiness. Changes with positive monthly cost deltas are checked at execution.
+Disabled billing retains the existing beta provisioning behavior.
+
+The existing Autodisc Stripe account has separate Canter product, prices, meter,
+portal and webhook configuration. Unrelated customers' events are ignored.
+`scripts/setup-billing.py` creates both plans by default (`--payg-only` is optional).
+Credentials remain in ignored mode-0600 local environment files and the protected
+production control-plane environment; browser bundles never receive them.
+
+**Charging remains closed:** the app release includes both plans and the payment
+integration, but `CANTER_BILLING_ENABLED=false` until a billing-grade resource
+usage producer and retained-resource cancellation/failed-payment lifecycle are
+verified. The live Stripe webhook remains disabled. No tax registration or
+automatic tax collection was enabled.
+
+Validation includes database-backed checkout/webhook/idempotency tests, card
+readiness and provisioning checks, renewal schedule tests, and real Stripe
+sandbox verification: $0 initial pay-as-you-go invoice, $1.23 usage -> $1.23
+preview; Pro $20 paid upfront, $21 usage -> $1 current-period overage (the renewal
+preview also includes the next month's $20 base). A real sandbox renewal schedule
+was created and released successfully. No real customer charge was performed.
+
+## Plan contract and pricing background
 
 ### Current local pricing comparison
 

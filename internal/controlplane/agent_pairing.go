@@ -109,7 +109,14 @@ func (s *Store) ClaimAgentPairing(ctx context.Context, token, name, harness, pub
 	return DeviceAuthorization{DeviceCode: secret, UserCode: code, VerificationURI: strings.TrimRight(publicURL, "/") + "/app", ExpiresAt: expires, IntervalSeconds: 2}, nil
 }
 
-func (s *Store) ApproveAgentPairing(ctx context.Context, id, accountID string, remember bool) (Installation, error) {
+func (s *Store) ApproveAgentPairing(ctx context.Context, id, accountID string, remember bool, requested ...Authority) (Installation, error) {
+	authority := Authority{Inspect: true, Draft: true, ApplyMode: "human-approval-required"}
+	if len(requested) > 0 {
+		authority = requested[0]
+	}
+	if err := validateAgentAuthority(authority); err != nil {
+		return Installation{}, err
+	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return Installation{}, err
@@ -158,8 +165,8 @@ func (s *Store) ApproveAgentPairing(ctx context.Context, id, accountID string, r
 		expiry := now.Add(8 * time.Hour)
 		connectionExpiry = &expiry
 	}
-	out := Installation{ID: installationID, WorkspaceID: workspaceID, Name: name, Harness: harness, Authority: Authority{Inspect: true, Draft: true, ApplyMode: "human-approval-required"}, CreatedBy: accountID, CreatedAt: now, ExpiresAt: connectionExpiry}
-	_, err = tx.Exec(ctx, `INSERT INTO agent_installations(id,workspace_id,name,harness,inspect_allowed,draft_allowed,apply_mode,created_by,created_at,expires_at) VALUES($1,$2,$3,$4,true,true,'human-approval-required',$5,$6,$7)`, out.ID, workspaceID, name, harness, accountID, now, connectionExpiry)
+	out := Installation{ID: installationID, WorkspaceID: workspaceID, Name: name, Harness: harness, Authority: authority, CreatedBy: accountID, CreatedAt: now, ExpiresAt: connectionExpiry}
+	_, err = tx.Exec(ctx, `INSERT INTO agent_installations(id,workspace_id,name,harness,inspect_allowed,draft_allowed,apply_mode,created_by,created_at,expires_at) VALUES($1,$2,$3,$4,$8,$9,$10,$5,$6,$7)`, out.ID, workspaceID, name, harness, accountID, now, connectionExpiry, authority.Inspect, authority.Draft, authority.ApplyMode)
 	if err != nil {
 		return Installation{}, err
 	}
@@ -216,7 +223,7 @@ func (h *HTTPServer) agentPairings(w http.ResponseWriter, r *http.Request, parts
 			"POST " + base + "/agent-pairings/claim with JSON {token: the invitation code supplied by the user, name: your recognizable agent name, harness: your agent software}. The invitation is single-use and expires after 10 minutes. Do not send it to another service.",
 			"Keep the returned deviceCode private. Poll POST " + base + "/device/token with JSON {deviceCode, clientInstance: a unique name for this conversation} every intervalSeconds until the user clicks Connect in their existing Canter window. Retry only HTTP 428 when error.message is device authorization pending. Stop on denied, expired, or conflict. Do not open another approval page or approve yourself.",
 			"The successful response contains accessToken, refreshToken, installation, and session. Keep credentials in process memory or a local file with mode 0600; never put them in chat, source control, task text, or logs. Access tokens expire at session.expiresAt. Before expiry POST " + base + "/agent/token/refresh with {refreshToken,clientInstance} and replace both credentials; each refresh token is single-use. Installation expiresAt, when present, is a hard deadline.",
-			"Use Authorization: Bearer <accessToken> for GET " + base + "/agent/bootstrap and subsequent Canter API requests, or connect Streamable HTTP MCP at " + base + "/mcp. Begin by reading bootstrap and inspecting available tasks. Task preferences are requests, not proof of which model executes. Follow Canter's approval requirements for infrastructure changes.",
+			"Use Authorization: Bearer <accessToken> for GET " + base + "/agent/bootstrap and subsequent Canter API requests, or connect Streamable HTTP MCP at " + base + "/mcp. Begin by reading bootstrap and inspecting available tasks. Task preferences are requests, not proof of which model executes. Check installation.authority: inspect grants reads, draft grants writes, and applyMode automatic permits canter_apply_change and canter_apply_initial_deployment with the exact proposal digest without another human approval. With human-approval-required, request human approval; with never, do not apply. Permissions may change during the session.",
 			"For subagents, POST " + base + "/agent/workers with {name,clientInstance,draft:false} using the orchestrator's access token. Give each worker only its returned accessToken. Set draft:true only if the worker must prepare changes. Workers cannot delegate, refresh, claim, or finish tasks. They share the parent installation's current task for activity attribution. Their access expires with the parent session; reissue after refreshing. Never pass the orchestrator's refresh credential to workers.",
 			"Finish a claimed task with canter_finish_task. Temporary connections end when their task finishes, or at the installation expiry (8 hours maximum). Remembered installations persist until revoked. POST " + base + "/agent/disconnect to end a temporary connection or the current remembered session when you are done.",
 		}})
@@ -278,12 +285,21 @@ func (h *HTTPServer) agentPairings(w http.ResponseWriter, r *http.Request, parts
 	}
 	if len(parts) == 2 && parts[1] == "approve" && r.Method == http.MethodPost {
 		var in struct {
-			Remember bool `json:"remember"`
+			Remember  bool       `json:"remember"`
+			Authority *Authority `json:"authority"`
 		}
 		if !decode(w, r, &in) {
 			return
 		}
-		out, err := h.service.Store.ApproveAgentPairing(r.Context(), parts[0], p.Account.ID, in.Remember)
+		var requested []Authority
+		if in.Authority != nil {
+			if err := validateAgentAuthority(*in.Authority); err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+			requested = append(requested, *in.Authority)
+		}
+		out, err := h.service.Store.ApproveAgentPairing(r.Context(), parts[0], p.Account.ID, in.Remember, requested...)
 		if err != nil {
 			writeStoreError(w, err)
 			return

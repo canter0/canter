@@ -47,6 +47,14 @@
 
 .dashboard-theme ::selection { background: var(--signal); color: #11130f; }
 
+/* Keep the dashboard canvas dark and prevent browser rubber-banding. */
+html:has(.dashboard-theme),
+body:has(.dashboard-theme) {
+  background: #111;
+  color-scheme: dark;
+  overscroll-behavior: none;
+}
+
 * { box-sizing: border-box; }
 html { background: var(--paper); color: var(--ink); }
 body {

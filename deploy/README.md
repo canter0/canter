@@ -19,6 +19,14 @@ repository `.env` to the server. The web process receives only
 The explicit public URL prevents agent discovery documents from leaking the
 loopback origin seen by Next.js behind Caddy.
 
+Google sign-in requires the OAuth client's authorized redirect URIs to include
+`https://canter.dev/api/canter/auth/oauth/google/callback`. The localhost callback
+alone does not cover production. Keep `CANTER_PUBLIC_URL=https://canter.dev` and
+the matching Google client ID and secret in the control-plane environment.
+Check `/api/canter/auth/providers`, then complete a browser sign-in through
+Google and verify the return to `/app`; enabled credentials alone do not verify
+the callback registration or token exchange.
+
 `postgres-backup.sh` writes a custom-format database archive directly to the
 private m1 bucket. Every launch must verify both `pg_restore --list` and one
 actual restore into an isolated temporary database before the site is announced.

@@ -10,3 +10,23 @@ export function parsePatch(patch: string): DiffLine[] {
     return { kind: "hunk", text: line };
   });
 }
+
+export type SplitDiffLine = { kind: "hunk"; text: string } | { kind: "lines"; before?: DiffLine; after?: DiffLine };
+export function splitPatch(lines: DiffLine[]): SplitDiffLine[] {
+  const rows: SplitDiffLine[] = [];
+  let removed: DiffLine[] = [], added: DiffLine[] = [];
+  const flush = () => {
+    for (let i = 0; i < Math.max(removed.length, added.length); i++) rows.push({ kind: "lines", before: removed[i], after: added[i] });
+    removed = []; added = [];
+  };
+  for (const line of lines) {
+    if (line.kind === "removed") { if (added.length) flush(); removed.push(line); }
+    else if (line.kind === "added") added.push(line);
+    else {
+      flush();
+      rows.push(line.kind === "hunk" ? { kind: "hunk", text: line.text } : { kind: "lines", before: line, after: line });
+    }
+  }
+  flush();
+  return rows;
+}

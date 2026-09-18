@@ -21,12 +21,13 @@ type Conversation struct {
 	Status      string    `json:"status"`
 }
 type OperatorMessage struct {
-	ID        string           `json:"id"`
-	RunID     string           `json:"runId"`
-	Role      string           `json:"role"`
-	Content   string           `json:"content"`
-	Surface   *OperatorSurface `json:"surface,omitempty"`
-	CreatedAt time.Time        `json:"createdAt"`
+	ID          string               `json:"id"`
+	RunID       string               `json:"runId"`
+	Role        string               `json:"role"`
+	Content     string               `json:"content"`
+	Attachments []OperatorAttachment `json:"attachments,omitempty"`
+	Surface     *OperatorSurface     `json:"surface,omitempty"`
+	CreatedAt   time.Time            `json:"createdAt"`
 }
 type OperatorEvent struct {
 	Sequence  int64           `json:"sequence"`
@@ -87,7 +88,13 @@ func (s *Store) CreateConversation(ctx context.Context, workspace, account, id, 
 	}
 	return s.Conversation(ctx, workspace, account, id)
 }
-func (s *Store) EnqueueOperator(ctx context.Context, c Conversation, request, prompt, model string, surface *OperatorSurface) (OperatorRun, error) {
+func (s *Store) EnqueueOperator(ctx context.Context, c Conversation, request, prompt, model string, surface *OperatorSurface, attachments ...OperatorAttachment) (OperatorRun, error) {
+	if err := validateOperatorAttachments(attachments); err != nil {
+		return OperatorRun{}, err
+	}
+	if attachments == nil {
+		attachments = []OperatorAttachment{}
+	}
 	if len(request) < 8 || len(request) > 100 || len(strings.TrimSpace(prompt)) == 0 || len(prompt) > 24000 {
 		return OperatorRun{}, fmt.Errorf("a request ID and a message of up to 24000 bytes are required")
 	}
@@ -141,7 +148,7 @@ func (s *Store) EnqueueOperator(ctx context.Context, c Conversation, request, pr
 	if err != nil {
 		return run, err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO operator_messages(id,conversation_id,run_id,role,content,surface) VALUES($1,$2,$3,'user',$4,$5)`, id, c.ID, run.ID, prompt, surface)
+	_, err = tx.Exec(ctx, `INSERT INTO operator_messages(id,conversation_id,run_id,role,content,surface,attachments) VALUES($1,$2,$3,'user',$4,$5,$6)`, id, c.ID, run.ID, prompt, surface, attachments)
 	if err != nil {
 		return run, err
 	}
@@ -157,7 +164,7 @@ func (s *Store) EnqueueOperator(ctx context.Context, c Conversation, request, pr
 	return run, tx.Commit(ctx)
 }
 func (s *Store) OperatorMessages(ctx context.Context, id string) ([]OperatorMessage, error) {
-	rows, err := s.pool.Query(ctx, `SELECT id,run_id,role,content,created_at,surface FROM operator_messages WHERE conversation_id=$1 ORDER BY created_at,id`, id)
+	rows, err := s.pool.Query(ctx, `SELECT id,run_id,role,content,created_at,surface,attachments FROM operator_messages WHERE conversation_id=$1 ORDER BY created_at,id`, id)
 	if err != nil {
 		return nil, err
 	}
@@ -165,7 +172,7 @@ func (s *Store) OperatorMessages(ctx context.Context, id string) ([]OperatorMess
 	out := []OperatorMessage{}
 	for rows.Next() {
 		var m OperatorMessage
-		if err = rows.Scan(&m.ID, &m.RunID, &m.Role, &m.Content, &m.CreatedAt, &m.Surface); err != nil {
+		if err = rows.Scan(&m.ID, &m.RunID, &m.Role, &m.Content, &m.CreatedAt, &m.Surface, &m.Attachments); err != nil {
 			return nil, err
 		}
 		out = append(out, m)

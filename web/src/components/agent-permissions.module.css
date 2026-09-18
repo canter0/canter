@@ -1,0 +1,14 @@
+.fieldset { min-width: 0; border: 0; padding: 0; margin: 20px 0; }
+.fieldset legend { margin-bottom: 10px; font-size: 12px; color: #c4c4c4; }
+.choices { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.choices label { display: flex; align-items: flex-start; gap: 9px; padding: 12px; border: 1px solid #393939; border-radius: 9px; cursor: pointer; }
+.choices label[data-selected="true"] { background: #30302e; border-color: #8c8c82; }
+.choices input { margin-top: 3px; accent-color: #d7d7c9; }
+.choices strong { display: block; font-size: 13px; font-weight: 500; }
+.choices small { display: block; color: #999; font-size: 11px; line-height: 1.5; margin-top: 4px; }
+.fieldset > p { font-size: 12px; color: #999; line-height: 1.6; margin: 10px 0 0; }
+.fieldset:disabled { opacity: .5; }
+.customize { margin-top: 12px; font-size: 12px; color: #aaa; }
+.customize summary { cursor: pointer; }
+.customize label { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; }
+.customize select { min-width: 0; padding: 7px; border: 1px solid #444; border-radius: 6px; background: #242424; color: #ddd; font: inherit; }

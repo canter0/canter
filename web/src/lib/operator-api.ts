@@ -1,6 +1,7 @@
 import { canterFetch } from "./canter-api";
 export type Conversation = { id: string; workspaceId: string; title: string; updatedAt: string; status: string };
-export type OperatorMessage = { id: string; runId: string; role: "user" | "assistant"; content: string; createdAt: string };
+export type OperatorAttachment = { id: string; name: string; mediaType: string; dataBase64: string; size: number };
+export type OperatorMessage = { id: string; runId: string; role: "user" | "assistant"; content: string; attachments?: OperatorAttachment[]; createdAt: string };
 export type OperatorRun = { id: string; status: "queued" | "running" | "completed" | "failed" | "cancelled"; model: string; failure?: string };
 export type OperatorSurface = { kind: "apps" | "deployments" | "billing" | "activity" | "agents" | "app" | "deployment" | "change" | "repository" | "github" | "file" | "repository-changes"; id?: string; system?: string; repository?: string; base?: string; path?: string };
 export type OperatorEvent = { sequence: number; runId?: string; kind: string; data: Record<string, unknown>; createdAt: string };

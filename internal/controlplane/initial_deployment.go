@@ -456,6 +456,9 @@ func (d *InitialDeploymentDispatcher) runOne(parent context.Context, execution I
 }
 
 func (d *InitialDeploymentDispatcher) execute(ctx context.Context, execution InitialDeploymentExecution) error {
+	if err := d.Store.requireBillingPayment(ctx, execution.WorkspaceID); err != nil {
+		return err
+	}
 	deployment, err := d.Store.InitialDeployment(ctx, execution.WorkspaceID, execution.DeploymentID)
 	if err != nil {
 		return err

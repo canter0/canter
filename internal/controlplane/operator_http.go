@@ -17,21 +17,26 @@ func (h *HTTPServer) conversations(w http.ResponseWriter, r *http.Request, p Pri
 			writeStoreError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"conversations": items, "agent": map[string]any{"available": h.config.Operator.Ready(), "model": h.config.Operator.Model}})
+		writeJSON(w, http.StatusOK, map[string]any{"conversations": items, "agent": map[string]any{"available": h.workspaceOperatorReady(r.Context(), workspace), "model": h.config.Operator.Model}})
 		return
 	}
 	if len(parts) == 0 && r.Method == http.MethodPost {
-		if !h.config.Operator.Ready() {
+		if !h.workspaceOperatorReady(r.Context(), workspace) {
 			writeError(w, http.StatusServiceUnavailable, errOperatorUnavailable)
 			return
 		}
 		var input struct {
-			ID        string           `json:"id"`
-			RequestID string           `json:"requestId"`
-			Message   string           `json:"message"`
-			Surface   *OperatorSurface `json:"surface"`
+			ID          string               `json:"id"`
+			RequestID   string               `json:"requestId"`
+			Message     string               `json:"message"`
+			Surface     *OperatorSurface     `json:"surface"`
+			Attachments []OperatorAttachment `json:"attachments"`
 		}
-		if !decodeLimit(w, r, &input, 32<<10) {
+		if !decodeLimit(w, r, &input, 8<<20) {
+			return
+		}
+		if err := validateOperatorAttachments(input.Attachments); err != nil {
+			writeError(w, http.StatusBadRequest, err)
 			return
 		}
 		c, err := h.service.Store.CreateConversation(r.Context(), workspace, p.Account.ID, input.ID, input.Message)
@@ -39,7 +44,7 @@ func (h *HTTPServer) conversations(w http.ResponseWriter, r *http.Request, p Pri
 			writeStoreError(w, err)
 			return
 		}
-		run, err := h.service.Store.EnqueueOperator(r.Context(), c, input.RequestID, input.Message, h.config.Operator.Model, input.Surface)
+		run, err := h.service.Store.EnqueueOperator(r.Context(), c, input.RequestID, input.Message, h.config.Operator.Model, input.Surface, input.Attachments...)
 		if err != nil {
 			writeStoreError(w, err)
 			return
@@ -71,19 +76,20 @@ func (h *HTTPServer) conversations(w http.ResponseWriter, r *http.Request, p Pri
 		return
 	}
 	if len(parts) == 2 && parts[1] == "messages" && r.Method == http.MethodPost {
-		if !h.config.Operator.Ready() {
+		if !h.workspaceOperatorReady(r.Context(), workspace) {
 			writeError(w, http.StatusServiceUnavailable, errOperatorUnavailable)
 			return
 		}
 		var input struct {
-			RequestID string           `json:"requestId"`
-			Message   string           `json:"message"`
-			Surface   *OperatorSurface `json:"surface"`
+			RequestID   string               `json:"requestId"`
+			Message     string               `json:"message"`
+			Surface     *OperatorSurface     `json:"surface"`
+			Attachments []OperatorAttachment `json:"attachments"`
 		}
-		if !decodeLimit(w, r, &input, 32<<10) {
+		if !decodeLimit(w, r, &input, 8<<20) {
 			return
 		}
-		run, err := h.service.Store.EnqueueOperator(r.Context(), c, input.RequestID, input.Message, h.config.Operator.Model, input.Surface)
+		run, err := h.service.Store.EnqueueOperator(r.Context(), c, input.RequestID, input.Message, h.config.Operator.Model, input.Surface, input.Attachments...)
 		if err != nil {
 			writeStoreError(w, err)
 			return

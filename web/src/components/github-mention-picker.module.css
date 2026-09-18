@@ -1,0 +1,14 @@
+.panel { position: absolute; bottom: calc(100% + 8px); left: 0; right: 0; z-index: 35; padding: 6px; border: 1px solid #3a3a3a; border-radius: 20px; background: #252525; box-shadow: 0 12px 36px #0004; color: #ddd; max-height: min(360px, 36dvh); overflow: auto; overscroll-behavior: contain; animation: appear 140ms ease-out; }
+.panel button { display: flex; align-items: center; gap: 12px; width: 100%; padding: 10px 14px; text-align: left; border: 0; border-radius: 12px; background: transparent; color: inherit; font-size: 13px; cursor: pointer; }
+.panel button:hover, .panel button:focus-visible { background: #363636; outline-offset: -2px; }
+.panel svg { width: 18px; height: 18px; flex-shrink: 0; }
+.panel .heading { background: #343434; }
+.heading strong { font-weight: 500; }.heading span { color: #999; }.heading small { margin-left: auto; color: #999; }
+.results button span { flex-shrink: 0; max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.results small { color: #929292; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.results p { padding: 16px; color: #999; font-size: 13px; }
+.connect { padding: 18px 14px; font-size: 13px; }.connect p { margin: 5px 0 14px; color: #aaa; }.connect a { display: inline-flex; padding: 8px 12px; border: 1px solid #555; border-radius: 8px; }.connect small { display: block; margin-top: 14px; color: #888; font-size: 11px; }
+.skeleton { display: grid; gap: 16px; padding: 20px 14px; }.skeleton i { height: 14px; border-radius: 5px; background: linear-gradient(90deg,#303030,#3a3a3a,#303030); background-size: 200% 100%; animation: shimmer 1.5s infinite; }.skeleton i:nth-child(2) { width: 80%; }.skeleton i:nth-child(3) { width: 65%; }
+@keyframes shimmer { to { background-position: -200% 0; } } @keyframes appear { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+@media(max-width:600px) { .heading span { display: none; }.results button { flex-wrap: wrap; gap: 6px 10px; }.results small { width: 100%; padding-left: 28px; }.results button span { max-width: 85%; } }
+@media(prefers-reduced-motion:reduce) { .panel, .skeleton i { animation: none; } }

@@ -84,7 +84,7 @@ export function GitHubRepositories({ workspaceId, conversationId, result, busy, 
       <div className={styles.accountActions}><a href={connectURL}>Reconnect</a><button disabled={loading || busy} onClick={() => void disconnect()}>Disconnect</button></div>
     </> : null}
     {error ? <p className={styles.error} role="alert">{error} <button onClick={() => { setRetry(value => value + 1); setError(""); }}>Try again</button></p> : null}
-    <form className={styles.linkForm} onSubmit={event => void submit(event)}><label htmlFor="github-repository">{connection?.connected ? "Or use a repository link" : "Or paste a public repository link"}</label><div><input id="github-repository" placeholder="github.com/owner/repository" value={repository} onChange={event => setRepository(event.target.value)} maxLength={240} disabled={busy} /><button aria-label="Deploy repository" disabled={busy || !repository.trim()}><WorkspaceIcon name="arrow" width="18" height="18" /></button></div></form>
+    <form className={styles.linkForm} onSubmit={event => void submit(event)}><label htmlFor="github-repository">{connection?.connected ? "Or use a repository link" : "Or paste a public repository link"}</label><div><input id="github-repository" placeholder="github.com/owner/repository" autoComplete="off" autoCapitalize="none" spellCheck={false} value={repository} onChange={event => setRepository(event.target.value)} maxLength={240} disabled={busy} /><button type="submit" aria-label="Deploy repository" disabled={busy || !repository.trim()}><WorkspaceIcon name="arrow" width="18" height="18" /></button></div></form>
     {busy ? <p className={styles.muted} role="status">Canter is working. You can choose a repository when it finishes.</p> : null}
   </section>;
 }

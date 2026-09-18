@@ -21,11 +21,12 @@ type modelToolCall struct {
 	} `json:"function"`
 }
 type modelMessage struct {
-	Role             string          `json:"role"`
-	Content          string          `json:"content"`
-	ToolCalls        []modelToolCall `json:"tool_calls,omitempty"`
-	ToolCallID       string          `json:"tool_call_id,omitempty"`
-	ReasoningDetails json.RawMessage `json:"reasoning_details,omitempty"`
+	Role             string               `json:"role"`
+	Content          string               `json:"content"`
+	Attachments      []OperatorAttachment `json:"attachments,omitempty"`
+	ToolCalls        []modelToolCall      `json:"tool_calls,omitempty"`
+	ToolCallID       string               `json:"tool_call_id,omitempty"`
+	ReasoningDetails json.RawMessage      `json:"reasoning_details,omitempty"`
 }
 type OperatorConfig struct {
 	APIKey       string
@@ -41,7 +42,11 @@ func (c OperatorConfig) complete(ctx context.Context, messages []modelMessage, t
 	for _, tool := range tools {
 		functions = append(functions, map[string]any{"type": "function", "function": map[string]any{"name": tool.Name, "description": tool.Description, "parameters": tool.InputSchema}})
 	}
-	body, err := json.Marshal(map[string]any{"model": c.Model, "messages": messages, "tools": functions, "stream": true, "max_tokens": 4096, "reasoning": map[string]any{"effort": "none"}, "provider": map[string]any{"require_parameters": true}})
+	payload := make([]map[string]any, len(messages))
+	for i, message := range messages {
+		payload[i] = operatorModelPayload(message)
+	}
+	body, err := json.Marshal(map[string]any{"model": c.Model, "messages": payload, "tools": functions, "stream": true, "max_tokens": 4096, "reasoning": map[string]any{"effort": "none"}, "provider": map[string]any{"require_parameters": true}})
 	if err != nil {
 		return modelMessage{}, err
 	}
@@ -85,8 +90,9 @@ func (c OperatorConfig) complete(ctx context.Context, messages []modelMessage, t
 			Error   json.RawMessage `json:"error"`
 			Choices []struct {
 				Delta struct {
-					Content          string          `json:"content"`
-					ReasoningDetails json.RawMessage `json:"reasoning_details"`
+					Content          string               `json:"content"`
+					Attachments      []OperatorAttachment `json:"attachments,omitempty"`
+					ReasoningDetails json.RawMessage      `json:"reasoning_details"`
 					ToolCalls        []struct {
 						Index    int    `json:"index"`
 						ID       string `json:"id"`

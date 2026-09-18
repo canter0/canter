@@ -1,0 +1,96 @@
+.page {
+  width: 100%;
+  max-width: 1160px;
+  margin: 0 auto;
+  padding: 42px 48px 60px;
+}
+
+.back { display: inline-flex; align-items: center; gap: 8px; color: #929292; font-size: 12px; }
+.back svg { transform: rotate(180deg); }
+.back:hover { color: var(--ink); }
+.header { display: flex; align-items: center; gap: 18px; padding: 32px 0 34px; border-bottom: 1px solid #2b2b2b; }
+.avatar { display: grid; place-items: center; width: 60px; height: 60px; flex-shrink: 0; border: 1px solid #353535; border-radius: 16px; background: #202020; color: #c9c9c9; }
+.identity { min-width: 0; }
+.titleRow { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 14px; }
+.titleRow h1 { margin: 0; font-size: 30px; font-weight: 500; line-height: 1.25; letter-spacing: -.04em; overflow-wrap: anywhere; }
+.identity > p { margin: 8px 0 0; font-size: 13px; color: #929292; }
+.status { display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px; border: 1px solid #373737; border-radius: 6px; color: #aaa; font-size: 11px; line-height: 1.3; }
+.status > span { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+.status[data-active="true"] { border-color: #35412e; background: #1e261a; color: #b0c49f; }
+.columns { display: grid; grid-template-columns: minmax(0, 1fr) 304px; gap: 48px; align-items: start; padding-top: 34px; }
+.primary { min-width: 0; }
+.sectionHeading h2, .connection h2, .footer h2 { margin: 0; font-size: 15px; font-weight: 500; letter-spacing: -.015em; }
+.sectionHeading p { margin: 6px 0 0; color: #929292; font-size: 12px; line-height: 1.6; }
+.permissions { margin-top: 17px; }
+.permission { display: grid; grid-template-columns: 19px minmax(0, 1fr) auto; gap: 13px; align-items: center; min-height: 82px; padding: 19px 0; border-bottom: 1px solid #292929; }
+.permission > svg { color: #8b8b8b; }
+.permissionText h3 { margin: 0; font-size: 13px; font-weight: 400; color: #d6d6d6; }
+.permissionText p { max-width: 285px; margin: 5px 0 0; color: #909090; font-size: 12px; line-height: 1.6; }
+.permissionValue { display: inline-flex; justify-content: flex-end; align-items: center; gap: 5px; max-width: 145px; margin: 0; color: #aaa; font-size: 11px; text-align: right; }
+.permissionValue[data-tone="allowed"] { color: #a8c098; }
+.permissionValue[data-tone="approval"] { padding: 4px 8px; color: #d0be99; background: #29251d; border-radius: 5px; }
+.approvalNote { display: flex; align-items: center; gap: 9px; margin-top: 17px; color: #a4b59b; font-size: 11px; line-height: 1.6; }
+.approvalNote > svg { flex-shrink: 0; }
+.continuity { margin-top: 36px; }
+.continuity > p { max-width: 510px; margin-top: 10px; color: #929292; font-size: 12px; line-height: 1.85; }
+.connection { min-width: 0; padding: 23px; background: #191919; border: 1px solid #2e2e2e; border-radius: 12px; }
+.connection h2 { font-size: 13px; margin-bottom: 17px; }
+.connection dl > div { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; padding: 11px 0; font-size: 12px; }
+.connection dt { flex-shrink: 0; color: #929292; }
+.connection dd { margin: 0; color: #c7c7c7; text-align: right; overflow-wrap: anywhere; min-width: 0; font-variant-numeric: tabular-nums; }
+.connectionHint { margin: 14px 0 0; color: #929292; font-size: 11px; line-height: 1.7; }
+.agentId { display: grid; gap: 8px; margin-top: 22px; padding-top: 19px; border-top: 1px solid #2e2e2e; }
+.agentId > span { color: #929292; font-size: 11px; }
+.agentId code { font-size: 11px; color: #aaa; overflow-wrap: anywhere; }
+.footer { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-top: 38px; padding-top: 25px; border-top: 1px solid #2b2b2b; }
+.footer h2 { font-size: 13px; }
+.footer p { margin: 6px 0 0; color: #929292; font-size: 12px; line-height: 1.7; }
+.button { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; min-height: 37px; padding: 8px 14px; border: 1px solid #3c3c3c; border-radius: 7px; background: transparent; color: #ccc; font-size: 12px; }
+.button:hover { background: #252525; border-color: #555; }
+.revoke { color: #d6a6a6; border-color: #4c3636; }
+.revoke:hover { background: #2a1d1d; border-color: #765050; }
+.button:disabled { opacity: .45; cursor: default; }
+.error { margin-top: 22px; color: #e0aaaa; font-size: 13px; line-height: 1.7; }
+.error button { text-decoration: underline; text-underline-offset: 3px; }
+.empty { display: flex; flex-direction: column; align-items: flex-start; gap: 16px; padding: 55px 0; color: var(--muted); }
+.empty h1 { font-size: 24px; color: var(--ink); }
+.workers { margin-top: 34px; }
+.workers h2 > span { margin-left: 7px; color: #929292; font-size: 12px; }
+.workers li { display: flex; align-items: center; gap: 12px; padding: 17px 0; border-bottom: 1px solid #292929; }
+.workers li > svg { flex-shrink: 0; color: #929292; }
+.workers li > div { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: 13px; }
+.workers small { display: block; margin-top: 4px; color: #929292; font-size: 11px; }
+
+@media (max-width: 1180px) {
+  .columns { gap: 30px; grid-template-columns: minmax(0, 1fr) 280px; }
+  .page { padding-inline: 36px; }
+  .permission { grid-template-columns: 19px minmax(0, 1fr); gap: 8px 12px; }
+  .permission > svg { align-self: start; margin-top: 2px; }
+  .permissionValue { grid-column: 2; justify-self: start; text-align: left; }
+}
+
+@media (max-width: 980px) {
+  .columns { grid-template-columns: minmax(0, 1fr); gap: 30px; }
+  .permission { grid-template-columns: 19px minmax(0, 1fr) auto; }
+  .permissionValue { grid-column: auto; justify-self: end; }
+  .connection { padding: 22px; }
+  .connection dl > div { padding-block: 9px; }
+}
+
+@media (max-width: 600px) {
+  .page { padding: 25px 22px 40px; }
+  .header { align-items: flex-start; gap: 14px; padding: 25px 0 28px; }
+  .avatar { width: 48px; height: 48px; border-radius: 13px; }
+  .avatar svg { width: 24px; height: 24px; }
+  .titleRow { gap: 8px 10px; }
+  .titleRow h1 { font-size: 26px; }
+  .identity > p { font-size: 12px; line-height: 1.6; }
+  .columns { padding-top: 27px; }
+  .permission { grid-template-columns: 19px minmax(0, 1fr); padding-block: 17px; }
+  .permissionValue { grid-column: 2; justify-self: start; }
+  .permissionText p { max-width: none; }
+  .continuity { margin-top: 29px; }
+  .footer { flex-direction: column; align-items: flex-start; gap: 16px; margin-top: 30px; }
+  .workers li { flex-wrap: wrap; }
+  .workers li > .permissionValue { margin-left: 30px; }
+}
