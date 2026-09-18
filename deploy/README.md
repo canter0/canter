@@ -30,3 +30,34 @@ the callback registration or token exchange.
 `postgres-backup.sh` writes a custom-format database archive directly to the
 private m1 bucket. Every launch must verify both `pg_restore --list` and one
 actual restore into an isolated temporary database before the site is announced.
+
+## GitHub Actions production releases
+
+After `ci` passes on `main`, `deploy-production` builds the Linux executable and
+Next standalone server, publishes an immutable `production-<commit>` GitHub
+release, and waits for production to report that exact commit. The workflow can
+also be run manually for a main commit with successful push CI.
+
+The server fetches releases over HTTPS using `canter-deploy.timer` every three
+minutes. Deployment does not require an inbound SSH connection or a laptop on a
+specific network. Only the repository's release workflow needs write access;
+no production SSH key or provider credentials are stored in Actions.
+
+One-time server setup (root):
+
+```sh
+install -m 0755 deploy/pull-release.py /opt/canter/deploy/pull-release.py
+install -m 0644 deploy/canter-deploy.service deploy/canter-deploy.timer /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable --now canter-deploy.timer
+```
+
+The updater verifies artifact checksums, safely extracts the archive, takes a
+PostgreSQL backup and tests a restore into an isolated database before activation.
+It retains the previous web directory and executable, and restores them when
+readiness checks fail. Schema changes must remain backward compatible; rollback
+does not restore the production database and discard live writes. A failed commit
+is recorded in `/var/lib/canter-deploy/failed` to prevent repeated failed attempts.
+Investigate `journalctl -u canter-deploy.service` before removing that marker.
+Release backups are retained under `/opt/canter/releases/actions-<commit>`;
+monitor disk capacity and prune old releases only after verifying backup retention.

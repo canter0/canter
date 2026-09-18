@@ -33,7 +33,8 @@ jobs:
       - run: go test ./...
       - run: go test -race ./...
       - run: go vet ./...
-      - run: test -z "$(gofmt -l $(find . -name '*.go' -not -path './web/node_modules/*'))"
+      - run: python3 deploy/test_pull_release.py
+      - run: test -z "$(find . -name '*.go' -not -path './web/node_modules/*' -print0 | xargs -0 gofmt -l)"
 
   web:
     runs-on: ubuntu-latest

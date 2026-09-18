@@ -1,0 +1,10 @@
+[Unit]
+Description=Fetch and activate tested Canter GitHub Actions releases
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /opt/canter/deploy/pull-release.py
+TimeoutStartSec=10min
+UMask=0077

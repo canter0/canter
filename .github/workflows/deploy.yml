@@ -1,0 +1,97 @@
+name: deploy-production
+
+on:
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: production-release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  release:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          fetch-depth: 0
+      - name: Require main and successful CI for this exact commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          sha=$(git rev-parse HEAD)
+          git fetch origin main
+          git merge-base --is-ancestor "$sha" origin/main
+          gh run list --workflow ci.yml --commit "$sha" --status success --json headBranch,event --jq '.[] | select(.headBranch == "main" and .event == "push")' | grep -q 'main'
+          echo "RELEASE_SHA=$sha" >> "$GITHUB_ENV"
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.19.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - name: Build production artifacts
+        run: |
+          set -euo pipefail
+          mkdir -p release/web
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o release/canter-controlplane ./cmd/canter-controlplane
+          cd web
+          pnpm install --frozen-lockfile
+          printf '{"commit":"%s"}\n' "$RELEASE_SHA" > public/release.json
+          pnpm build
+          cp -a .next/standalone/. ../release/web/
+          # Next's tracing root is the repository, so server.js lives under web/.
+          if [ -f ../release/web/web/server.js ]; then
+            cp -a .next/static ../release/web/web/.next/static
+            cp -a public ../release/web/web/public
+            # Keep the established service entrypoint /opt/canter/web/server.js.
+            printf 'require("./web/server.js");\n' > ../release/web/server.js
+            cp -a public ../release/web/public
+          else
+            cp -a .next/static ../release/web/.next/static
+            cp -a public ../release/web/public
+          fi
+          cd ..
+          tar -czf canter-release.tar.gz -C release .
+          sha256sum canter-release.tar.gz > SHA256SUMS
+      - name: Publish production release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="production-$RELEASE_SHA"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo 'Release already exists; preserving immutable artifacts.'
+          else
+            gh release create "$tag" canter-release.tar.gz SHA256SUMS --target "$RELEASE_SHA" --title "Production ${RELEASE_SHA:0:12}" --notes "Built by GitHub Actions after successful CI. Server activation includes a database backup, readiness checks, and application rollback." --latest
+          fi
+      - name: Verify production activated this commit
+        run: |
+          for attempt in $(seq 1 100); do
+            echo "Checking production activation ($attempt/100)"
+            if curl -fsS --max-time 10 https://canter.dev/release.json | jq -e --arg sha "$RELEASE_SHA" '.commit == $sha' >/dev/null && curl -fsS --max-time 10 https://canter.dev/readyz | jq -e '.status == "ready"' >/dev/null; then
+              echo "Production is healthy on $RELEASE_SHA"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo 'Production did not activate the release. Inspect canter-deploy.service logs.'
+          exit 1
