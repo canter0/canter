@@ -25,7 +25,7 @@ func (s *Store) ListChanges(ctx context.Context, workspaceID string) ([]ChangeIn
 		return nil, err
 	}
 	defer rows.Close()
-	var out []ChangeIndex
+	out := []ChangeIndex{}
 	for rows.Next() {
 		var c ChangeIndex
 		if err := rows.Scan(&c.ID, &c.System, &c.Phase, &c.Summary, &c.Digest, &c.ExecutionID, &c.ExecutionPhase); err != nil {

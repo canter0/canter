@@ -11,7 +11,7 @@ CANTER_DATABASE_URL=postgres://localhost/canter?sslmode=disable
 CANTER_CONTROLPLANE_ADDR=127.0.0.1:8081
 CANTER_NODE_BINARY_PATH=bin/canter-node-linux-amd64
 CANTER_NODE_GATEWAY_URL=https://control.example.com
-CANTER_PUBLIC_URL=http://localhost:3001
+CANTER_PUBLIC_URL=http://127.0.0.1:3000
 CANTER_COOKIE_SECURE=false
 CANTER_REQUIRE_INVITE=false
 ```
@@ -60,6 +60,22 @@ go run ./cmd/canter-controlplane
 
 The API is rooted at `/v1`. Streamable HTTP MCP is available at `POST /mcp` and
 uses the same HttpOnly human cookie or short-lived agent bearer token as the API.
+
+Google and GitHub sign-in use the client ID and secret variables in `.env.example`.
+Register a Google **Web application** client and a GitHub **OAuth app** with these
+development callbacks:
+
+```text
+http://127.0.0.1:3000/api/canter/auth/oauth/google/callback
+http://127.0.0.1:3000/api/canter/auth/oauth/github/callback
+```
+
+Set `CANTER_PUBLIC_URL` to the exact frontend origin used in the callbacks. For
+production, use its HTTPS origin and separately registered clients. Google needs
+only `openid email profile`; GitHub needs only `read:user user:email`. Tokens are
+used to verify identity and are not retained. Existing password accounts connect
+a provider from Account settings after signing in; matching email addresses alone
+do not link accounts. Google apps in testing mode may require adding test users.
 
 The public CLI and transport client use that same boundary:
 
@@ -165,3 +181,56 @@ External Change and initial-deployment read models retain environment key names
 but replace every value with `[redacted]`, omit internal artifact keys, redact
 trailing command arguments, migration SQL, and provider-bearing failures. The
 unredacted execution documents remain inside the engine boundary.
+
+
+## Workspace tasks and agent activity
+
+The dashboard saves human requests as workspace tasks. Each task includes a
+prompt, an optional target installation, requested model and reasoning level,
+and up to 12 context items. Supported context is repository URLs, existing
+workspace apps, previous tasks, and attachments (2 MiB each, 8 MiB combined).
+Repository references do not grant repository access. Attachment bodies are
+returned only through authenticated task-context reads, not task lists or
+activity feeds.
+
+Connected agents discover tasks in bootstrap or `canter_list_tasks`, read them
+with `canter_inspect_task` and `canter_read_task_context`, claim them with
+`canter_claim_task`, and report completion with `canter_finish_task`. Claims are
+exclusive and an installation can work on one task at a time. A task claim does
+not authorize infrastructure changes; the existing approval rules still apply.
+These are requests for connected agents. The control plane does not run a native
+LLM, and model/reasoning preferences do not prove which model performed the work.
+
+`GET /v1/workspaces/{workspaceId}/activity` provides a workspace-scoped audit
+feed. MCP calls made while a task is claimed are associated with that task.
+The feed exposes an allowlist of attribution metadata, not raw tool arguments,
+prompts, credentials, or attachment contents. The dashboard refreshes tasks and
+activity while visible, and when the window regains focus.
+
+
+## Pairing agents from the dashboard
+
+Dashboard Connect buttons open an inline dialog and preserve the current draft.
+The owner copies a prompt containing a random, one-time invitation. The agent
+reads `/v1/agent-pairings/instructions` and claims it with
+`POST /v1/agent-pairings/claim`. The claim returns a separate device secret;
+no authority is issued until the initiating owner confirms that exact request.
+Only that owner can inspect, approve, or cancel the pairing. Invitations expire
+after ten minutes, cannot be reused, and cannot be approved through the legacy
+device-code page. Closing an unfinished dialog cancels its invitation.
+
+Unchecked “Remember this agent” creates a temporary installation with an
+eight-hour hard deadline. Access and refresh credentials cannot extend it, and
+finishing its claimed task revokes the connection and all workers. Remembered
+connections keep the existing rotating credential behavior. No credentials are
+returned to the browser status endpoint or written to activity. The human can
+revoke the installation at any time.
+
+Orchestrators issue per-worker access tokens through `POST /v1/agent/workers`
+with `name`, `clientInstance`, and optional `draft` (false by default). Workers
+share their parent installation and task attribution, have no refresh token,
+cannot delegate further or claim/finish tasks, and expire no later than the
+parent session. Refreshing or ending the parent session invalidates its workers.
+The orchestrator reissues worker access after refresh. Worker names appear under
+the connection and in the activity feed. `POST /v1/agent/disconnect` ends a
+worker or remembered session, or revokes the entire temporary root connection.

@@ -93,6 +93,8 @@ func TestInitialDeploymentDigestBindsSystemArtifactReleaseVerificationAndRevisio
 
 func TestMCPPublishesInitialDeploymentTools(t *testing.T) {
 	wanted := map[string]bool{
+		"canter_apply_change":                         false,
+		"canter_apply_initial_deployment":             false,
 		"canter_upload_artifact":                      false,
 		"canter_draft_initial_deployment":             false,
 		"canter_inspect_initial_deployment":           false,
@@ -109,7 +111,7 @@ func TestMCPPublishesInitialDeploymentTools(t *testing.T) {
 		}
 	}
 	for _, tool := range mcpTools() {
-		if tool.Name == "canter_authorize_initial_deployment" || tool.Name == "canter_apply_initial_deployment" || tool.Name == "canter_authorize_change" || tool.Name == "canter_apply_change" {
+		if tool.Name == "canter_authorize_initial_deployment" || tool.Name == "canter_authorize_change" {
 			t.Fatalf("MCP must not expose human approval capability %s", tool.Name)
 		}
 	}

@@ -47,6 +47,36 @@ var workspaceUsageCapsMigration string
 //go:embed migrations/010_initial_deployment_corrections.sql
 var initialDeploymentCorrectionsMigration string
 
+//go:embed migrations/011_oauth.sql
+var oauthMigration string
+
+//go:embed migrations/012_workspace_tasks.sql
+var workspaceTasksMigration string
+
+//go:embed migrations/013_agent_pairing.sql
+var agentPairingMigration string
+
+//go:embed migrations/014_billing.sql
+var billingMigration string
+
+//go:embed migrations/015_operator_conversations.sql
+var operatorConversationsMigration string
+
+//go:embed migrations/016_github_connections.sql
+var githubConnectionsMigration string
+
+//go:embed migrations/021_github_app_connections.sql
+var githubAppConnectionsMigration string
+
+//go:embed migrations/017_operator_attachments.sql
+var operatorAttachmentsMigration string
+
+//go:embed migrations/019_resource_metering.sql
+var resourceMeteringMigration string
+
+//go:embed migrations/018_workspace_secrets.sql
+var workspaceSecretsMigration string
+
 var (
 	ErrNotFound      = errors.New("not found")
 	ErrUnauthorized  = errors.New("unauthorized")
@@ -59,8 +89,9 @@ var (
 )
 
 type Store struct {
-	pool *pgxpool.Pool
-	now  func() time.Time
+	billing *BillingGateway
+	pool    *pgxpool.Pool
+	now     func() time.Time
 }
 
 func Open(ctx context.Context, databaseURL string) (*Store, error) {
@@ -147,6 +178,67 @@ func (s *Store) Migrate(ctx context.Context) error {
 		return fmt.Errorf("apply initial deployment corrections migration: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('010_initial_deployment_corrections') ON CONFLICT DO NOTHING`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, oauthMigration); err != nil {
+		return fmt.Errorf("apply OAuth migration: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('011_oauth') ON CONFLICT DO NOTHING`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, workspaceTasksMigration); err != nil {
+		return fmt.Errorf("apply workspace tasks migration: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('012_workspace_tasks') ON CONFLICT DO NOTHING`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, agentPairingMigration); err != nil {
+		return fmt.Errorf("apply agent pairing migration: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('013_agent_pairing') ON CONFLICT DO NOTHING`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, billingMigration); err != nil {
+		return fmt.Errorf("apply billing migration: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('014_billing') ON CONFLICT DO NOTHING`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, operatorConversationsMigration); err != nil {
+		return fmt.Errorf("apply operator conversations migration: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('015_operator_conversations') ON CONFLICT DO NOTHING`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, githubConnectionsMigration); err != nil {
+		return fmt.Errorf("apply GitHub connections migration: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('016_github_connections') ON CONFLICT DO NOTHING`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, operatorAttachmentsMigration); err != nil {
+		return fmt.Errorf("apply operator attachments migration: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('017_operator_attachments') ON CONFLICT DO NOTHING`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, workspaceSecretsMigration); err != nil {
+		return fmt.Errorf("apply workspace secrets migration: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('018_workspace_secrets') ON CONFLICT DO NOTHING`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, resourceMeteringMigration); err != nil {
+		return fmt.Errorf("apply resource metering: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('019_resource_metering') ON CONFLICT DO NOTHING`); err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(ctx, githubAppConnectionsMigration); err != nil {
+		return fmt.Errorf("apply GitHub App connections migration: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('021_github_app_connections') ON CONFLICT DO NOTHING`); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
@@ -346,6 +438,13 @@ func (s *Store) ApproveDevice(ctx context.Context, code, accountID, workspaceID 
 	if err != nil {
 		return Installation{}, ErrNotFound
 	}
+	var paired bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM agent_pairings WHERE device_id=$1)`, d.ID).Scan(&paired); err != nil {
+		return Installation{}, err
+	}
+	if paired {
+		return Installation{}, ErrForbidden
+	}
 	if s.now().After(d.ExpiresAt) {
 		return Installation{}, ErrDeviceExpired
 	}
@@ -374,7 +473,7 @@ func (s *Store) ApproveDevice(ctx context.Context, code, accountID, workspaceID 
 
 func (s *Store) DenyDevice(ctx context.Context, code, accountID string) error {
 	now := s.now()
-	result, err := s.pool.Exec(ctx, `UPDATE device_authorizations SET denied_at=$1,authorized_by=$2 WHERE user_code=$3 AND authorized_at IS NULL AND denied_at IS NULL AND expires_at>$1`, now, accountID, strings.ToUpper(strings.TrimSpace(code)))
+	result, err := s.pool.Exec(ctx, `UPDATE device_authorizations SET denied_at=$1,authorized_by=$2 WHERE user_code=$3 AND authorized_at IS NULL AND denied_at IS NULL AND expires_at>$1 AND NOT EXISTS (SELECT 1 FROM agent_pairings p WHERE p.device_id=device_authorizations.id)`, now, accountID, strings.ToUpper(strings.TrimSpace(code)))
 	if err != nil {
 		return err
 	}
@@ -433,7 +532,7 @@ type querier interface {
 
 func installationByID(ctx context.Context, q querier, id string) (Installation, error) {
 	var i Installation
-	err := q.QueryRow(ctx, `SELECT id,workspace_id,name,harness,inspect_allowed,draft_allowed,apply_mode,created_by,created_at,last_seen_at,revoked_at FROM agent_installations WHERE id=$1`, id).Scan(&i.ID, &i.WorkspaceID, &i.Name, &i.Harness, &i.Authority.Inspect, &i.Authority.Draft, &i.Authority.ApplyMode, &i.CreatedBy, &i.CreatedAt, &i.LastSeenAt, &i.RevokedAt)
+	err := q.QueryRow(ctx, `SELECT id,workspace_id,name,harness,inspect_allowed,draft_allowed,apply_mode,created_by,created_at,last_seen_at,revoked_at,expires_at FROM agent_installations WHERE id=$1`, id).Scan(&i.ID, &i.WorkspaceID, &i.Name, &i.Harness, &i.Authority.Inspect, &i.Authority.Draft, &i.Authority.ApplyMode, &i.CreatedBy, &i.CreatedAt, &i.LastSeenAt, &i.RevokedAt, &i.ExpiresAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return i, ErrNotFound
 	}
@@ -441,6 +540,10 @@ func installationByID(ctx context.Context, q querier, id string) (Installation, 
 }
 
 func (s *Store) issueAgentTokens(ctx context.Context, tx pgx.Tx, installation Installation, clientInstance, familyID, parentID string) (TokenPair, error) {
+	if installation.RevokedAt != nil || (installation.ExpiresAt != nil && !installation.ExpiresAt.After(s.now())) {
+		return TokenPair{}, ErrUnauthorized
+	}
+
 	credentialID, _ := newID("acr_")
 	if familyID == "" {
 		familyID = credentialID
@@ -449,14 +552,24 @@ func (s *Store) issueAgentTokens(ctx context.Context, tx pgx.Tx, installation In
 	sessionID, _ := newID("ass_")
 	access, _ := newSecret("ca_", 32)
 	now := s.now()
-	if _, err := tx.Exec(ctx, `INSERT INTO agent_credentials(id,installation_id,refresh_hash,family_id,parent_id,created_at,expires_at) VALUES($1,$2,$3,$4,NULLIF($5,''),$6,$7)`, credentialID, installation.ID, secretHash(refresh), familyID, parentID, now, now.Add(90*24*time.Hour)); err != nil {
+	refreshExpiry := now.Add(90 * 24 * time.Hour)
+	sessionExpiry := now.Add(15 * time.Minute)
+	if installation.ExpiresAt != nil {
+		if installation.ExpiresAt.Before(refreshExpiry) {
+			refreshExpiry = *installation.ExpiresAt
+		}
+		if installation.ExpiresAt.Before(sessionExpiry) {
+			sessionExpiry = *installation.ExpiresAt
+		}
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO agent_credentials(id,installation_id,refresh_hash,family_id,parent_id,created_at,expires_at) VALUES($1,$2,$3,$4,NULLIF($5,''),$6,$7)`, credentialID, installation.ID, secretHash(refresh), familyID, parentID, now, refreshExpiry); err != nil {
 		return TokenPair{}, err
 	}
-	session := AgentSession{ID: sessionID, InstallationID: installation.ID, ClientInstance: clientInstance, CreatedAt: now, LastSeenAt: now, ExpiresAt: now.Add(15 * time.Minute)}
+	session := AgentSession{ID: sessionID, InstallationID: installation.ID, ClientInstance: clientInstance, CreatedAt: now, LastSeenAt: now, ExpiresAt: sessionExpiry}
 	if _, err := tx.Exec(ctx, `INSERT INTO agent_sessions(id,installation_id,credential_id,access_hash,client_instance,created_at,last_seen_at,expires_at) VALUES($1,$2,$3,$4,$5,$6,$6,$7)`, sessionID, installation.ID, credentialID, secretHash(access), clientInstance, now, session.ExpiresAt); err != nil {
 		return TokenPair{}, err
 	}
-	return TokenPair{AccessToken: access, TokenType: "Bearer", ExpiresIn: 900, RefreshToken: refresh, Installation: installation, Session: session}, nil
+	return TokenPair{AccessToken: access, TokenType: "Bearer", ExpiresIn: int(sessionExpiry.Sub(now).Seconds()), RefreshToken: refresh, Installation: installation, Session: session}, nil
 }
 
 func (s *Store) RefreshAgent(ctx context.Context, refreshToken, clientInstance string) (TokenPair, error) {
@@ -546,13 +659,21 @@ func (s *Store) refreshAgentOnce(ctx context.Context, refreshToken, clientInstan
 func (s *Store) ResolveAgent(ctx context.Context, accessToken string) (Principal, error) {
 	var installation Installation
 	var session AgentSession
-	err := s.pool.QueryRow(ctx, `SELECT i.id,i.workspace_id,i.name,i.harness,i.inspect_allowed,i.draft_allowed,i.apply_mode,i.created_by,i.created_at,i.last_seen_at,i.revoked_at,s.id,s.client_instance,s.created_at,s.last_seen_at,s.expires_at,s.ended_at FROM agent_sessions s JOIN agent_installations i ON i.id=s.installation_id WHERE s.access_hash=$1 AND s.ended_at IS NULL AND s.expires_at>$2 AND i.revoked_at IS NULL`, secretHash(accessToken), s.now()).Scan(&installation.ID, &installation.WorkspaceID, &installation.Name, &installation.Harness, &installation.Authority.Inspect, &installation.Authority.Draft, &installation.Authority.ApplyMode, &installation.CreatedBy, &installation.CreatedAt, &installation.LastSeenAt, &installation.RevokedAt, &session.ID, &session.ClientInstance, &session.CreatedAt, &session.LastSeenAt, &session.ExpiresAt, &session.EndedAt)
+	err := s.pool.QueryRow(ctx, `SELECT i.id,i.workspace_id,i.name,i.harness,i.inspect_allowed,i.draft_allowed,i.apply_mode,i.created_by,i.created_at,i.last_seen_at,i.revoked_at,i.expires_at,s.id,s.client_instance,s.created_at,s.last_seen_at,s.expires_at,s.ended_at,COALESCE(s.parent_session_id,''),s.worker_name,s.worker_draft FROM agent_sessions s JOIN agent_installations i ON i.id=s.installation_id WHERE s.access_hash=$1 AND s.ended_at IS NULL AND s.expires_at>$2 AND i.revoked_at IS NULL AND (i.expires_at IS NULL OR i.expires_at>$2) AND (s.parent_session_id IS NULL OR EXISTS (SELECT 1 FROM agent_sessions parent WHERE parent.id=s.parent_session_id AND parent.ended_at IS NULL AND parent.expires_at>$2))`, secretHash(accessToken), s.now()).Scan(&installation.ID, &installation.WorkspaceID, &installation.Name, &installation.Harness, &installation.Authority.Inspect, &installation.Authority.Draft, &installation.Authority.ApplyMode, &installation.CreatedBy, &installation.CreatedAt, &installation.LastSeenAt, &installation.RevokedAt, &installation.ExpiresAt, &session.ID, &session.ClientInstance, &session.CreatedAt, &session.LastSeenAt, &session.ExpiresAt, &session.EndedAt, &session.ParentSessionID, &session.WorkerName, &session.WorkerDraft)
 	if err != nil {
 		return Principal{}, ErrUnauthorized
 	}
 	session.InstallationID = installation.ID
+	if session.ParentSessionID != "" {
+		installation.Authority.Draft = installation.Authority.Draft && session.WorkerDraft
+		if !installation.Authority.Draft {
+			installation.Authority.ApplyMode = "never"
+		} else if installation.Authority.ApplyMode == "automatic" {
+			installation.Authority.ApplyMode = "human-approval-required"
+		}
+	}
 	now := s.now()
-	if session.LastSeenAt.Before(now.Add(-30 * time.Second)) {
+	if installation.LastSeenAt == nil || session.LastSeenAt.Before(now.Add(-30*time.Second)) {
 		_, _ = s.pool.Exec(ctx, `UPDATE agent_sessions SET last_seen_at=$1 WHERE id=$2`, now, session.ID)
 		_, _ = s.pool.Exec(ctx, `UPDATE agent_installations SET last_seen_at=$1 WHERE id=$2`, now, installation.ID)
 		session.LastSeenAt = now
@@ -562,15 +683,15 @@ func (s *Store) ResolveAgent(ctx context.Context, accessToken string) (Principal
 }
 
 func (s *Store) ListInstallations(ctx context.Context, workspaceID string) ([]Installation, error) {
-	rows, err := s.pool.Query(ctx, `SELECT id,workspace_id,name,harness,inspect_allowed,draft_allowed,apply_mode,created_by,created_at,last_seen_at,revoked_at FROM agent_installations WHERE workspace_id=$1 ORDER BY created_at`, workspaceID)
+	rows, err := s.pool.Query(ctx, `SELECT id,workspace_id,name,harness,inspect_allowed,draft_allowed,apply_mode,created_by,created_at,last_seen_at,revoked_at,expires_at,(SELECT count(*) FROM agent_sessions sess WHERE sess.installation_id=agent_installations.id AND sess.ended_at IS NULL AND sess.expires_at>$2 AND agent_installations.revoked_at IS NULL AND (agent_installations.expires_at IS NULL OR agent_installations.expires_at>$2) AND (sess.parent_session_id IS NULL OR EXISTS(SELECT 1 FROM agent_sessions parent WHERE parent.id=sess.parent_session_id AND parent.ended_at IS NULL AND parent.expires_at>$2))) FROM agent_installations WHERE workspace_id=$1 ORDER BY created_at`, workspaceID, s.now())
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []Installation
+	out := []Installation{}
 	for rows.Next() {
 		var i Installation
-		if err := rows.Scan(&i.ID, &i.WorkspaceID, &i.Name, &i.Harness, &i.Authority.Inspect, &i.Authority.Draft, &i.Authority.ApplyMode, &i.CreatedBy, &i.CreatedAt, &i.LastSeenAt, &i.RevokedAt); err != nil {
+		if err := rows.Scan(&i.ID, &i.WorkspaceID, &i.Name, &i.Harness, &i.Authority.Inspect, &i.Authority.Draft, &i.Authority.ApplyMode, &i.CreatedBy, &i.CreatedAt, &i.LastSeenAt, &i.RevokedAt, &i.ExpiresAt, &i.ActiveSessions); err != nil {
 			return nil, err
 		}
 		out = append(out, i)
@@ -633,7 +754,7 @@ func (s *Store) ListSystems(ctx context.Context, workspaceID string) ([]SystemRe
 		return nil, err
 	}
 	defer rows.Close()
-	var out []SystemRecord
+	out := []SystemRecord{}
 	for rows.Next() {
 		var r SystemRecord
 		var prefix string

@@ -148,6 +148,9 @@ func updateInitialDeploymentTx(ctx context.Context, tx pgx.Tx, deployment Initia
 }
 
 func (s *Store) EnqueueInitialDeployment(ctx context.Context, workspaceID, deploymentID string, actor sdk.ActorRef) (InitialDeploymentExecution, error) {
+	if err := s.requireBillingPayment(ctx, workspaceID); err != nil {
+		return InitialDeploymentExecution{}, err
+	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		return InitialDeploymentExecution{}, err
@@ -158,7 +161,7 @@ func (s *Store) EnqueueInitialDeployment(ctx context.Context, workspaceID, deplo
 		return InitialDeploymentExecution{}, ErrNotFound
 	}
 	if err != nil {
-		return InitialDeploymentExecution{}, err
+		return InitialDeploymentExecution{}, enqueueInitialDeploymentError(err)
 	}
 	recomputed, digestErr := digestInitialDeployment(deployment.Plan)
 	if digestErr != nil {

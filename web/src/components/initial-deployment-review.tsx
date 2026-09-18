@@ -1,12 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useSurfaceWorkspace } from "./embedded-app-surface";
+import { DeploymentPanel } from "./deployment-panel";
 import { AppShell, SectionHeader } from "@/components/app-shell";
 import { canterFetch, relativeTime, type InitialDeploymentDetail, type InitialDeploymentExecution, type Me } from "@/lib/canter-api";
 
 const terminalPhases = new Set(["succeeded", "failed"]);
 
 export function InitialDeploymentReview({ id }: { id: string }) {
+  const scopedWorkspace = useSurfaceWorkspace();
   const [workspaceId, setWorkspaceId] = useState("");
   const [deployment, setDeployment] = useState<InitialDeploymentDetail | null>(null);
   const [execution, setExecution] = useState<InitialDeploymentExecution | null>(null);
@@ -17,8 +20,7 @@ export function InitialDeploymentReview({ id }: { id: string }) {
     let cancelled = false;
     void (async () => {
       try {
-        const me = await canterFetch<Me>("/me");
-        const workspace = me.workspaces[0];
+        const workspace = scopedWorkspace ? { id: scopedWorkspace } : (await canterFetch<Me>("/me")).workspaces[0];
         if (!workspace) throw new Error("No workspace is available.");
         const result = await canterFetch<InitialDeploymentDetail>(`/workspaces/${workspace.id}/initial-deployments/${encodeURIComponent(id)}`);
         if (cancelled) return;
@@ -29,7 +31,7 @@ export function InitialDeploymentReview({ id }: { id: string }) {
       }
     })();
     return () => { cancelled = true; };
-  }, [id]);
+  }, [id, scopedWorkspace]);
 
   useEffect(() => {
     if (!workspaceId || !deployment || terminalPhases.has(deployment.phase) || !["queued", "running"].includes(deployment.phase)) return;
@@ -115,10 +117,12 @@ export function InitialDeploymentReview({ id }: { id: string }) {
     ["authorized by", authorization?.authorizedBy?.displayName ?? authorization?.authorizedBy?.id ?? "not authorized"],
   ] : [];
 
+  if (scopedWorkspace) return <DeploymentPanel deployment={deployment} execution={execution} error={error} pending={pending} canRetry={!!canRetry} explanation={actionExplanation} onApprove={() => void authorizeAndApply()} onApply={() => void apply()} />;
+
   return (
     <AppShell active="Changes" context={`canter / default / ${id}`}>
       <section className="flex min-h-[calc(100vh-80px)] flex-col overflow-x-auto px-6 pt-10 sm:px-10 lg:px-14 lg:pt-11">
-        <div className="grid min-w-[760px] grid-cols-[1fr_210px] items-end border-b border-[var(--ink)] pb-7">
+        <div className="grid min-w-[760px] grid-cols-[1fr_210px] items-end border-b border-[var(--rule-strong)] pb-7">
           <div>
             <div className="meta">INITIAL DEPLOYMENT · {id} · DRAFTED BY {deployment?.draftedBy.displayName ?? deployment?.draftedBy.id ?? "AGENT"}</div>
             <h1 className="display mt-3 text-[32px]">{deployment?.summary ?? "Loading proposal"}</h1>
@@ -126,8 +130,8 @@ export function InitialDeploymentReview({ id }: { id: string }) {
           <div className="flex items-center justify-end gap-2 pb-1 text-[10px]"><span className={`signal ${deployment?.phase === "failed" ? "opacity-30" : ""}`} />{deployment?.phase.toUpperCase() ?? "LOADING"}</div>
         </div>
 
-        {error ? <div className="mt-8 border-l-2 border-[var(--ink)] pl-4">{error}</div> : null}
-        {deployment?.failure ? <div className="mt-8 border-l-2 border-[var(--ink)] pl-4">{deployment.failure}</div> : null}
+        {error ? <div className="mt-8 border-l-2 border-[var(--rule-strong)] pl-4">{error}</div> : null}
+        {deployment?.failure ? <div className="mt-8 border-l-2 border-[var(--rule-strong)] pl-4">{deployment.failure}</div> : null}
 
         <div className="mt-10 grid min-w-[760px] gap-12 lg:grid-cols-[1.35fr_1fr]">
           <div>
@@ -154,7 +158,7 @@ export function InitialDeploymentReview({ id }: { id: string }) {
 
         {execution ? <div className="mt-8 border-l-2 border-[var(--signal)] pl-4">Execution {execution.id} · {execution.phase} · attempt {execution.attempts}</div> : null}
 
-        <div className="mt-auto flex min-h-20 min-w-[760px] items-center justify-between gap-8 border-t border-[var(--ink)]">
+        <div className="mt-auto flex min-h-20 min-w-[760px] items-center justify-between gap-8 border-t border-[var(--rule-strong)]">
           <span className="max-w-[520px] text-[var(--muted)]">{actionExplanation}</span>
           <div className="flex gap-3">
             {deployment?.phase === "drafted" ? <button onClick={() => void authorizeAndApply()} disabled={pending} className="flex h-10 min-w-[210px] items-center justify-center bg-[var(--ink)] px-6 text-[var(--paper)] disabled:opacity-50">{pending ? "Approving + starting…" : "Approve + start deployment"}</button> : null}

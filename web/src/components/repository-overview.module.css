@@ -1,0 +1,34 @@
+.overview.overview { min-width: 0; padding: 0 18px 22px; background: #191919; }
+.header { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; margin: 0 -18px; padding: 10px 16px; border-bottom: 1px solid #ffffff0a; color: #999; }
+.identity { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 11px; }
+.identity svg { width: 17px; height: 17px; color: #bdbdbd; flex-shrink: 0; }
+.identity span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.header a { display: flex; padding: 4px; border-radius: 5px; }.header a:hover { background: #ffffff09; color: #eee; }
+.summary { padding: 22px 0 18px; }
+.titleRow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.overview h2 { font-size: 19px; line-height: 1.3; letter-spacing: -.025em; font-weight: 500; overflow-wrap: anywhere; }
+.visibility { padding: 2px 6px; border: 1px solid #ffffff14; border-radius: 5px; color: #909090; font-size: 10px; }
+.description { color: #999; font-size: 12px; line-height: 1.7; margin-top: 10px; }
+.metadata { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 13px; color: #8e8e8e; font-size: 11px; }
+.metadata span { display: inline-flex; align-items: center; gap: 6px; }
+.metadata code { font: 10px var(--font-geist-mono), ui-monospace, monospace; color: #aaa; }
+.language::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: #a49c7a; }
+.actions { display: flex; flex-wrap: wrap; gap: 7px; padding-bottom: 20px; }
+.actions button { display: inline-flex; align-items: center; gap: 7px; padding: 6px 9px; border: 1px solid #ffffff0d; background: #222; border-radius: 7px; font-size: 11px; color: #bfbfbf; }
+.actions button:hover { background: #2a2a2a; color: #eee; }
+.actions svg:last-child { margin-left: 3px; color: #777; }
+.files { border: 1px solid #ffffff0d; border-radius: 10px; padding: 9px; overflow: hidden; }
+.fileHeading { display: flex; justify-content: space-between; align-items: center; min-height: 25px; margin: 0 2px 9px; }
+.fileHeading h3 { font-size: 12px; font-weight: 500; color: #bfbfbf; }
+.fileHeading h3 span { margin-left: 6px; font-size: 10px; font-weight: 400; color: #777; }
+.fileHeading button { display: flex; padding: 4px; border-radius: 5px; color: #999; }.fileHeading button:hover { background: #ffffff0a; }
+.search { display: flex; align-items: center; gap: 8px; padding: 7px 9px; background: #212121; border: 1px solid #ffffff0b; border-radius: 7px; color: #777; margin-bottom: 8px; }
+.search input { color: #ddd; font-size: 11px; background: transparent; outline: none !important; box-shadow: none !important; border: 0; width: 100%; min-width: 0; padding: 0; }
+.search:focus-within { border-color: #ffffff30; }
+.search input::placeholder { color: #858585; }.search > svg { flex-shrink: 0; }.search button { display: flex; }.search kbd { font-size: 12px; font-family: inherit; }
+.fileList { display: flex; flex-direction: column; gap: 1px; }.fileList button { display: flex; align-items: center; gap: 8px; text-align: left; min-height: 31px; padding: 6px 7px; border-radius: 5px; font-size: 11px; color: #b8b8b8; }
+.fileList button:hover { background: #ffffff09; color: #eee; }.fileList button > svg { color: #818181; flex-shrink: 0; }.fileList button > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }.fileList button > svg:last-child { opacity: 0; }.fileList button:hover > svg:last-child, .fileList button:focus-visible > svg:last-child { opacity: 1; }
+.runtime { display: flex; align-items: center; gap: 10px; padding: 14px 2px; margin-top: 5px; color: #8b8b8b; }.runtime > svg { flex-shrink: 0; }.runtime strong { font-size: 11px; font-weight: 400; color: #a5a5a5; }.runtime p { font-size: 10px; line-height: 1.7; color: #777; margin-top: 2px; }.runtime button { margin-left: auto; padding: 4px; border-radius: 5px; }.runtime button:hover { background: #ffffff08; }
+.footer { display: flex; align-items: center; gap: 6px; font-size: 10px; color: #707870; margin-top: 12px; }
+.note { font-size: 12px; line-height: 1.8; color: #969696; margin: 18px 0; overflow-wrap: anywhere; }.note button { text-decoration: underline; }
+@media(max-width:600px) { .overview.overview { padding-right: 14px; padding-left: 14px; }.header { margin-right: -14px; margin-left: -14px; } }

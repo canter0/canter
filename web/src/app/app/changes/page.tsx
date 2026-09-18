@@ -1,58 +1,36 @@
 "use client";
 
+import { ConnectAgentButton } from "@/components/connect-agent-button";
+
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import { AppShell, Metric } from "@/components/app-shell";
-import { CopyInstruction } from "@/components/copy-instruction";
-import { canterFetch, type ChangeSummary, type InitialDeploymentSummary, type Me } from "@/lib/canter-api";
+import { useState } from "react";
+import { ActionFeed } from "@/components/action-feed";
+import { AppShell } from "@/components/app-shell";
+import { useWorkspace } from "@/components/workspace-context";
+import { WorkspaceIcon } from "@/components/workspace-icon";
+import { activityLabel, workspaceActivities } from "@/lib/workspace-overview";
+import { relativeTime } from "@/lib/canter-api";
+import styles from "@/components/workspace.module.css";
 
-export default function ChangesPage() {
-  const [changes, setChanges] = useState<ChangeSummary[]>([]);
-  const [initialDeployments, setInitialDeployments] = useState<InitialDeploymentSummary[]>([]);
-  const [error, setError] = useState("");
+const filters = ["All", "Needs review", "In progress", "Finished"] as const;
+const runningPhases = new Set(["authorized", "queued", "running", "applying", "verifying", "compensating"]);
+const finishedPhases = new Set(["committed", "succeeded", "failed", "rejected", "reverted"]);
 
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      try {
-        const me = await canterFetch<Me>("/me");
-        const workspace = me.workspaces[0];
-        if (!workspace) throw new Error("No workspace is available.");
-        const [changeResult, initialDeploymentResult] = await Promise.all([
-          canterFetch<{ changes: ChangeSummary[] }>(`/workspaces/${workspace.id}/changes`),
-          canterFetch<{ initialDeployments: InitialDeploymentSummary[] }>(`/workspaces/${workspace.id}/initial-deployments`),
-        ]);
-        if (!cancelled) {
-          setChanges(changeResult.changes ?? []);
-          setInitialDeployments(initialDeploymentResult.initialDeployments ?? []);
-        }
-      } catch (cause) {
-        if (!cancelled) setError(cause instanceof Error ? cause.message : "Canter could not load Changes.");
-      }
-    })();
-    return () => { cancelled = true; };
-  }, []);
+export default function ActivityPage() {
+  const { data, error, loading, retry } = useWorkspace();
+  const [view, setView] = useState<"actions" | "deployments">("actions");
+  const [filter, setFilter] = useState<typeof filters[number]>("All");
+  const activities = data ? workspaceActivities(data) : [];
+  const visible = activities.filter(item => filter === "All" || (filter === "Needs review" ? ["drafted", "escalated"].includes(item.phase) : filter === "In progress" ? runningPhases.has(item.phase) : finishedPhases.has(item.phase)));
 
-  const pending = changes.filter((change) => ["drafted", "authorized"].includes(change.phase)).length + initialDeployments.filter((deployment) => ["drafted", "authorized"].includes(deployment.phase)).length;
-  const running = changes.filter((change) => ["applying", "verifying", "compensating"].includes(change.phase)).length + initialDeployments.filter((deployment) => ["queued", "running"].includes(deployment.phase)).length;
-  const verified = changes.filter((change) => change.phase === "committed").length + initialDeployments.filter((deployment) => deployment.phase === "succeeded").length;
-
-  return (
-    <AppShell active="Changes">
-      <section className="flex min-h-[calc(100vh-80px)] flex-col overflow-x-auto px-6 pt-10 sm:px-10 lg:px-14 lg:pt-11">
-        <div className="grid min-w-[740px] items-end border-b border-[var(--ink)] pb-7 lg:grid-cols-[1fr_160px_160px_160px]">
-          <div><div className="meta">Governed execution</div><h1 className="display mt-3 text-[32px]">Changes</h1></div>
-          <div className="mt-8 grid grid-cols-3 lg:contents"><Metric label="Pending" value={String(pending)} /><Metric label="Running" value={String(running)} /><Metric label="Verified" value={String(verified)} /></div>
-        </div>
-        <div className="mt-10 min-w-[740px]">
-          <div className="meta grid grid-cols-[110px_2.4fr_1fr_1fr_1fr] border-b border-[var(--rule)] pb-3"><span>Change</span><span>Intent</span><span>State</span><span>System</span><span>Digest</span></div>
-          {initialDeployments.map((deployment) => <Link key={deployment.id} href={`/app/changes/initial/${encodeURIComponent(deployment.id)}`} className="grid h-[74px] grid-cols-[110px_2.4fr_1fr_1fr_1fr] items-center border-b border-[var(--rule)]"><span className="flex items-center gap-3">{["drafted", "authorized"].includes(deployment.phase) ? <span className="signal" /> : null}{deployment.id.replace(/^dep_/, "")}</span><span><span className="meta mr-3 text-[9px]">INITIAL</span>{deployment.summary}</span><span>{deployment.phase}</span><span>{deployment.system}</span><span>{deployment.digest.slice(0, 10)} ↗</span></Link>)}
-          {changes.map((change) => <Link key={change.id} href={`/app/changes/${encodeURIComponent(change.id)}?system=${encodeURIComponent(change.system)}`} className="grid h-[74px] grid-cols-[110px_2.4fr_1fr_1fr_1fr] items-center border-b border-[var(--rule)]"><span className="flex items-center gap-3">{["drafted", "authorized"].includes(change.phase) ? <span className="signal" /> : null}{change.id.replace(/^change-/, "")}</span><span>{change.summary}</span><span>{change.phase}</span><span>{change.system}</span><span>{change.digest.slice(0, 10)} ↗</span></Link>)}
-          {error ? <div className="flex h-20 items-center border-b border-[var(--rule)]">{error}</div> : null}
-          {!error && changes.length === 0 && initialDeployments.length === 0 ? <div className="flex h-28 items-center gap-4 border-b border-[var(--rule)]"><span className="signal opacity-20" /><div><div>No Changes</div><div className="mt-2 text-[var(--muted)]">Drafting is durable and does not mutate production.</div></div></div> : null}
-        </div>
-        <div className="mt-auto grid min-h-20 min-w-[740px] grid-cols-[190px_1fr_70px] items-center border-t border-[var(--ink)]"><span className="meta">Agent instruction</span><span>Show me what changed since yesterday.</span><CopyInstruction text="Show me what changed since yesterday." /></div>
-      </section>
-    </AppShell>
-  );
+  return <AppShell active="Changes"><section className={styles.contentPage}>
+    <div className={styles.pageHeading}><div><h1>Activity</h1><p>Actions recorded in your workspace.</p></div></div>
+    <div className={styles.filters}><button aria-pressed={view === "actions"} onClick={() => setView("actions")}>Actions</button><button aria-pressed={view === "deployments"} onClick={() => setView("deployments")}>Deployments and changes</button></div>
+    {loading ? <p role="status" className={styles.loading}>Loading activity…</p> : error ? <div role="alert" className={styles.error}>Couldn’t load activity. <button onClick={retry}>Try again</button></div> : <>
+      {view === "actions" ? <><ActionFeed actions={data?.actions ?? []} />{!data?.actions.length ? <div className={styles.emptyState}><span className={styles.emptyIcon}><WorkspaceIcon name="activity" width="24" height="24" /></span><h2>No activity yet</h2><p>Actions from connected agents will appear here.</p><ConnectAgentButton className={styles.secondaryButton}>Bring your agent</ConnectAgentButton></div> : null}</> : <>
+      {activities.length > 0 ? <div className={styles.filters} aria-label="Filter activity">{filters.map(item => <button key={item} onClick={() => setFilter(item)} aria-pressed={filter === item}>{item}</button>)}</div> : null}
+      {visible.length ? <div>{visible.map(item => <Link key={`${item.kind}-${item.id}`} href={item.href} className={styles.activityRow}><WorkspaceIcon name={item.kind === "Deployment" ? "apps" : "activity"} /><div><span>{item.summary}</span><small>{item.system} · {item.kind}{item.createdAt ? ` · ${relativeTime(item.createdAt)}` : ""}</small></div><span className={styles.status} data-phase={item.phase}>{activityLabel(item.phase)}</span><WorkspaceIcon name="chevron" width="14" height="14" /></Link>)}</div> : <div className={styles.emptyState}><span className={styles.emptyIcon}><WorkspaceIcon name="activity" width="24" height="24" /></span><h2>{activities.length ? "You’re all caught up" : "No activity yet"}</h2><p>{activities.length ? "No activity matches this filter." : "When your agent prepares a deployment or a change, you can follow it here."}</p>{activities.length ? <button className={styles.secondaryButton} onClick={() => setFilter("All")}>View all activity</button> : <Link href="/app" className={styles.secondaryButton}>New task<WorkspaceIcon name="right" width="15" height="15" /></Link>}</div>}
+    </>}
+    </>}
+  </section></AppShell>;
 }

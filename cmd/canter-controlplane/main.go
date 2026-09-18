@@ -49,12 +49,7 @@ func main() {
 	service := &controlplane.Service{Store: store, Engine: client, NodeGateway: client, NodeGatewayURL: nodeGatewayURL}
 	workerID, _ := os.Hostname()
 	dispatcher := &controlplane.Dispatcher{Store: store, Engine: client, WorkerID: "control-plane/" + workerID}
-	go func() {
-		if err := dispatcher.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
-			log.Printf("execution dispatcher stopped: %v", err)
-			stop()
-		}
-	}()
+
 	var nodeBinary []byte
 	if nodePath := os.Getenv("CANTER_NODE_BINARY_PATH"); nodePath != "" {
 		nodeBinary, err = os.ReadFile(nodePath)
@@ -63,19 +58,14 @@ func main() {
 		}
 	}
 	initialDispatcher := &controlplane.InitialDeploymentDispatcher{Store: store, Service: service, Engine: client, NodeBinary: nodeBinary, WorkerID: "control-plane/initial/" + workerID}
-	go func() {
-		if err := initialDispatcher.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
-			log.Printf("initial deployment dispatcher stopped: %v", err)
-			stop()
-		}
-	}()
+
 	addr := os.Getenv("CANTER_CONTROLPLANE_ADDR")
 	if addr == "" {
 		addr = "127.0.0.1:8081"
 	}
 	publicURL := os.Getenv("CANTER_PUBLIC_URL")
 	if publicURL == "" {
-		publicURL = "http://localhost:3001"
+		publicURL = "http://127.0.0.1:3000"
 	}
 	cookieSecure, err := cookieSecurity(publicURL, os.Getenv("CANTER_COOKIE_SECURE"))
 	if err != nil {
@@ -87,7 +77,99 @@ func main() {
 			log.Fatal("CANTER_NODE_GATEWAY_URL must be an absolute HTTPS URL")
 		}
 	}
-	handler := controlplane.NewHTTPServer(service, controlplane.HTTPConfig{PublicURL: publicURL, CookieSecure: cookieSecure, RequireInvite: strings.EqualFold(os.Getenv("CANTER_REQUIRE_INVITE"), "true")})
+	googleOAuth := controlplane.OAuthCredentials{ClientID: os.Getenv("CANTER_GOOGLE_CLIENT_ID"), ClientSecret: os.Getenv("CANTER_GOOGLE_CLIENT_SECRET")}
+	githubOAuth := controlplane.OAuthCredentials{ClientID: os.Getenv("CANTER_GITHUB_CLIENT_ID"), ClientSecret: os.Getenv("CANTER_GITHUB_CLIENT_SECRET")}
+	githubApp := controlplane.OAuthCredentials{ClientID: os.Getenv("CANTER_GITHUB_APP_CLIENT_ID"), ClientSecret: os.Getenv("CANTER_GITHUB_APP_CLIENT_SECRET")}
+	for name, credentials := range map[string]controlplane.OAuthCredentials{"Google": googleOAuth, "GitHub": githubOAuth, "GitHub App": githubApp} {
+		if err := controlplane.ValidateOAuthCredentials(name, credentials); err != nil {
+			log.Fatal(err)
+		}
+	}
+	billing := controlplane.NewBillingGateway(controlplane.BillingConfig{
+		PortalConfigurationID: os.Getenv("CANTER_STRIPE_PORTAL_CONFIGURATION_ID"),
+		Enabled:               strings.EqualFold(os.Getenv("CANTER_BILLING_ENABLED"), "true"),
+		SecretKey:             os.Getenv("CANTER_STRIPE_SECRET_KEY"), WebhookSecret: os.Getenv("CANTER_STRIPE_WEBHOOK_SECRET"), IngestToken: os.Getenv("CANTER_BILLING_INGEST_TOKEN"),
+		PaygPriceID: os.Getenv("CANTER_STRIPE_PAYG_PRICE_ID"), ProPriceID: os.Getenv("CANTER_STRIPE_PRO_PRICE_ID"), ProUsagePriceID: os.Getenv("CANTER_STRIPE_PRO_USAGE_PRICE_ID"),
+		MeterID: os.Getenv("CANTER_STRIPE_METER_ID"), MeterEventName: os.Getenv("CANTER_STRIPE_METER_EVENT_NAME"),
+	})
+	store.ConfigureBilling(billing)
+	if billing.Config.Enabled {
+		if !billing.Ready() {
+			log.Fatal("billing is enabled but its configuration is incomplete")
+		}
+		if err := billing.ValidatePrices(ctx); err != nil {
+			log.Fatalf("validate billing catalog: %v", err)
+		}
+		go func() {
+			ticker := time.NewTicker(time.Minute)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					if err := store.CollectUsage(ctx, client); err != nil && ctx.Err() == nil {
+						log.Printf("billing resource collection: %v", err)
+					}
+					if err := billing.DispatchUsage(ctx, store); err != nil && ctx.Err() == nil {
+						log.Printf("billing usage dispatch: %v", err)
+					}
+				}
+			}
+		}()
+	}
+	go func() {
+		if err := dispatcher.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			log.Printf("execution dispatcher stopped: %v", err)
+			stop()
+		}
+	}()
+	go func() {
+		if err := initialDispatcher.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			log.Printf("initial deployment dispatcher stopped: %v", err)
+			stop()
+		}
+	}()
+	operator := controlplane.OperatorConfig{APIKey: os.Getenv("OPENROUTER_API_KEY"), BaseURL: os.Getenv("CANTER_OPERATOR_BASE_URL"), Model: os.Getenv("CANTER_OPERATOR_MODEL"), StaticBinary: os.Getenv("CANTER_STATIC_SERVER_BINARY")}
+	if operator.StaticBinary == "" {
+		if _, err := os.Stat("bin/canter-static-linux"); err == nil {
+			operator.StaticBinary = "bin/canter-static-linux"
+		}
+	}
+	if operator.BaseURL == "" {
+		operator.BaseURL = "https://openrouter.ai/api/v1"
+	}
+	if operator.Model == "" {
+		operator.Model = "openai/gpt-5.6-luna"
+	}
+	var vault *controlplane.SecretVault
+	if keyFile := os.Getenv("CANTER_SECRETS_KEY_FILE"); keyFile != "" {
+		info, statErr := os.Stat(keyFile)
+		if statErr != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 {
+			log.Fatal("CANTER_SECRETS_KEY_FILE must be a private regular file (0600)")
+		}
+		raw, readErr := os.ReadFile(keyFile)
+		if readErr != nil {
+			log.Fatal("cannot read secrets keyring")
+		}
+		vault, err = controlplane.NewSecretVault(raw)
+		clear(raw)
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
+	handler := controlplane.NewHTTPServer(service, controlplane.HTTPConfig{PublicURL: publicURL, CookieSecure: cookieSecure, RequireInvite: strings.EqualFold(os.Getenv("CANTER_REQUIRE_INVITE"), "true"), GoogleOAuth: googleOAuth, GitHubOAuth: githubOAuth, GitHubApp: githubApp, GitHubAppSlug: os.Getenv("CANTER_GITHUB_APP_SLUG"), Billing: billing, Operator: operator, Secrets: vault})
+	if operator.Ready() || vault != nil {
+		for i := 0; i < 2; i++ {
+			go func() {
+				if err := (&controlplane.OperatorRuntime{Server: handler.(*controlplane.HTTPServer), Config: operator}).Run(ctx); err != nil && ctx.Err() == nil {
+					log.Printf("workspace agent dispatcher stopped: %v", err)
+					stop()
+				}
+			}()
+		}
+		log.Printf("Canter workspace agent enabled with model %s", operator.Model)
+	}
 	server := &http.Server{Addr: addr, Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 60 * time.Second, IdleTimeout: 60 * time.Second}
 	go func() {
 		<-ctx.Done()

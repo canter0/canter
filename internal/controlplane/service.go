@@ -53,12 +53,22 @@ func (s *Service) Bootstrap(ctx context.Context, p Principal) (Bootstrap, error)
 	if err != nil {
 		return Bootstrap{}, err
 	}
-	return Bootstrap{ProtocolVersion: "v1", Installation: *p.Installation, Session: *p.Session, Workspace: workspace, Systems: systems, Changes: changes, PendingChanges: pending, InitialDeployments: deployments, Capabilities: initialDeploymentCapabilities(p.WorkspaceID), Incidents: []any{}}, nil
+	tasks, err := s.Store.ListWorkspaceTasks(ctx, p.WorkspaceID)
+	if err != nil {
+		return Bootstrap{}, err
+	}
+	return Bootstrap{ProtocolVersion: "v1", Installation: *p.Installation, Session: *p.Session, Workspace: workspace, Systems: systems, Changes: changes, PendingChanges: pending, InitialDeployments: deployments, Tasks: tasks, Capabilities: initialDeploymentCapabilities(p.WorkspaceID), Incidents: []any{}}, nil
 }
 
 func initialDeploymentCapabilities(workspaceID string) map[string]any {
 	prefix := "/v1/workspaces/" + workspaceID
 	return map[string]any{
+		"agentConnections": map[string]any{"workers": "/v1/agent/workers", "disconnect": "/v1/agent/disconnect", "semantics": "Temporary installations expire at installation.expiresAt or when their task finishes. Remembered installations persist until revoked. Orchestrators may issue read-only or draft worker tokens; workers cannot delegate, refresh, claim, or finish tasks. Worker tokens expire with their parent session and must be reissued after parent refresh. Use workers instead of sharing refresh credentials."},
+		"tasks": map[string]any{
+			"semantics": "User requests wait in Canter until an agent claims them. Check tasks when bootstrapping, inspect context, claim a queued task before work, and report the actual result. Model and reasoning selections are preferences, not proof that a model ran. Tasks grant no infrastructure authority; existing approval and policy rules still apply.",
+			"mcp":       []string{"canter_list_tasks", "canter_inspect_task", "canter_read_task_context", "canter_claim_task", "canter_finish_task"},
+			"http":      map[string]string{"list": prefix + "/tasks", "detail": prefix + "/tasks/{taskId}", "context": prefix + "/tasks/{taskId}/context/{contextId}"},
+		},
 		"compute": map[string]any{
 			"semantics":        "provider-neutral ordered capacity classes; provider identities, flavor IDs, and credentials remain private",
 			"hostClasses":      sdk.SupportedHostClasses(),
@@ -110,14 +120,14 @@ func initialDeploymentCapabilities(workspaceID string) map[string]any {
 				"CANTER_RELEASE_VERSION": "immutable content-derived release version",
 				"serviceBindingPattern":  "CANTER_SERVICE_<UPPERCASE_SERVICE_NAME>_URL",
 			},
-			"constraints": map[string]any{"hostCount": 1, "hostClasses": sdk.SupportedHostClasses(), "publicHTTPServices": 1, "authorization": "human approval of exact digest required"},
+			"constraints": map[string]any{"hostCount": 1, "hostClasses": sdk.SupportedHostClasses(), "publicHTTPServices": 1, "authorization": "exact digest authorization required; agents need automatic apply authority or human approval"},
 			"http": map[string]any{
 				"uploadArtifact": map[string]string{"method": "POST", "path": prefix + "/artifacts"},
 				"draft":          map[string]string{"method": "POST", "path": prefix + "/initial-deployments"},
 				"list":           map[string]string{"method": "GET", "path": prefix + "/initial-deployments"},
 				"inspect":        map[string]string{"method": "GET", "path": prefix + "/initial-deployments/{deploymentId}"},
-				"authorize":      map[string]string{"method": "POST", "path": prefix + "/initial-deployments/{deploymentId}/authorize", "principal": "human"},
-				"apply":          map[string]string{"method": "POST", "path": prefix + "/initial-deployments/{deploymentId}/apply", "principal": "human"},
+				"authorize":      map[string]string{"method": "POST", "path": prefix + "/initial-deployments/{deploymentId}/authorize", "principal": "human or automatic-write agent"},
+				"apply":          map[string]string{"method": "POST", "path": prefix + "/initial-deployments/{deploymentId}/apply", "principal": "human or automatic-write agent"},
 				"execution":      map[string]string{"method": "GET", "path": "/v1/initial-deployment-executions/{executionId}"},
 			},
 			"mcp": map[string]any{
@@ -268,7 +278,7 @@ func (s *Service) ApplyChangeUnderPolicy(ctx context.Context, workspaceID, syste
 	if s.Engine == nil {
 		return PolicyApplyResult{}, fmt.Errorf("execution engine is unavailable")
 	}
-	if principal.Installation == nil || principal.Session == nil || !principal.Installation.Authority.Draft {
+	if principal.Installation == nil || principal.Session == nil || !principal.Installation.Authority.Draft || principal.Installation.Authority.ApplyMode == "never" {
 		return PolicyApplyResult{}, ErrForbidden
 	}
 	record, err := s.Store.GetSystem(ctx, workspaceID, systemName)
@@ -438,6 +448,9 @@ func (d *Dispatcher) runOne(parent context.Context, execution Execution) {
 			if base := change.Plan.BaseRevision; base.SystemRevision != 0 && (base.SystemRevision != record.Revision || base.WorkspaceRevision != workspace.Revision) {
 				err = fmt.Errorf("%w: change base revision is stale", ErrConflict)
 			}
+		}
+		if err == nil && change.Plan.Impact.MonthlyCostDeltaCents > 0 {
+			err = d.Store.requireBillingPayment(ctx, execution.WorkspaceID)
 		}
 		if err == nil {
 			change, err = d.Engine.ApplyChange(sdk.WithActor(ctx, sdk.ActorRef{Kind: "canter", ID: d.WorkerID}), record.Contract, execution.ChangeID)

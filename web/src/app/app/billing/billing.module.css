@@ -1,0 +1,193 @@
+.page {
+  --billing-card: #292929;
+  --billing-accent: #4c8df6;
+  width: 100%;
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 44px 48px 64px;
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  container-type: inline-size;
+}
+.heading { display: flex; justify-content: space-between; align-items: center; gap: 24px; margin-bottom: 24px; }
+.heading h1 { margin: 0; font-size: 25px; font-weight: 500; letter-spacing: -.025em; }
+.heading p { margin: 6px 0 0; color: var(--muted); font-size: 13px; }
+.heading a { flex-shrink: 0; color: #bcbcbc; font-size: 12px; }
+.heading a:hover { color: #fff; }
+.tabs { display: flex; gap: 28px; border-bottom: 1px solid var(--rule); margin-bottom: 24px; }
+.tabs button { position: relative; padding: 0 0 12px; color: #929292; border: 0; background: transparent; font-size: 13px; cursor: pointer; }
+.tabs button[aria-selected="true"] { color: #f0f0f0; }
+.tabs button[aria-selected="true"]::after { position: absolute; inset: auto 0 -1px; height: 2px; background: #ededed; content: ""; }
+.intro { margin: 0 0 18px; color: var(--muted); font-size: 12px; }
+.overview { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; padding-bottom: 30px; border-bottom: 1px solid var(--rule); }
+.overviewCard { min-width: 0; padding: 20px; border-radius: 16px; background: var(--billing-card); }
+.cardLabel { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; min-height: 21px; font-size: 13px; }
+.badge { padding: 2px 7px; border-radius: 5px; background: #363636; color: #c0c0c0; font-size: 10px; text-transform: capitalize; }
+.unitNote { margin-left: auto; color: #929292; font-size: 11px; }
+.cardValue { display: flex; align-items: center; flex-wrap: wrap; justify-content: space-between; gap: 14px; min-height: 50px; margin-top: 8px; }
+.cardValue > strong { font-size: clamp(24px, 2.3vw, 30px); font-weight: 400; line-height: 1.3; letter-spacing: -.025em; font-variant-numeric: tabular-nums; }
+.cardValue small, .metrics strong small { margin-left: 7px; color: #989898; font-size: 12px; letter-spacing: 0; font-weight: 400; }
+.overviewCard > p { margin: 7px 0 0; color: #a0a0a0; font-size: 11px; }
+.primaryButton, .secondaryButton { display: inline-flex; align-items: center; justify-content: center; gap: 7px; flex-shrink: 0; min-height: 35px; padding: 7px 14px; border: 0; border-radius: 999px; color: #171717; background: #eeeeef; font-size: 12px; line-height: 1.5; cursor: pointer; white-space: nowrap; }
+.primaryButton:hover, .secondaryButton:hover { background: #fff; }
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 14px; margin: 28px 0 18px; }
+.filters { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; }
+.filter { display: flex; align-items: center; gap: 10px; min-height: 35px; padding: 7px 12px 7px 15px; border-radius: 999px; background: var(--billing-card); font-size: 12px; }
+.filter > span { padding-right: 11px; color: #a6a6a6; border-right: 1px solid #414141; }
+.filter select { min-width: 0; max-width: 180px; padding-right: 4px; border: 0; background: transparent; color: #e9e9e9; font: inherit; cursor: pointer; }
+.filter option { background: #292929; }
+.clearFilter { padding: 6px 0; background: none; border: 0; color: #c4c4c4; font-size: 12px; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-bottom: 20px; }
+.metrics > div { min-width: 0; padding: 18px 20px; border-radius: 15px; background: var(--billing-card); }
+.metrics > div > span { display: block; color: #d5d5d5; font-size: 12px; }
+.metrics strong { display: block; margin-top: 12px; font-size: clamp(24px, 2.3vw, 30px); font-weight: 400; letter-spacing: -.025em; font-variant-numeric: tabular-nums; line-height: 1.2; overflow-wrap: anywhere; }
+.metrics p { margin: 9px 0 0; color: #969696; font-size: 10px; }
+.chartCard { padding: 20px 20px 16px; background: var(--billing-card); border-radius: 16px; }
+.chartCard > header { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 26px; }
+.chartCard h2 { display: flex; align-items: baseline; flex-wrap: wrap; gap: 5px; margin: 0; font-size: 13px; font-weight: 400; }
+.chartCard h2 span { color: #adadad; }
+.chartCard h2 strong { margin-left: 3px; color: #c7c7c7; font-weight: 400; font-variant-numeric: tabular-nums; }
+.legend { display: inline-flex; align-items: center; gap: 6px; color: #b0b0b0; font-size: 10px; white-space: nowrap; }
+.legend i { width: 7px; height: 7px; border-radius: 2px; background: var(--billing-accent); }
+.chartBody { position: relative; height: 240px; }
+.chartGrid { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: space-between; pointer-events: none; }
+.chartGrid > div { display: flex; align-items: center; gap: 10px; height: 0; }
+.chartGrid span { width: 35px; flex-shrink: 0; font-size: 10px; color: #979797; }
+.chartGrid i { width: 100%; border-top: 1px solid #424242; }
+.chart { position: absolute; inset: 0 0 0 45px; display: flex; gap: 5px; align-items: stretch; }
+.chart button { position: relative; display: flex; align-items: flex-end; justify-content: center; flex: 1; min-width: 0; padding: 0; border: 0; background: transparent; cursor: pointer; }
+.chart button::before { position: absolute; inset: 0; background: #ffffff05; opacity: 0; content: ""; }
+.chart button:hover::before, .chart button[data-selected="true"]::before { opacity: 1; }
+.chart button span { display: block; width: 100%; max-width: 38px; border-radius: 3px 3px 0 0; background: var(--billing-accent); }
+.chart button:hover span, .chart button[data-selected="true"] span { background: #81b0fc; }
+.chartTooltip { position: absolute; top: 18px; z-index: 1; display: grid; grid-template-columns: 1fr auto; gap: 7px 18px; min-width: 170px; max-width: 95%; padding: 13px 16px; border: 1px solid #444; border-radius: 12px; background: #1a1a1a; box-shadow: 0 5px 20px #0003; font-size: 12px; transform: translateX(-50%); pointer-events: none; }
+.chartTooltip strong { font-weight: 500; font-variant-numeric: tabular-nums; }
+.chartTooltip small { grid-column: 1 / -1; color: #a7a7a7; font-size: 10px; }
+.chartAxis { display: flex; justify-content: space-between; gap: 8px; margin: 10px 0 0 45px; color: #969696; font-size: 10px; }
+.emptyChart { position: absolute; inset: 0 0 0 45px; display: flex; align-items: center; justify-content: center; flex-direction: column; padding: 20px; text-align: center; }
+.emptyChart svg { color: #888; margin-bottom: 13px; }
+.emptyChart h3 { margin: 0; font-size: 14px; font-weight: 400; }
+.emptyChart p { max-width: 310px; margin: 7px 0 0; color: #9b9b9b; font-size: 12px; }
+.chartNote { margin: 10px 0 0; color: #8b8b8b; font-size: 10px; line-height: 1.7; }
+.usageSection { margin: 30px 0; }
+.usageSection header, .forecast header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+.usageSection h2, .forecast h2 { margin: 0; font-size: 15px; font-weight: 400; }
+.usageSection header > span { color: #999; font-size: 11px; }
+.resourceCard { padding: 20px; border-radius: 16px; background: var(--billing-card); }
+.capacityMetrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+.capacityMetrics > div { display: flex; flex-direction: column; gap: 6px; }
+.capacityMetrics strong { font-size: 23px; font-weight: 400; }
+.capacityMetrics span { color: #a0a0a0; font-size: 10px; }
+.resourceList { margin-top: 20px; }
+.resourceList > div { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 15px 0; border-top: 1px solid #414141; font-size: 12px; }
+.resourceList > div:last-child { padding-bottom: 0; }
+.resourceList > div > span { min-width: 0; overflow-wrap: anywhere; }
+.resourceList small { display: block; color: #a0a0a0; font-size: 10px; margin-top: 5px; }
+.resourceList strong { font-weight: 400; white-space: nowrap; }
+.forecast { padding: 22px; background: #222; border: 1px solid #323232; border-radius: 16px; }
+.forecast header > span { font-size: 23px; letter-spacing: -.03em; }
+.forecast p { margin: 0; color: #aaa; font-size: 12px; line-height: 1.8; }
+.forecast strong { color: var(--ink); font-weight: 500; }
+.forecast label { display: flex; justify-content: space-between; font-size: 12px; margin: 23px 0 12px; }
+.forecast input { width: 100%; accent-color: var(--billing-accent); }
+.scenarioAxis { display: flex; justify-content: space-between; margin-top: 8px; color: #969696; font-size: 10px; }
+.forecast .small { margin-top: 18px; font-size: 11px; }
+.forecast .trend { margin-top: 18px; padding-top: 15px; border-top: 1px solid #383838; }
+.increase { color: #ddbc97; }
+.decrease { color: #a9c99a; }
+.loading { color: var(--muted); padding: 30px 0; }
+.notice { padding: 16px 18px; margin: 20px 0; border: 1px solid #45433a; border-radius: 10px; background: #25241f; color: #c8c3af; line-height: 1.7; font-size: 12px; }
+.notice button { text-decoration: underline; text-underline-offset: 3px; cursor: pointer; margin-left: 7px; }
+.current { display: flex; justify-content: space-between; align-items: center; gap: 20px; padding: 22px; background: var(--billing-card); border-radius: 16px; }
+.current h2 { font-size: 24px; margin: 10px 0; font-weight: 400; }
+.current p { color: var(--muted); font-size: 12px; }
+.current button, .checkout { padding: 10px 17px; border: 0; background: #ececec; border-radius: 999px; color: #181818; font-size: 12px; cursor: pointer; }
+.selection h2, .statement h2 { font-size: 17px; font-weight: 400; margin: 26px 0 18px; }
+.plans { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.plans button { text-align: left; background: #232323; border: 1px solid #393939; border-radius: 16px; padding: 24px; cursor: pointer; }
+.plans button[aria-pressed="true"] { border-color: #b5b5b5; background: #2c2c2c; }
+.plans span { display: block; font-size: 14px; }
+.plans strong { display: block; font-weight: 400; font-size: 35px; margin-top: 18px; }
+.plans small { font-size: 12px; color: var(--muted); margin-left: 5px; }
+.plans p { font-size: 12px; color: #aaa; line-height: 1.7; margin-top: 12px; }
+.small { color: var(--muted); font-size: 12px; line-height: 1.8; margin: 18px 0; }
+.checkout { margin-top: 5px; }
+.page button:disabled { opacity: .45; cursor: not-allowed; }
+.statement { margin: 25px 0; }
+.statement header { display: flex; justify-content: space-between; align-items: center; gap: 15px; }
+.statement header p { font-size: 12px; color: var(--muted); }
+.statement dl { margin-top: 15px; }
+.statement dl > div { display: flex; justify-content: space-between; gap: 16px; padding: 15px 0; border-bottom: 1px solid var(--rule); color: var(--muted); font-size: 13px; }
+.statement dd { margin: 0; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.statement dl .total { color: var(--ink); font-size: 17px; }
+.page :where(a, button, select, input):focus-visible { outline: 2px solid #8cb8ff; outline-offset: 4px; }
+@media (max-width: 1100px) { .page { padding: 32px 28px 50px; } }
+@media (max-width: 600px) { .page { padding: 26px 20px 40px; } }
+@container (max-width: 670px) {
+  .overview { gap: 12px; }
+  .overviewCard { padding: 18px; }
+  .cardValue { align-items: flex-start; flex-direction: column; gap: 12px; }
+  .cardValue > strong { font-size: 26px; }
+  .metrics { gap: 10px; }
+  .metrics > div { padding: 16px; }
+  .metrics strong { font-size: 25px; }
+  .metrics strong small { display: block; margin: 5px 0 0; font-size: 10px; }
+}
+@container (max-width: 460px) {
+  .heading { align-items: flex-start; gap: 14px; }
+  .heading h1 { font-size: 23px; }
+  .heading p { max-width: 210px; font-size: 12px; }
+  .heading a { margin-top: 7px; font-size: 11px; }
+  .intro { font-size: 11px; }
+  .overview { grid-template-columns: 1fr; }
+  .cardValue { flex-direction: row; align-items: center; }
+  .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .metrics > div:last-child { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr auto; align-items: center; column-gap: 14px; }
+  .metrics > div:last-child strong { grid-column: 2; grid-row: 1 / 3; margin: 0; text-align: right; }
+  .metrics > div:last-child p { margin-top: 4px; }
+  .chartCard { padding: 18px 14px 14px; }
+  .chartCard > header { flex-wrap: wrap; margin-bottom: 24px; }
+  .chartBody { height: 200px; }
+  .chart { gap: 3px; }
+  .chart, .emptyChart { left: 30px; }
+  .chartGrid span { width: 22px; }
+  .chartGrid > div { gap: 8px; }
+  .chartAxis { margin-left: 30px; font-size: 9px; }
+  .chartTooltip { min-width: 130px; gap: 6px 9px; padding: 10px; font-size: 10px; }
+  .emptyChart { padding: 10px; }
+  .emptyChart p { font-size: 11px; }
+  .capacityMetrics { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+  .plans { grid-template-columns: 1fr; }
+  .current { align-items: flex-start; flex-direction: column; }
+  .statement header { align-items: flex-start; flex-direction: column; gap: 0; }
+  .filter { gap: 7px; padding-left: 12px; }
+  .filter > span { padding-right: 7px; }
+  .filter select { max-width: 150px; font-size: 11px; }
+  .secondaryButton { padding-inline: 12px; }
+}
+
+/* Settings uses one content column and the same quiet cards as account pages. */
+.page { --billing-card: #202020; padding: 0; max-width: none; font-size: 13px; }
+.tabs { gap: 4px; border: 0; margin-bottom: 24px; }
+.tabs button { padding: 5px 9px; border-radius: 7px; font-size: 12px; }
+.tabs button[aria-selected="true"] { background: #2b2b2b; }
+.tabs button[aria-selected="true"]::after { display: none; }
+.current { border: 1px solid #303030; border-radius: 13px; padding: 22px; }
+.current h2 { font-size: 24px; font-weight: 500; margin: 10px 0 3px; }
+.planActions { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; margin-top: 18px; }
+.creditCard { border: 1px solid #303030; border-radius: 13px; padding: 20px; margin-top: 18px; background: #202020; }
+.creditCard h2 { font-size: 14px; font-weight: 400; margin: 0 0 18px; }
+.creditCard > div { display: flex; justify-content: space-between; gap: 18px; margin: 13px 0; color: #aaa; font-size: 12px; }
+.creditCard strong { color: #d6d6d6; font-weight: 400; text-align: right; }
+.creditCard p { color: #999; font-size: 12px; line-height: 1.7; margin: 12px 0; }
+.creditCard progress { appearance: none; display: block; width: 100%; height: 8px; border: 0; border-radius: 9px; overflow: hidden; background: #303030; accent-color: #5787ef; }
+.creditCard progress::-webkit-progress-bar { background: #303030; border-radius: 9px; }
+.creditCard progress::-webkit-progress-value { background: #5787ef; border-radius: 9px; }
+.creditCard progress::-moz-progress-bar { background: #5787ef; border-radius: 9px; }
+.historyEmpty { text-align: center; padding: 55px 20px; border: 1px solid #303030; border-radius: 13px; background: #202020; }
+.historyEmpty h2 { font-weight: 400; font-size: 15px; }
+.historyEmpty p { color: #888; font-size: 12px; margin-top: 8px; }
+.primaryButton, .secondaryButton, .filter, .current button, .checkout { border-radius: 7px; }
+.plans button, .chartCard, .resourceCard { border: 1px solid #303030; border-radius: 13px; }
+@media(max-width: 1100px) { .page { padding: 0; } }

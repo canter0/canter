@@ -1,0 +1,11 @@
+[Unit]
+Description=Check for a tested Canter production release
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=3min
+RandomizedDelaySec=10s
+Persistent=true
+
+[Install]
+WantedBy=timers.target

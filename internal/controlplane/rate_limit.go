@@ -46,14 +46,19 @@ func (h *HTTPServer) allowRequest(w http.ResponseWriter, r *http.Request) bool {
 }
 
 func limitForRequest(r *http.Request) (requestLimit, bool) {
+	if r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/v1/auth/oauth/") {
+		return requestLimit{bucket: "oauth", max: 40, window: 10 * time.Minute}, true
+	}
 	if r.Method != http.MethodPost {
 		return requestLimit{}, false
 	}
 	switch {
 	case r.URL.Path == "/v1/auth/signup" || r.URL.Path == "/v1/auth/signin":
 		return requestLimit{bucket: "auth", max: 10, window: 10 * time.Minute}, true
-	case r.URL.Path == "/v1/device/authorizations":
+	case r.URL.Path == "/v1/device/authorizations" || strings.HasPrefix(r.URL.Path, "/v1/agent-pairings"):
 		return requestLimit{bucket: "device", max: 30, window: 10 * time.Minute}, true
+	case r.URL.Path == "/v1/agent/workers":
+		return requestLimit{bucket: "workers", max: 120, window: time.Minute}, true
 	case r.URL.Path == "/v1/agent/token/refresh":
 		return requestLimit{bucket: "refresh", max: 60, window: time.Minute}, true
 	case r.URL.Path == "/mcp":
