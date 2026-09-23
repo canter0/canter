@@ -101,6 +101,14 @@ func (s *Store) EnqueueOperator(ctx context.Context, c Conversation, request, pr
 	if err := validateOperatorSurface(surface); err != nil {
 		return OperatorRun{}, err
 	}
+	if surface != nil && surface.Kind == "conversation" {
+		if surface.ID == "" {
+			return OperatorRun{}, fmt.Errorf("select a conversation")
+		}
+		if _, err := s.Conversation(ctx, c.WorkspaceID, c.AccountID, surface.ID); err != nil {
+			return OperatorRun{}, err
+		}
+	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return OperatorRun{}, err
@@ -118,13 +126,14 @@ func (s *Store) EnqueueOperator(ctx context.Context, c Conversation, request, pr
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return run, err
 	}
-	var active bool
-	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM operator_runs WHERE conversation_id=$1 AND status IN ('queued','running'))`, c.ID).Scan(&active); err != nil {
+	var pending int
+	if err = tx.QueryRow(ctx, `SELECT count(*) FROM operator_runs WHERE conversation_id=$1 AND status='queued'`, c.ID).Scan(&pending); err != nil {
 		return run, err
 	}
-	if active {
-		return run, fmt.Errorf("%w: stop the current response before sending another message", ErrConflict)
+	if pending >= 4 {
+		return run, fmt.Errorf("%w: four messages are queued; wait for the agent to catch up before sending another", ErrConflict)
 	}
+
 	// Bound abuse and spending independently of the language model.
 	var recent int
 	if err = tx.QueryRow(ctx, `SELECT COUNT(*) FROM operator_runs r JOIN operator_conversations c ON c.id=r.conversation_id WHERE c.account_id=$1 AND r.created_at>now()-interval '1 hour'`, c.AccountID).Scan(&recent); err != nil {
@@ -197,7 +206,7 @@ func (s *Store) OperatorEvents(ctx context.Context, id string, after int64) ([]O
 }
 func (s *Store) LatestOperatorRun(ctx context.Context, id string) (*OperatorRun, error) {
 	var r OperatorRun
-	err := s.pool.QueryRow(ctx, `SELECT id,conversation_id,status,model,failure FROM operator_runs WHERE conversation_id=$1 ORDER BY created_at DESC LIMIT 1`, id).Scan(&r.ID, &r.ConversationID, &r.Status, &r.Model, &r.Failure)
+	err := s.pool.QueryRow(ctx, `SELECT id,conversation_id,status,model,failure FROM operator_runs WHERE conversation_id=$1 ORDER BY CASE status WHEN 'running' THEN 0 WHEN 'queued' THEN 1 ELSE 2 END, CASE WHEN status IN ('queued','running') THEN created_at END ASC, created_at DESC,id DESC LIMIT 1`, id).Scan(&r.ID, &r.ConversationID, &r.Status, &r.Model, &r.Failure)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -211,7 +220,7 @@ func (s *Store) claimOperator(ctx context.Context) (OperatorRun, bool, error) {
 	defer tx.Rollback(ctx)
 	var r OperatorRun
 	var raw []byte
-	err = tx.QueryRow(ctx, `SELECT id,conversation_id,status,model,failure,checkpoint,steps FROM operator_runs WHERE status='queued' OR (status='running' AND lease_expires_at<now()) ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1`).Scan(&r.ID, &r.ConversationID, &r.Status, &r.Model, &r.Failure, &raw, &r.Steps)
+	err = tx.QueryRow(ctx, `SELECT r.id,r.conversation_id,r.status,r.model,r.failure,r.checkpoint,r.steps FROM operator_runs r WHERE (r.status='running' AND r.lease_expires_at<now()) OR (r.status='queued' AND NOT EXISTS(SELECT 1 FROM operator_runs earlier WHERE earlier.conversation_id=r.conversation_id AND earlier.id<>r.id AND (earlier.status='running' OR (earlier.status='queued' AND (earlier.created_at,earlier.id)<(r.created_at,r.id))))) ORDER BY r.created_at,r.id FOR UPDATE OF r SKIP LOCKED LIMIT 1`).Scan(&r.ID, &r.ConversationID, &r.Status, &r.Model, &r.Failure, &raw, &r.Steps)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return r, false, nil
 	}
@@ -299,17 +308,29 @@ func (s *Store) cancelOperator(ctx context.Context, conversation string) error {
 		return err
 	}
 	defer tx.Rollback(ctx)
-	var id string
-	err = tx.QueryRow(ctx, `UPDATE operator_runs SET status='cancelled',completed_at=now(),lease_token=NULL,lease_expires_at=NULL WHERE conversation_id=$1 AND status IN ('queued','running') RETURNING id`, conversation).Scan(&id)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil
-	}
+	rows, err := tx.Query(ctx, `UPDATE operator_runs SET status='cancelled',completed_at=now(),lease_token=NULL,lease_expires_at=NULL WHERE conversation_id=$1 AND status IN ('queued','running') RETURNING id`, conversation)
 	if err != nil {
 		return err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO operator_events(conversation_id,run_id,kind,data) VALUES($1,$2,'finished','{"status":"cancelled","content":"Response stopped. Already submitted operations retain their own state."}')`, conversation, id)
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err = rows.Scan(&id); err != nil {
+			rows.Close()
+			return err
+		}
+		ids = append(ids, id)
+	}
+	err = rows.Err()
+	rows.Close()
 	if err != nil {
 		return err
+	}
+	for _, id := range ids {
+		_, err = tx.Exec(ctx, `INSERT INTO operator_events(conversation_id,run_id,kind,data) VALUES($1,$2,'finished','{"status":"cancelled","content":"Response stopped. Already submitted operations retain their own state."}')`, conversation, id)
+		if err != nil {
+			return err
+		}
 	}
 	return tx.Commit(ctx)
 }

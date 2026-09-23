@@ -70,3 +70,5 @@
 
 .agentFooter { flex-wrap: wrap; }
 .agentFooter .actions { margin-left: auto; }
+.inheritPermissions { display: flex; align-items: center; gap: 9px; margin: 18px 0; font-size: 12px; color: #bdbdbd; }
+.inheritPermissions input { accent-color: #d7d7c9; }

@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -130,7 +131,26 @@ func main() {
 			stop()
 		}
 	}()
-	operator := controlplane.OperatorConfig{APIKey: os.Getenv("OPENROUTER_API_KEY"), BaseURL: os.Getenv("CANTER_OPERATOR_BASE_URL"), Model: os.Getenv("CANTER_OPERATOR_MODEL"), StaticBinary: os.Getenv("CANTER_STATIC_SERVER_BINARY")}
+	operator := controlplane.OperatorConfig{APIKey: os.Getenv("OPENROUTER_API_KEY"), BaseURL: os.Getenv("CANTER_OPERATOR_BASE_URL"), Model: os.Getenv("CANTER_OPERATOR_MODEL"), TitleModel: os.Getenv("CANTER_OPERATOR_TITLE_MODEL"), StaticBinary: os.Getenv("CANTER_STATIC_SERVER_BINARY"), ShellRunner: os.Getenv("CANTER_OPERATOR_SHELL_RUNNER"), ShellNode: os.Getenv("CANTER_OPERATOR_SHELL_NODE"), ShellSocket: os.Getenv("CANTER_OPERATOR_SHELL_SOCKET"), ReasoningEffort: os.Getenv("CANTER_OPERATOR_REASONING_EFFORT")}
+	operator.ExaAPIKey = os.Getenv("EXA_API_KEY")
+	if operator.ShellSocket == "" && operator.ShellRunner == "" {
+		if info, err := os.Stat("/run/canter-harness.sock"); err == nil && info.Mode()&os.ModeSocket != 0 {
+			operator.ShellSocket = "/run/canter-harness.sock"
+		}
+		if operator.ShellSocket == "" && runtime.GOOS != "linux" {
+			if _, err := os.Stat("harness/node_modules/just-bash/package.json"); err == nil {
+				operator.ShellRunner = "harness/runner.mjs"
+			}
+		}
+	}
+	// Linux production must use the memory-capped socket service. A direct
+	// runner is an explicit development option, never an ambient host shell.
+	if operator.ShellRunner != "" && runtime.GOOS == "linux" && operator.ShellSocket == "" {
+		log.Fatal("use CANTER_OPERATOR_SHELL_SOCKET for the memory-capped Linux command service")
+	}
+	if err := operator.CheckShell(ctx); err != nil {
+		log.Fatalf("workspace command environment: %v", err)
+	}
 	if operator.StaticBinary == "" {
 		if _, err := os.Stat("bin/canter-static-linux"); err == nil {
 			operator.StaticBinary = "bin/canter-static-linux"

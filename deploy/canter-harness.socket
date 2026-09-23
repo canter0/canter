@@ -1,0 +1,15 @@
+[Unit]
+Description=Canter private command environment
+
+[Socket]
+ListenStream=/run/canter-harness.sock
+SocketUser=canter
+SocketGroup=canter
+SocketMode=0600
+Accept=yes
+MaxConnections=1
+Backlog=8
+RemoveOnStop=yes
+
+[Install]
+WantedBy=sockets.target

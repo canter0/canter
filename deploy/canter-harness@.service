@@ -1,0 +1,36 @@
+[Unit]
+Description=Canter bounded command execution
+
+[Service]
+Type=exec
+DynamicUser=yes
+WorkingDirectory=/opt/canter-harness/current
+ExecStart=/usr/bin/node --permission --allow-fs-read=/opt/canter-harness --max-old-space-size=96 /opt/canter-harness/current/runner.mjs
+StandardInput=socket
+StandardOutput=socket
+StandardError=journal
+Environment=LANG=C.UTF-8 TZ=UTC
+RuntimeMaxSec=8
+TimeoutStopSec=1
+KillMode=control-group
+MemoryHigh=144M
+MemoryMax=192M
+MemorySwapMax=0
+TasksMax=16
+CPUQuota=50%
+NoNewPrivileges=yes
+PrivateNetwork=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectProc=invisible
+ProcSubset=pid
+RestrictAddressFamilies=AF_UNIX
+RestrictSUIDSGID=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+UMask=0077

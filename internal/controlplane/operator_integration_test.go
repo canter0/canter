@@ -31,6 +31,31 @@ func operatorTestCall(name, args string) modelToolCall {
 	call.Function.Arguments = args
 	return call
 }
+
+func TestOperatorConversationMentionUsesOwnedHistory(t *testing.T) {
+	s, current, _ := operatorFixture(t)
+	ctx := context.Background()
+	previous, err := s.CreateConversation(ctx, current.WorkspaceID, current.AccountID, "conv_previous", "Plan the database migration")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.EnqueueOperator(ctx, previous, "request_previous", "Keep the old tables until verification finishes", "test", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.EnqueueOperator(ctx, current, "request_context", "Use the earlier plan", "test", &OperatorSurface{Kind: "conversation", ID: previous.ID}); err != nil {
+		t.Fatal(err)
+	}
+	selected, err := s.operatorAttachedConversation(ctx, current.WorkspaceID, current.AccountID, previous.ID)
+	if err != nil || !strings.Contains(selected, "Keep the old tables until verification finishes") {
+		t.Fatalf("selected history missing: %q %v", selected, err)
+	}
+	if _, err = s.operatorAttachedConversation(ctx, current.WorkspaceID, "another-account", previous.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("foreign account read history: %v", err)
+	}
+	if _, err = s.EnqueueOperator(ctx, current, "request_foreign", "Read another account", "test", &OperatorSurface{Kind: "conversation", ID: "conv_other"}); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing conversation attached: %v", err)
+	}
+}
 func TestOperatorIdempotencyRecoveryAndCancellation(t *testing.T) {
 	s, c, _ := operatorFixture(t)
 	ctx := context.Background()
@@ -42,11 +67,11 @@ func TestOperatorIdempotencyRecoveryAndCancellation(t *testing.T) {
 	if err != nil || again.ID != first.ID {
 		t.Fatalf("duplicate request created a second run: %v", err)
 	}
-	if _, err = s.EnqueueOperator(ctx, c, "request_2", "Another message", "test", nil); !errors.Is(err, ErrConflict) {
-		t.Fatalf("parallel turn accepted: %v", err)
+	if next, err := s.EnqueueOperator(ctx, c, "request_2", "Another message", "test", nil); err != nil || next.Status != "queued" {
+		t.Fatalf("follow-up was not queued: %v", err)
 	}
 	messages, err := s.OperatorMessages(ctx, c.ID)
-	if err != nil || len(messages) != 1 || messages[0].Surface == nil || messages[0].Surface.Kind != "billing" {
+	if err != nil || len(messages) != 2 || messages[0].Surface == nil || messages[0].Surface.Kind != "billing" {
 		t.Fatalf("message or view context was not persisted: %+v %v", messages, err)
 	}
 	run, ok, err := s.claimOperator(ctx)
@@ -183,6 +208,10 @@ func TestOperatorHTTPConversationIsolationAndGrantRevocation(t *testing.T) {
 func TestOperatorRuntimeExecutesToolAndPersistsFollowup(t *testing.T) {
 	s, c, _ := operatorFixture(t)
 	ctx := context.Background()
+	// This test counts main-model calls; title generation is covered separately.
+	if _, err := s.RenameConversation(ctx, c.WorkspaceID, c.AccountID, c.ID, c.Title); err != nil {
+		t.Fatal(err)
+	}
 	calls := 0
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var request struct {

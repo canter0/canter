@@ -503,21 +503,22 @@ func (h *HTTPServer) installations(w http.ResponseWriter, r *http.Request, parts
 	}
 	if len(parts) == 1 && r.Method == http.MethodPatch {
 		var in struct {
-			Authority Authority `json:"authority"`
+			Authority             Authority `json:"authority"`
+			UseWorkspaceAuthority bool      `json:"useWorkspaceAuthority"`
 		}
 		if !decode(w, r, &in) {
 			return
 		}
-		if err := validateAgentAuthority(in.Authority); err != nil {
+		if err := validateAgentAuthority(in.Authority); !in.UseWorkspaceAuthority && err != nil {
 			writeError(w, http.StatusBadRequest, err)
 			return
 		}
-		installation, err := h.service.Store.UpdateAgentAuthority(r.Context(), p.Account.ID, workspaceID, parts[0], in.Authority)
+		installation, err := h.service.Store.UpdateAgentAuthority(r.Context(), p.Account.ID, workspaceID, parts[0], in.Authority, in.UseWorkspaceAuthority)
 		if err != nil {
 			writeStoreError(w, err)
 			return
 		}
-		_ = h.service.Store.Audit(r.Context(), workspaceID, p.Actor, "agent.permissions.updated", parts[0], map[string]any{"authority": in.Authority})
+		_ = h.service.Store.Audit(r.Context(), workspaceID, p.Actor, "agent.permissions.updated", parts[0], map[string]any{"authority": installation.Authority, "useWorkspaceAuthority": installation.UseWorkspaceAuthority})
 		writeJSON(w, http.StatusOK, installation)
 		return
 	}
@@ -609,6 +610,11 @@ func (h *HTTPServer) workspaces(w http.ResponseWriter, r *http.Request, parts []
 		writeStoreError(w, err)
 		return
 	}
+	if parts[1] == "agent-settings" && len(parts) == 2 {
+		h.workspaceAgentSettings(w, r, p, workspaceID)
+		return
+	}
+
 	if parts[1] == "bootstrap" && len(parts) == 2 && r.Method == http.MethodGet {
 		workspace, err := h.service.Store.Workspace(r.Context(), workspaceID)
 		if err != nil {
@@ -1147,14 +1153,32 @@ func (h *HTTPServer) trustedHumanOrigin(r *http.Request) bool {
 		return false
 	}
 	requested, err := url.Parse(origin)
-	if err != nil || requested.Scheme == "" || requested.Host == "" || requested.Path != "" || requested.RawQuery != "" || requested.Fragment != "" {
+	if err != nil || requested.Scheme == "" || requested.Host == "" || requested.User != nil || requested.Path != "" || requested.RawQuery != "" || requested.Fragment != "" {
 		return false
 	}
 	public, err := url.Parse(strings.TrimRight(h.config.PublicURL, "/"))
 	if err != nil || public.Scheme == "" || public.Host == "" {
 		return false
 	}
-	return strings.EqualFold(requested.Scheme, public.Scheme) && strings.EqualFold(requested.Host, public.Host)
+	if !strings.EqualFold(requested.Scheme, public.Scheme) {
+		return false
+	}
+	if strings.EqualFold(requested.Host, public.Host) {
+		return true
+	}
+	// Local development is reachable through both localhost and loopback IPs.
+	// Keep this exception limited to HTTP development on the configured port;
+	// deployed origins and secure cookies still require an exact origin match.
+	return !h.config.CookieSecure && public.Scheme == "http" && requested.Port() == public.Port() &&
+		isLoopbackOriginHost(public.Hostname()) && isLoopbackOriginHost(requested.Hostname())
+}
+
+func isLoopbackOriginHost(host string) bool {
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 func decode(w http.ResponseWriter, r *http.Request, target any) bool {

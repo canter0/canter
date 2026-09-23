@@ -92,3 +92,14 @@ button, input { font: inherit; }
 .rule-link { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 5px; }
 .signal { display: inline-block; width: 7px; height: 7px; flex: none; background: var(--signal); }
 @media (max-width: 760px) { body { font-size: 11px; } }
+
+/* Crossfade only when the sidebar changes between dashboard and settings.
+   Matching sidebar names do not animate between ordinary workspace routes. */
+::view-transition-group(.sidebar-fade) { animation-duration: 160ms; }
+::view-transition-old(.sidebar-fade) { animation: sidebar-fade-out 120ms ease-out both; }
+::view-transition-new(.sidebar-fade) { animation: sidebar-fade-in 160ms ease-out both; }
+@keyframes sidebar-fade-out { to { opacity: 0; } }
+@keyframes sidebar-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(.sidebar-fade), ::view-transition-old(.sidebar-fade), ::view-transition-new(.sidebar-fade) { animation: none !important; }
+}

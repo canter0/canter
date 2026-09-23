@@ -1,0 +1,8 @@
+{
+  "name": "@canter/operator-shell",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22.13.0" },
+  "scripts": { "test": "node --test runner.test.mjs" },
+  "dependencies": { "just-bash": "3.4.2" }
+}

@@ -25,7 +25,7 @@ Static preparation accepts a checked-in `index.html` at the repository root or a
 
 ## Persistence and authority
 
-Conversations are private to their account and workspace. A conversation can have one active response at a time. Requests carry an idempotency key. A worker leases a durable run, checkpoints model messages, and records tool results before continuing. Closing a browser does not cancel a run; reopening replays persisted events.
+Conversations are private to their account and workspace. A conversation has one executing response and a bounded durable inbox for follow-up messages. The agent yields at its next action boundary to use a newer message. Requests carry an idempotency key. A worker leases a durable run, checkpoints model messages, and records tool results before continuing. Closing a browser does not cancel a run; reopening replays persisted events.
 
 Cancelled or superseded workers cannot append events, checkpoint, or finish a run. On interruption, completed tools return their saved result. A write with an uncertain outcome is not automatically repeated. Membership and the hosted agent's grant are checked between operations. The agent uses its own installation and session, never the user's human principal.
 
@@ -76,3 +76,7 @@ Every turn replays its public preamble, nearby tool activity, and final answer f
 Source reads open syntax-highlighted, line-numbered files at an immutable commit. `canter_show_repository_changes` compares two exact GitHub commits and opens a red/green diff. Both views use the signed-in member's server-held repository connection; they do not expose credentials or borrow another member's access. Binary or oversized patches are identified as unavailable. These are repository reading and comparison capabilities, not source editing.
 
 Focused presentation checks: `node --test web/tests/operator-presentation.test.mjs`. Database integration checks must use an isolated `CANTER_TEST_DATABASE_URL`; the integration fixture truncates its database.
+
+## Command workspace and durable context
+
+The underlying harness now includes private working notes, scoped history search, recoverable tool results, connected-agent task creation, and bounded Bash commands. See [operator-harness.md](operator-harness.md) for the 1 GiB host budget, setup, execution boundaries, and verification. The dashboard layout is unchanged; the composer can send a correction while a response is running.

@@ -137,6 +137,14 @@ func (s *Store) ApproveAgentPairing(ctx context.Context, id, accountID string, r
 	if err = tx.QueryRow(ctx, `SELECT role FROM memberships WHERE account_id=$1 AND workspace_id=$2 FOR SHARE`, accountID, workspaceID).Scan(&role); err != nil || role != "owner" {
 		return Installation{}, ErrForbidden
 	}
+	var defaults Authority
+	if err = tx.QueryRow(ctx, `SELECT agent_authority FROM workspaces WHERE id=$1 FOR SHARE`, workspaceID).Scan(&defaults); err != nil {
+		return Installation{}, err
+	}
+	if len(requested) == 0 {
+		authority = defaults
+	}
+
 	if cancelled {
 		return Installation{}, ErrDeviceDenied
 	}
@@ -165,8 +173,8 @@ func (s *Store) ApproveAgentPairing(ctx context.Context, id, accountID string, r
 		expiry := now.Add(8 * time.Hour)
 		connectionExpiry = &expiry
 	}
-	out := Installation{ID: installationID, WorkspaceID: workspaceID, Name: name, Harness: harness, Authority: authority, CreatedBy: accountID, CreatedAt: now, ExpiresAt: connectionExpiry}
-	_, err = tx.Exec(ctx, `INSERT INTO agent_installations(id,workspace_id,name,harness,inspect_allowed,draft_allowed,apply_mode,created_by,created_at,expires_at) VALUES($1,$2,$3,$4,$8,$9,$10,$5,$6,$7)`, out.ID, workspaceID, name, harness, accountID, now, connectionExpiry, authority.Inspect, authority.Draft, authority.ApplyMode)
+	out := Installation{ID: installationID, WorkspaceID: workspaceID, Name: name, Harness: harness, Authority: authority, UseWorkspaceAuthority: len(requested) == 0, CreatedBy: accountID, CreatedAt: now, ExpiresAt: connectionExpiry}
+	_, err = tx.Exec(ctx, `INSERT INTO agent_installations(id,workspace_id,name,harness,inspect_allowed,draft_allowed,apply_mode,created_by,created_at,expires_at,use_workspace_authority) VALUES($1,$2,$3,$4,$8,$9,$10,$5,$6,$7,$11)`, out.ID, workspaceID, name, harness, accountID, now, connectionExpiry, authority.Inspect, authority.Draft, authority.ApplyMode, out.UseWorkspaceAuthority)
 	if err != nil {
 		return Installation{}, err
 	}

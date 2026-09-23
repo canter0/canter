@@ -30,10 +30,18 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: harness/package-lock.json
+      - run: npm ci --prefix harness --ignore-scripts --no-audit --no-fund
+      - run: npm test --prefix harness
       - run: go test ./...
       - run: go test -race ./...
       - run: go vet ./...
       - run: python3 deploy/test_pull_release.py
+      - run: python3 scripts/test_production_status.py
       - run: test -z "$(find . -name '*.go' -not -path './web/node_modules/*' -print0 | xargs -0 gofmt -l)"
 
   web:
@@ -54,4 +62,5 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
       - run: pnpm exec tsc --noEmit
+      - run: node --experimental-strip-types --test tests/*.test.mjs
       - run: pnpm build

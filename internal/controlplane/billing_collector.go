@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/canter0/canter/pricing"
 	"github.com/canter0/canter/sdk"
 	"github.com/jackc/pgx/v5"
 )
@@ -136,7 +137,7 @@ func (s *Store) recordResourceSnapshot(ctx context.Context, workspace string, re
 		samePeriod := err == nil && oldSub == subscription && oldPeriod.Equal(*start)
 		if samePeriod && at.Sub(previous) <= 5*time.Minute && !previous.Before(*start) {
 			// SQL numeric arithmetic retains exact fractional cents, including bytes.
-			numerator, denominator := int64(300), int64(2592000)
+			numerator, denominator := pricing.ComputeCentsPerUnitPer720Hours, int64(pricing.HoursPerResourceMonth*3600)
 			if r.Kind == "storage" {
 				numerator = 14
 				denominator = 25920000000000000

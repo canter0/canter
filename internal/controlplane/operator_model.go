@@ -27,17 +27,39 @@ type modelMessage struct {
 	ToolCalls        []modelToolCall      `json:"tool_calls,omitempty"`
 	ToolCallID       string               `json:"tool_call_id,omitempty"`
 	ReasoningDetails json.RawMessage      `json:"reasoning_details,omitempty"`
+	Usage            *operatorModelUsage  `json:"usage,omitempty"`
+}
+
+type operatorModelUsage struct {
+	PromptTokens     int      `json:"prompt_tokens"`
+	CompletionTokens int      `json:"completion_tokens"`
+	TotalTokens      int      `json:"total_tokens"`
+	Cost             *float64 `json:"cost,omitempty"`
+	PromptDetails    *struct {
+		CachedTokens int `json:"cached_tokens"`
+	} `json:"prompt_tokens_details,omitempty"`
 }
 type OperatorConfig struct {
-	APIKey       string
-	BaseURL      string
-	Model        string
-	StaticBinary string
+	APIKey          string
+	ExaAPIKey       string
+	exaTransport    http.RoundTripper // Test seam; the production destination is fixed.
+	BaseURL         string
+	Model           string
+	TitleModel      string
+	StaticBinary    string
+	ShellRunner     string
+	ShellNode       string
+	ShellSocket     string
+	ReasoningEffort string
 }
 
 func (c OperatorConfig) Ready() bool { return c.APIKey != "" && c.Model != "" && c.BaseURL != "" }
 
 func (c OperatorConfig) complete(ctx context.Context, messages []modelMessage, tools []mcpTool, onText func(string) error) (modelMessage, error) {
+	return c.completeWithLimit(ctx, messages, tools, 4096, onText)
+}
+
+func (c OperatorConfig) completeWithLimit(ctx context.Context, messages []modelMessage, tools []mcpTool, maxTokens int, onText func(string) error) (modelMessage, error) {
 	functions := make([]any, 0, len(tools))
 	for _, tool := range tools {
 		functions = append(functions, map[string]any{"type": "function", "function": map[string]any{"name": tool.Name, "description": tool.Description, "parameters": tool.InputSchema}})
@@ -46,7 +68,11 @@ func (c OperatorConfig) complete(ctx context.Context, messages []modelMessage, t
 	for i, message := range messages {
 		payload[i] = operatorModelPayload(message)
 	}
-	body, err := json.Marshal(map[string]any{"model": c.Model, "messages": payload, "tools": functions, "stream": true, "max_tokens": 4096, "reasoning": map[string]any{"effort": "none"}, "provider": map[string]any{"require_parameters": true}})
+	effort := c.ReasoningEffort
+	if effort == "" {
+		effort = "none"
+	}
+	body, err := json.Marshal(map[string]any{"model": c.Model, "messages": payload, "tools": functions, "stream": true, "max_tokens": maxTokens, "reasoning": map[string]any{"effort": effort}, "provider": map[string]any{"require_parameters": true}})
 	if err != nil {
 		return modelMessage{}, err
 	}
@@ -87,7 +113,8 @@ func (c OperatorConfig) complete(ctx context.Context, messages []modelMessage, t
 			break
 		}
 		var chunk struct {
-			Error   json.RawMessage `json:"error"`
+			Error   json.RawMessage     `json:"error"`
+			Usage   *operatorModelUsage `json:"usage"`
 			Choices []struct {
 				Delta struct {
 					Content          string               `json:"content"`
@@ -111,6 +138,9 @@ func (c OperatorConfig) complete(ctx context.Context, messages []modelMessage, t
 		}
 		if len(chunk.Error) > 0 && string(chunk.Error) != "null" {
 			return out, fmt.Errorf("the model provider interrupted the response; please retry")
+		}
+		if chunk.Usage != nil {
+			out.Usage = chunk.Usage
 		}
 		for _, choice := range chunk.Choices {
 			if choice.FinishReason != nil && *choice.FinishReason == "length" {

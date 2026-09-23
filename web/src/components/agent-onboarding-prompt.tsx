@@ -30,9 +30,8 @@ export function AgentOnboardingPrompt() {
 
   return (
     <div className={styles.onboarding}>
-      <label htmlFor="agent-onboarding-prompt" className={styles.promptLabel}>Or connect your own agent</label>
       <div className={styles.promptField}>
-        <textarea id="agent-onboarding-prompt" ref={promptRef} className={styles.prompt} readOnly rows={2} value={onboardingPrompt} spellCheck={false} aria-describedby="agent-prompt-hint" />
+        <textarea id="agent-onboarding-prompt" ref={promptRef} className={styles.prompt} readOnly rows={2} value={onboardingPrompt} spellCheck={false} aria-label="Prompt to connect your agent" aria-describedby="agent-prompt-hint" />
       </div>
       <button type="button" className={styles.copyButton} onClick={copyPrompt}>
         {status === "copied" ? "Prompt copied" : "Copy prompt to onboard your agent"}

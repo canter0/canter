@@ -75,6 +75,29 @@ func (h *HTTPServer) conversations(w http.ResponseWriter, r *http.Request, p Pri
 		writeJSON(w, http.StatusOK, map[string]any{"conversation": c, "messages": messages, "run": run})
 		return
 	}
+	if len(parts) == 1 && r.Method == http.MethodPatch {
+		var input struct {
+			Title string `json:"title"`
+		}
+		if !decodeLimit(w, r, &input, 4096) {
+			return
+		}
+		updated, err := h.service.Store.RenameConversation(r.Context(), workspace, p.Account.ID, c.ID, input.Title)
+		if err != nil {
+			writeStoreError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, updated)
+		return
+	}
+	if len(parts) == 1 && r.Method == http.MethodDelete {
+		if err := h.service.Store.DeleteConversation(r.Context(), workspace, p.Account.ID, c.ID); err != nil {
+			writeStoreError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]bool{"deleted": true})
+		return
+	}
 	if len(parts) == 2 && parts[1] == "messages" && r.Method == http.MethodPost {
 		if !h.workspaceOperatorReady(r.Context(), workspace) {
 			writeError(w, http.StatusServiceUnavailable, errOperatorUnavailable)
