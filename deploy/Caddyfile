@@ -1,6 +1,12 @@
 canter.dev, www.canter.dev {
     encode zstd gzip
 
+    # Site fonts are provisioned separately from the public release archive.
+    handle /fonts/* {
+        root * /var/lib/canter-assets
+        file_server
+    }
+
     @control path /v1/* /mcp /healthz /readyz
     reverse_proxy @control 127.0.0.1:8081
     reverse_proxy 127.0.0.1:3000
