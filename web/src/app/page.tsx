@@ -22,7 +22,6 @@ export default function Home() {
           </p>
           <div className={styles.start}>
             <Link href="/create-account" className={styles.startButton}>Get started with Canter <span aria-hidden="true">↗</span></Link>
-            <p>Sign up, then tell Canter what you want to do.</p>
           </div>
           <AgentOnboardingPrompt />
         </main>

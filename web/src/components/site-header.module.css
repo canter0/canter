@@ -24,11 +24,25 @@
   min-height: 42px;
   padding: 0 20px;
   border-radius: 7px;
-  background: #162112;
+  background: linear-gradient(180deg, #20391b 0%, #315726 100%);
   color: #fff;
-  transition: background 160ms;
+  box-shadow: 0 1px 3px #16211226, inset 0 1px 0 #ffffff24;
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
 }
-.getStarted:hover { background: #2d4226; }
+.getStarted::before {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: #fff;
+  content: "";
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 220ms ease;
+}
+.getStarted:hover::before { opacity: .14; }
+.getStarted > * { position: relative; z-index: 1; }
 .header a:focus-visible { outline: 2px solid #236513; outline-offset: 6px; }
 @media (max-width: 760px) {
   .header { height: 80px; padding: 0 24px; gap: 30px; }
@@ -49,4 +63,4 @@
   .actions { gap: 12px; }
   .getStarted { padding-inline: 10px; gap: 8px; }
 }
-@media (prefers-reduced-motion: reduce) { .header a { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .header a { transition: none; } .getStarted::before { transition: none; } }

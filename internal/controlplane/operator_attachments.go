@@ -62,6 +62,7 @@ func operatorModelPayload(message modelMessage) map[string]any {
 	var out map[string]any
 	_ = json.Unmarshal(raw, &out)
 	delete(out, "attachments")
+	delete(out, "usage") // Response accounting is retained locally, never model input.
 	if len(message.Attachments) == 0 {
 		return out
 	}

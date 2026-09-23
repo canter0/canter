@@ -47,6 +47,7 @@ export type WorkspaceAction = {
 };
 
 export type Workspace = {
+  agentAuthority: Authority;
   id: string;
   name: string;
   revision?: number;
@@ -54,6 +55,7 @@ export type Workspace = {
 };
 
 export type Installation = {
+  useWorkspaceAuthority?: boolean;
   id: string;
   workspaceId: string;
   name: string;

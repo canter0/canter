@@ -1,6 +1,9 @@
 import type { SVGProps } from "react";
 
 const paths = {
+  more: "M5 12h.01M12 12h.01M19 12h.01",
+  edit: "m15 4 5 5M4 20l5-1L21 7l-5-5L4 14z",
+  trash: "M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7",
   lock: "M5 10h14v11H5zM8 10V6a4 4 0 0 1 8 0v4M12 14v3",
   changes: "M6 3v12a3 3 0 1 0 3 3H6M18 21V9a3 3 0 1 0-3-3h3M6 7h12",
   expand: "M8 3H3v5M16 3h5v5M3 16v5h5M21 16v5h-5",

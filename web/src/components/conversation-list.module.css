@@ -1,0 +1,47 @@
+.empty { max-width: 170px; color: #777; font-size: 12px; line-height: 1.7; }
+.row { display: flex; align-items: center; min-width: 0; margin: 1px -6px; padding: 0 3px 0 6px; border-radius: 7px; }
+.row:hover, .row[data-active="true"], .row[data-open="true"] { background: #222; }
+.link { position: relative; flex: 1; min-width: 0; padding: 9px 0; color: #c3c3c3; font-size: 12px; text-decoration: none; }
+.link > span { display: block; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; transition: max-width 180ms cubic-bezier(.2,.8,.2,1), opacity 120ms ease, transform 180ms cubic-bezier(.2,.8,.2,1); }
+.link small { display: block; max-height: 24px; margin-top: 2px; overflow: hidden; color: #858585; font-size: 11px; transition: max-height 160ms ease, margin 160ms ease, opacity 120ms ease; }
+.link::before { content: ""; position: absolute; top: 50%; left: 50%; width: 5px; height: 5px; border-radius: 50%; background: #777; opacity: 0; transform: translate(-50%, -50%) scale(.7); transition: opacity 130ms ease 55ms, transform 180ms cubic-bezier(.2,.8,.2,1) 35ms, background 130ms ease; }
+.link:hover { color: #fff; }
+.more { display: grid; place-items: center; flex-shrink: 0; width: 28px; height: 28px; margin-left: 3px; border: 0; border-radius: 5px; background: transparent; color: #aaa; opacity: 0; transition: width 160ms ease, height 160ms ease, margin 160ms ease, opacity 100ms ease; }
+.row:hover .more, .row:focus-within .more, .row[data-open="true"] .more { opacity: 1; }
+.more:hover { background: #333; color: #eee; }
+.menu, .dialog { font-family: Arial, Helvetica, sans-serif; color: #e4e4e4; color-scheme: dark; border: 1px solid #3b3b3b; background: #222; box-shadow: 0 12px 40px #0006; }
+.menu { position: fixed; z-index: 100; width: 164px; padding: 5px; border-radius: 9px; font-size: 13px; }
+.menu button { display: flex; align-items: center; gap: 9px; width: 100%; padding: 8px 9px; border: 0; border-radius: 5px; background: transparent; text-align: left; color: inherit; cursor: pointer; font: inherit; }
+.menu button:hover, .menu button:focus-visible { background: #333; outline: none; }
+.menu .danger { color: #f49f9f; }
+.dialog { width: min(420px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); margin: auto; padding: 24px; border-radius: 16px; font-size: 14px; line-height: 1.5; }
+.dialog::backdrop { background: #0009; }
+.dialog h2 { margin: 0 0 18px; font-size: 18px; font-weight: 500; }
+.dialog p { margin: 0; color: #b0b0b0; overflow-wrap: anywhere; }
+.field { display: grid; gap: 8px; color: #aaa; font-size: 12px; }
+.field input { width: 100%; padding: 10px 12px; border: 1px solid #555; border-radius: 7px; background: #191919; color: #eee; font: inherit; font-size: 14px; }
+.actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 24px; }
+.actions button { padding: 7px 14px; border: 1px solid #4a4a4a; border-radius: 7px; background: transparent; color: #ddd; font: inherit; cursor: pointer; }
+.actions button:hover { background: #333; }
+.actions .saveButton { background: #e5e5e5; color: #222; border-color: #e5e5e5; }
+.actions .saveButton:hover { background: #fff; }
+.actions .deleteButton { background: #a63232; color: #fff; border-color: #a63232; }
+.actions .deleteButton:hover { background: #b53a3a; }
+.actions button:disabled { opacity: .5; cursor: default; }
+.dialog :is(button, input):focus-visible { outline: 2px solid #aaa; outline-offset: 3px; }
+.dialog .error { margin-top: 12px; color: #f49f9f; font-size: 13px; }
+@media (hover: none) { .more { opacity: 1; width: 34px; height: 34px; } }
+
+@media (min-width: 1024px) {
+  .empty { max-height: 64px; overflow: hidden; transition: max-height 180ms ease, opacity 120ms ease, transform 180ms cubic-bezier(.2,.8,.2,1); }
+  .empty[data-compact="true"] { max-height: 0; opacity: 0; transform: translateX(-4px); }
+  .row[data-compact="true"] { position: relative; display: flex; justify-content: center; height: 28px; margin: 1px -6px; padding: 0; }
+  .row[data-compact="true"] .link { display: block; flex: 1 1 auto; width: auto; height: 28px; padding: 0; overflow: hidden; }
+  .row[data-compact="true"] .link > span { max-width: 0; opacity: 0; transform: translateX(-4px); }
+  .row[data-compact="true"] .link small { max-height: 0; margin-top: 0; opacity: 0; }
+  .row[data-compact="true"] .link::before { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  .row[data-compact="true"]:hover .link::before, .row[data-compact="true"][data-active="true"] .link::before { background: #ddd; }
+  .row[data-compact="true"] .more { position: absolute; top: 50%; left: 50%; width: 28px; height: 28px; margin: 0; padding: 0; overflow: hidden; border: 0; background: #282828; opacity: 0; visibility: hidden; transform: translate(-50%, -50%); transition: opacity 100ms ease, visibility 0s 100ms; }
+  .row[data-compact="true"]:focus-within .more, .row[data-compact="true"][data-open="true"] .more { opacity: 1; visibility: visible; transition-delay: 0s; }
+  .row[data-compact="true"]:focus-within .link::before, .row[data-compact="true"][data-open="true"] .link::before { opacity: 0; transition-delay: 0s; }
+}

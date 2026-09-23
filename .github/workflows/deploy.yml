@@ -52,8 +52,12 @@ jobs:
       - name: Build production artifacts
         run: |
           set -euo pipefail
-          mkdir -p release/web
+          mkdir -p release/web release/harness release/deploy
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o release/canter-controlplane ./cmd/canter-controlplane
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o release/canter-static-linux ./cmd/canter-static
+          npm ci --prefix harness --omit=dev --ignore-scripts --no-audit --no-fund
+          cp -a harness/runner.mjs harness/package.json harness/package-lock.json harness/node_modules release/harness/
+          cp deploy/canter-harness.socket deploy/canter-harness@.service release/deploy/
           cd web
           pnpm install --frozen-lockfile
           printf '{"commit":"%s"}\n' "$RELEASE_SHA" > public/release.json

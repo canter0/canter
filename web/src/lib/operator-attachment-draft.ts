@@ -44,3 +44,10 @@ export function useOperatorAttachmentDraft(key: string | null) {
   }
   return { ...draft, update };
 }
+
+export function clearOperatorAttachmentDraft(key: string) {
+  publish(key, { items: [], error: "", loaded: true });
+  void open().then(db => {
+    db.transaction("attachments", "readwrite").objectStore("attachments").delete(key);
+  }).catch(() => { /* Local draft storage may be unavailable. */ });
+}

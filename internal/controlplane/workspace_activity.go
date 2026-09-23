@@ -2,6 +2,7 @@ package controlplane
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -91,6 +92,10 @@ func (s *Store) WorkspaceTask(ctx context.Context, workspaceID, id string) (Work
 }
 
 func (s *Store) CreateWorkspaceTask(ctx context.Context, workspaceID, accountID string, input TaskInput) (WorkspaceTask, error) {
+	return s.createWorkspaceTask(ctx, workspaceID, accountID, input, "")
+}
+
+func (s *Store) createWorkspaceTask(ctx context.Context, workspaceID, accountID string, input TaskInput, operationKey string) (WorkspaceTask, error) {
 	prompt := strings.TrimSpace(input.Prompt)
 	targetID := input.TargetInstallationID
 	if prompt == "" || len(prompt) > 12000 {
@@ -174,6 +179,14 @@ func (s *Store) CreateWorkspaceTask(ctx context.Context, workspaceID, accountID 
 	if err != nil {
 		return WorkspaceTask{}, err
 	}
+	if operationKey != "" {
+		id = fmt.Sprintf("task_%x", sha256.Sum256([]byte(workspaceID+"\x00"+operationKey)))
+		if existing, readErr := s.WorkspaceTask(ctx, workspaceID, id); readErr == nil {
+			return existing, nil
+		} else if !errors.Is(readErr, ErrNotFound) {
+			return WorkspaceTask{}, readErr
+		}
+	}
 	if input.Context == nil {
 		input.Context = []TaskContext{}
 	}
@@ -181,7 +194,7 @@ func (s *Store) CreateWorkspaceTask(ctx context.Context, workspaceID, accountID 
 	if err != nil {
 		return WorkspaceTask{}, err
 	}
-	return scanTask(s.pool.QueryRow(ctx, `INSERT INTO workspace_tasks(id,workspace_id,prompt,requested_by,target_installation_id,created_at,updated_at,model,reasoning,context) VALUES($1,$2,$3,$4,NULLIF($5,''),$6,$6,$7,$8,$9) RETURNING `+taskColumns, id, workspaceID, prompt, accountID, targetID, s.now(), input.Model, input.Reasoning, raw))
+	return scanTask(s.pool.QueryRow(ctx, `INSERT INTO workspace_tasks(id,workspace_id,prompt,requested_by,target_installation_id,created_at,updated_at,model,reasoning,context) VALUES($1,$2,$3,$4,NULLIF($5,''),$6,$6,$7,$8,$9) ON CONFLICT(id) DO UPDATE SET id=EXCLUDED.id RETURNING `+taskColumns, id, workspaceID, prompt, accountID, targetID, s.now(), input.Model, input.Reasoning, raw))
 }
 
 func (s *Store) ClaimWorkspaceTask(ctx context.Context, workspaceID, id, installationID string) (WorkspaceTask, error) {

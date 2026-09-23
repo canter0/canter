@@ -51,7 +51,7 @@
   line-height: 1.65;
   letter-spacing: -.025em;
 }
-.start { margin-top: 28px; font-family: Arial, Helvetica, sans-serif; }
+.start { margin-top: 32px; font-family: Arial, Helvetica, sans-serif; }
 .startButton {
   display: inline-flex;
   align-items: center;
@@ -59,24 +59,30 @@
   gap: 16px;
   min-height: 48px;
   padding: 12px 24px;
-  border: 1px solid #294d1e;
+  border: 1px solid #315726;
   border-radius: 9px;
-  background: #294d1e;
+  background: linear-gradient(180deg, #315726 0%, #4f8735 100%);
   color: #fff;
   font-size: 16px;
+  box-shadow: 0 2px 5px #20391b26, inset 0 1px 0 #ffffff36;
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
 }
-.startButton:hover { background: #386e23; }
+.startButton::before, .copyButton::before {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: #fff;
+  content: "";
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 220ms ease;
+}
+.startButton:hover::before, .copyButton:hover::before { opacity: .14; }
+.startButton > *, .copyButton > * { position: relative; z-index: 1; }
 .startButton:focus-visible { outline: 2px solid #236513; outline-offset: 5px; }
-.start p { margin: 12px 0 0; color: #68735d; font-size: 12px; line-height: 1.6; }
-.onboarding { width: min(100%, 520px); margin-top: 32px; }
-.promptLabel {
-  display: block;
-  margin-bottom: 12px;
-  color: #68735d;
-  font-size: 10px;
-  letter-spacing: .09em;
-  text-transform: uppercase;
-}
+.onboarding { width: min(100%, 520px); margin-top: 46px; }
 .promptField {
   padding: 12px 16px;
   border: 1px solid #dce3d4;
@@ -109,18 +115,19 @@
   min-height: 48px;
   margin-top: 12px;
   padding: 12px 20px;
-  border: 1px solid #8bd971;
+  border: 1px solid #88cf69;
   border-radius: 9px;
-  background: #9af36d;
+  background: linear-gradient(180deg, #a8f37e 0%, #8ddd62 100%);
   color: #203719;
-  box-shadow: 0 3px 0 #81b66b;
+  box-shadow: 0 2px 4px #2b57151c, inset 0 1px 0 #ffffffb3;
   cursor: pointer;
   font-family: Arial, Helvetica, sans-serif;
   font-size: 16px;
-  transition: background 160ms, transform 160ms, box-shadow 160ms;
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
 }
-.copyButton:hover { background: #87ee52; }
-.copyButton:active { transform: translateY(2px); box-shadow: 0 1px 0 #81b66b; }
+.copyButton:active { box-shadow: 0 1px 2px #2b57151c, inset 0 1px 0 #ffffffb3; }
 .copyButton:focus-visible, .connectionLink:focus-visible { outline: 2px solid #236513; outline-offset: 5px; }
 .promptHint {
   min-height: 36px;
@@ -144,7 +151,7 @@
   .hero { padding-top: 48px; padding-bottom: 34px; }
   .headline { font-size: clamp(62px, 6.7vw, 92px); }
   .description { margin-top: 24px; font-size: 18px; }
-  .onboarding { margin-top: 28px; }
+  .onboarding { margin-top: 40px; }
   .promptHint { min-height: 20px; margin-top: 15px; }
   .connectionLink { margin-top: 9px; }
 }
@@ -154,7 +161,7 @@
   .hero { min-height: calc(100svh - 80px); padding: 105px 24px 88px; }
   .headline { font-size: clamp(49px, 8.8vw, 66px); }
   .description { font-size: 17px; margin-top: 25px; }
-  .onboarding { margin-top: 35px; }
+  .onboarding { margin-top: 40px; }
 }
 @media (max-width: 580px) {
   .prompt { height: 3lh; }
@@ -173,4 +180,4 @@
   .prompt { height: 4lh; }
   .copyButton { font-size: 13px; gap: 8px; }
 }
-@media (prefers-reduced-motion: reduce) { .copyButton { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .startButton::before, .copyButton::before { transition: none; } }

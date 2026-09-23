@@ -65,9 +65,6 @@ var operatorConversationsMigration string
 //go:embed migrations/016_github_connections.sql
 var githubConnectionsMigration string
 
-//go:embed migrations/021_github_app_connections.sql
-var githubAppConnectionsMigration string
-
 //go:embed migrations/017_operator_attachments.sql
 var operatorAttachmentsMigration string
 
@@ -76,6 +73,21 @@ var resourceMeteringMigration string
 
 //go:embed migrations/018_workspace_secrets.sql
 var workspaceSecretsMigration string
+
+//go:embed migrations/021_github_app_connections.sql
+var githubAppConnectionsMigration string
+
+//go:embed migrations/020_agent_workspace_defaults.sql
+var agentWorkspaceDefaultsMigration string
+
+//go:embed migrations/022_conversation_titles.sql
+var conversationTitlesMigration string
+
+//go:embed migrations/023_operator_harness.sql
+var operatorHarnessMigration string
+
+//go:embed migrations/024_operator_web.sql
+var operatorWebMigration string
 
 var (
 	ErrNotFound      = errors.New("not found")
@@ -204,8 +216,15 @@ func (s *Store) Migrate(ctx context.Context) error {
 	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('014_billing') ON CONFLICT DO NOTHING`); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, operatorConversationsMigration); err != nil {
-		return fmt.Errorf("apply operator conversations migration: %w", err)
+	var conversationsApplied bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version='015_operator_conversations')`).Scan(&conversationsApplied); err != nil {
+		return err
+	}
+	// Do not recreate the old one-active-run index after the inbox migration.
+	if !conversationsApplied {
+		if _, err := tx.Exec(ctx, operatorConversationsMigration); err != nil {
+			return fmt.Errorf("apply operator conversations migration: %w", err)
+		}
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('015_operator_conversations') ON CONFLICT DO NOTHING`); err != nil {
 		return err
@@ -235,10 +254,35 @@ func (s *Store) Migrate(ctx context.Context) error {
 		return err
 	}
 
+	if _, err := tx.Exec(ctx, agentWorkspaceDefaultsMigration); err != nil {
+		return fmt.Errorf("apply agent workspace defaults migration: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('020_agent_workspace_defaults') ON CONFLICT DO NOTHING`); err != nil {
+		return err
+	}
+
 	if _, err := tx.Exec(ctx, githubAppConnectionsMigration); err != nil {
 		return fmt.Errorf("apply GitHub App connections migration: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('021_github_app_connections') ON CONFLICT DO NOTHING`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, conversationTitlesMigration); err != nil {
+		return fmt.Errorf("apply conversation titles migration: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('022_conversation_titles') ON CONFLICT DO NOTHING`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, operatorHarnessMigration); err != nil {
+		return fmt.Errorf("apply operator harness migration: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('023_operator_harness') ON CONFLICT DO NOTHING`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, operatorWebMigration); err != nil {
+		return fmt.Errorf("apply operator web evidence migration: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('024_operator_web') ON CONFLICT DO NOTHING`); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
@@ -286,7 +330,8 @@ func (s *Store) Signup(ctx context.Context, email, password, invite string, requ
 		}
 		return Account{}, Workspace{}, "", err
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO workspaces(id,name,created_at) VALUES($1,'default',$2)`, workspaceID, now); err != nil {
+	var agentAuthority Authority
+	if err := tx.QueryRow(ctx, `INSERT INTO workspaces(id,name,created_at) VALUES($1,'default',$2) RETURNING agent_authority`, workspaceID, now).Scan(&agentAuthority); err != nil {
 		return Account{}, Workspace{}, "", err
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO workspace_usage_caps(workspace_id,limit_cents,created_at,updated_at) VALUES($1,500,$2,$2)`, workspaceID, now); err != nil {
@@ -301,7 +346,7 @@ func (s *Store) Signup(ctx context.Context, email, password, invite string, requ
 	if err := tx.Commit(ctx); err != nil {
 		return Account{}, Workspace{}, "", err
 	}
-	return Account{ID: accountID, Email: email, CreatedAt: now}, Workspace{ID: workspaceID, Name: "default", Revision: 1, Role: "owner"}, token, nil
+	return Account{ID: accountID, Email: email, CreatedAt: now}, Workspace{ID: workspaceID, Name: "default", Revision: 1, Role: "owner", AgentAuthority: agentAuthority}, token, nil
 }
 
 func (s *Store) Signin(ctx context.Context, email, password string) (Account, []Workspace, string, error) {
@@ -347,7 +392,7 @@ func (s *Store) RevokeHumanSession(ctx context.Context, token string) error {
 }
 
 func (s *Store) WorkspacesForAccount(ctx context.Context, accountID string) ([]Workspace, error) {
-	rows, err := s.pool.Query(ctx, `SELECT w.id,w.name,w.revision,m.role FROM memberships m JOIN workspaces w ON w.id=m.workspace_id WHERE m.account_id=$1 ORDER BY w.created_at`, accountID)
+	rows, err := s.pool.Query(ctx, `SELECT w.id,w.name,w.revision,m.role,w.agent_authority FROM memberships m JOIN workspaces w ON w.id=m.workspace_id WHERE m.account_id=$1 ORDER BY w.created_at`, accountID)
 	if err != nil {
 		return nil, err
 	}
@@ -355,7 +400,7 @@ func (s *Store) WorkspacesForAccount(ctx context.Context, accountID string) ([]W
 	var result []Workspace
 	for rows.Next() {
 		var item Workspace
-		if err := rows.Scan(&item.ID, &item.Name, &item.Revision, &item.Role); err != nil {
+		if err := rows.Scan(&item.ID, &item.Name, &item.Revision, &item.Role, &item.AgentAuthority); err != nil {
 			return nil, err
 		}
 		result = append(result, item)
@@ -532,7 +577,7 @@ type querier interface {
 
 func installationByID(ctx context.Context, q querier, id string) (Installation, error) {
 	var i Installation
-	err := q.QueryRow(ctx, `SELECT id,workspace_id,name,harness,inspect_allowed,draft_allowed,apply_mode,created_by,created_at,last_seen_at,revoked_at,expires_at FROM agent_installations WHERE id=$1`, id).Scan(&i.ID, &i.WorkspaceID, &i.Name, &i.Harness, &i.Authority.Inspect, &i.Authority.Draft, &i.Authority.ApplyMode, &i.CreatedBy, &i.CreatedAt, &i.LastSeenAt, &i.RevokedAt, &i.ExpiresAt)
+	err := q.QueryRow(ctx, `SELECT id,workspace_id,name,harness,inspect_allowed,draft_allowed,apply_mode,created_by,created_at,last_seen_at,revoked_at,expires_at,use_workspace_authority FROM agent_installations WHERE id=$1`, id).Scan(&i.ID, &i.WorkspaceID, &i.Name, &i.Harness, &i.Authority.Inspect, &i.Authority.Draft, &i.Authority.ApplyMode, &i.CreatedBy, &i.CreatedAt, &i.LastSeenAt, &i.RevokedAt, &i.ExpiresAt, &i.UseWorkspaceAuthority)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return i, ErrNotFound
 	}
@@ -659,7 +704,7 @@ func (s *Store) refreshAgentOnce(ctx context.Context, refreshToken, clientInstan
 func (s *Store) ResolveAgent(ctx context.Context, accessToken string) (Principal, error) {
 	var installation Installation
 	var session AgentSession
-	err := s.pool.QueryRow(ctx, `SELECT i.id,i.workspace_id,i.name,i.harness,i.inspect_allowed,i.draft_allowed,i.apply_mode,i.created_by,i.created_at,i.last_seen_at,i.revoked_at,i.expires_at,s.id,s.client_instance,s.created_at,s.last_seen_at,s.expires_at,s.ended_at,COALESCE(s.parent_session_id,''),s.worker_name,s.worker_draft FROM agent_sessions s JOIN agent_installations i ON i.id=s.installation_id WHERE s.access_hash=$1 AND s.ended_at IS NULL AND s.expires_at>$2 AND i.revoked_at IS NULL AND (i.expires_at IS NULL OR i.expires_at>$2) AND (s.parent_session_id IS NULL OR EXISTS (SELECT 1 FROM agent_sessions parent WHERE parent.id=s.parent_session_id AND parent.ended_at IS NULL AND parent.expires_at>$2))`, secretHash(accessToken), s.now()).Scan(&installation.ID, &installation.WorkspaceID, &installation.Name, &installation.Harness, &installation.Authority.Inspect, &installation.Authority.Draft, &installation.Authority.ApplyMode, &installation.CreatedBy, &installation.CreatedAt, &installation.LastSeenAt, &installation.RevokedAt, &installation.ExpiresAt, &session.ID, &session.ClientInstance, &session.CreatedAt, &session.LastSeenAt, &session.ExpiresAt, &session.EndedAt, &session.ParentSessionID, &session.WorkerName, &session.WorkerDraft)
+	err := s.pool.QueryRow(ctx, `SELECT i.id,i.workspace_id,i.name,i.harness,i.inspect_allowed,i.draft_allowed,i.apply_mode,i.created_by,i.created_at,i.last_seen_at,i.revoked_at,i.expires_at,i.use_workspace_authority,s.id,s.client_instance,s.created_at,s.last_seen_at,s.expires_at,s.ended_at,COALESCE(s.parent_session_id,''),s.worker_name,s.worker_draft FROM agent_sessions s JOIN agent_installations i ON i.id=s.installation_id WHERE s.access_hash=$1 AND s.ended_at IS NULL AND s.expires_at>$2 AND i.revoked_at IS NULL AND (i.expires_at IS NULL OR i.expires_at>$2) AND (s.parent_session_id IS NULL OR EXISTS (SELECT 1 FROM agent_sessions parent WHERE parent.id=s.parent_session_id AND parent.ended_at IS NULL AND parent.expires_at>$2))`, secretHash(accessToken), s.now()).Scan(&installation.ID, &installation.WorkspaceID, &installation.Name, &installation.Harness, &installation.Authority.Inspect, &installation.Authority.Draft, &installation.Authority.ApplyMode, &installation.CreatedBy, &installation.CreatedAt, &installation.LastSeenAt, &installation.RevokedAt, &installation.ExpiresAt, &installation.UseWorkspaceAuthority, &session.ID, &session.ClientInstance, &session.CreatedAt, &session.LastSeenAt, &session.ExpiresAt, &session.EndedAt, &session.ParentSessionID, &session.WorkerName, &session.WorkerDraft)
 	if err != nil {
 		return Principal{}, ErrUnauthorized
 	}
@@ -683,7 +728,7 @@ func (s *Store) ResolveAgent(ctx context.Context, accessToken string) (Principal
 }
 
 func (s *Store) ListInstallations(ctx context.Context, workspaceID string) ([]Installation, error) {
-	rows, err := s.pool.Query(ctx, `SELECT id,workspace_id,name,harness,inspect_allowed,draft_allowed,apply_mode,created_by,created_at,last_seen_at,revoked_at,expires_at,(SELECT count(*) FROM agent_sessions sess WHERE sess.installation_id=agent_installations.id AND sess.ended_at IS NULL AND sess.expires_at>$2 AND agent_installations.revoked_at IS NULL AND (agent_installations.expires_at IS NULL OR agent_installations.expires_at>$2) AND (sess.parent_session_id IS NULL OR EXISTS(SELECT 1 FROM agent_sessions parent WHERE parent.id=sess.parent_session_id AND parent.ended_at IS NULL AND parent.expires_at>$2))) FROM agent_installations WHERE workspace_id=$1 ORDER BY created_at`, workspaceID, s.now())
+	rows, err := s.pool.Query(ctx, `SELECT id,workspace_id,name,harness,inspect_allowed,draft_allowed,apply_mode,created_by,created_at,last_seen_at,revoked_at,expires_at,use_workspace_authority,(SELECT count(*) FROM agent_sessions sess WHERE sess.installation_id=agent_installations.id AND sess.ended_at IS NULL AND sess.expires_at>$2 AND agent_installations.revoked_at IS NULL AND (agent_installations.expires_at IS NULL OR agent_installations.expires_at>$2) AND (sess.parent_session_id IS NULL OR EXISTS(SELECT 1 FROM agent_sessions parent WHERE parent.id=sess.parent_session_id AND parent.ended_at IS NULL AND parent.expires_at>$2))) FROM agent_installations WHERE workspace_id=$1 ORDER BY created_at`, workspaceID, s.now())
 	if err != nil {
 		return nil, err
 	}
@@ -691,7 +736,7 @@ func (s *Store) ListInstallations(ctx context.Context, workspaceID string) ([]In
 	out := []Installation{}
 	for rows.Next() {
 		var i Installation
-		if err := rows.Scan(&i.ID, &i.WorkspaceID, &i.Name, &i.Harness, &i.Authority.Inspect, &i.Authority.Draft, &i.Authority.ApplyMode, &i.CreatedBy, &i.CreatedAt, &i.LastSeenAt, &i.RevokedAt, &i.ExpiresAt, &i.ActiveSessions); err != nil {
+		if err := rows.Scan(&i.ID, &i.WorkspaceID, &i.Name, &i.Harness, &i.Authority.Inspect, &i.Authority.Draft, &i.Authority.ApplyMode, &i.CreatedBy, &i.CreatedAt, &i.LastSeenAt, &i.RevokedAt, &i.ExpiresAt, &i.UseWorkspaceAuthority, &i.ActiveSessions); err != nil {
 			return nil, err
 		}
 		out = append(out, i)
@@ -815,7 +860,7 @@ func validateStoredSystemPrefix(prefix string, system sdk.System) error {
 
 func (s *Store) Workspace(ctx context.Context, id string) (Workspace, error) {
 	var w Workspace
-	err := s.pool.QueryRow(ctx, `SELECT id,name,revision FROM workspaces WHERE id=$1`, id).Scan(&w.ID, &w.Name, &w.Revision)
+	err := s.pool.QueryRow(ctx, `SELECT id,name,revision,agent_authority FROM workspaces WHERE id=$1`, id).Scan(&w.ID, &w.Name, &w.Revision, &w.AgentAuthority)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return w, ErrNotFound
 	}

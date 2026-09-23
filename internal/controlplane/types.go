@@ -14,10 +14,11 @@ type Account struct {
 }
 
 type Workspace struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
-	Revision int64  `json:"revision"`
-	Role     string `json:"role,omitempty"`
+	AgentAuthority Authority `json:"agentAuthority"`
+	ID             string    `json:"id"`
+	Name           string    `json:"name"`
+	Revision       int64     `json:"revision"`
+	Role           string    `json:"role,omitempty"`
 }
 
 type Authority struct {
@@ -27,18 +28,19 @@ type Authority struct {
 }
 
 type Installation struct {
-	ActiveSessions int            `json:"activeSessions,omitempty"`
-	ExpiresAt      *time.Time     `json:"expiresAt,omitempty"`
-	Workers        []AgentSession `json:"workers,omitempty"`
-	ID             string         `json:"id"`
-	WorkspaceID    string         `json:"workspaceId"`
-	Name           string         `json:"name"`
-	Harness        string         `json:"harness"`
-	Authority      Authority      `json:"authority"`
-	CreatedBy      string         `json:"createdBy"`
-	CreatedAt      time.Time      `json:"createdAt"`
-	LastSeenAt     *time.Time     `json:"lastSeenAt,omitempty"`
-	RevokedAt      *time.Time     `json:"revokedAt,omitempty"`
+	UseWorkspaceAuthority bool           `json:"useWorkspaceAuthority"`
+	ActiveSessions        int            `json:"activeSessions,omitempty"`
+	ExpiresAt             *time.Time     `json:"expiresAt,omitempty"`
+	Workers               []AgentSession `json:"workers,omitempty"`
+	ID                    string         `json:"id"`
+	WorkspaceID           string         `json:"workspaceId"`
+	Name                  string         `json:"name"`
+	Harness               string         `json:"harness"`
+	Authority             Authority      `json:"authority"`
+	CreatedBy             string         `json:"createdBy"`
+	CreatedAt             time.Time      `json:"createdAt"`
+	LastSeenAt            *time.Time     `json:"lastSeenAt,omitempty"`
+	RevokedAt             *time.Time     `json:"revokedAt,omitempty"`
 }
 
 type AgentSession struct {

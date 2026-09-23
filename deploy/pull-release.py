@@ -16,6 +16,9 @@ import urllib.request
 ROOT = Path('/opt/canter')
 STATE = Path('/var/lib/canter-deploy')
 REPO = 'canter0/canter'
+HARNESS = Path('/opt/canter-harness')
+SYSTEMD = Path('/etc/systemd/system')
+HARNESS_UNITS = ('canter-harness.socket', 'canter-harness@.service')
 
 def run(*args):
     return subprocess.run(args, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -41,6 +44,104 @@ def install_binary(source):
     os.chmod(temporary, 0o755)
     temporary.replace(target)
 
+def unit_state(unit, state):
+    return subprocess.run(['systemctl', state, '--quiet', unit],
+                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
+
+
+def install_file(source, target, mode=0o755):
+    temporary = target.with_suffix('.pending')
+    shutil.copy2(source, temporary)
+    temporary.chmod(mode)
+    temporary.replace(target)
+
+
+def runtime_snapshot(release):
+    current = HARNESS / 'current'
+    if current.exists() and not current.is_symlink():
+        raise RuntimeError('Harness current path must be a managed symlink')
+    previous_static = release / 'previous-static'
+    static = ROOT / 'bin/canter-static-linux'
+    if static.exists():
+        shutil.copy2(static, previous_static)
+    return {
+        'target': os.readlink(current) if current.is_symlink() else None,
+        'units': {name: (SYSTEMD / name).read_bytes() if (SYSTEMD / name).exists() else None
+                  for name in HARNESS_UNITS},
+        'enabled': unit_state('canter-harness.socket', 'is-enabled'),
+        'active': unit_state('canter-harness.socket', 'is-active'),
+        'static': previous_static if previous_static.exists() else None,
+    }
+
+
+def point_harness(target):
+    temporary = HARNESS / 'current.pending'
+    temporary.unlink(missing_ok=True)
+    temporary.symlink_to(target)
+    temporary.replace(HARNESS / 'current')
+
+
+def stop_runtime():
+    # A first deployment has no socket unit yet. Existing accepted connections
+    # can outlive a stopped listener, so also stop all running instances.
+    if unit_state('canter-harness.socket', 'is-active'):
+        run('systemctl', 'stop', 'canter-harness.socket')
+    run('systemctl', 'stop', 'canter-harness@*.service')
+
+
+def install_runtime(release, sha):
+    # Dependencies are installed from the lockfile on the CI Linux runner;
+    # activation never runs npm or package lifecycle scripts as root.
+    for path in [release / 'canter-static-linux', release / 'harness/runner.mjs',
+                 release / 'harness/node_modules/just-bash/package.json',
+                 *(release / 'deploy' / name for name in HARNESS_UNITS)]:
+        if not path.is_file():
+            raise RuntimeError('Release is missing a required runtime artifact: ' + path.name)
+    HARNESS.mkdir(mode=0o755, exist_ok=True)
+    (HARNESS / 'releases').mkdir(mode=0o755, exist_ok=True)
+    target = HARNESS / 'releases' / sha
+    if target.exists():
+        raise RuntimeError('Harness release already exists; inspect before retrying')
+    shutil.copytree(release / 'harness', target, symlinks=True)
+    # DynamicUser can read only this public, immutable runtime, not /opt/canter.
+    for path in [HARNESS, HARNESS / 'releases', target, *target.rglob('*')]:
+        if not path.is_symlink():
+            path.chmod(path.stat().st_mode | (0o055 if path.is_dir() else 0o044))
+    stop_runtime()
+    point_harness(target)
+    for name in HARNESS_UNITS:
+        install_file(release / 'deploy' / name, SYSTEMD / name, 0o644)
+    install_file(release / 'canter-static-linux', ROOT / 'bin/canter-static-linux')
+    run('systemctl', 'daemon-reload')
+    run('systemctl', 'enable', '--now', 'canter-harness.socket')
+
+
+def restore_runtime(previous):
+    stop_runtime()
+    if previous['target'] is None:
+        (HARNESS / 'current').unlink(missing_ok=True)
+    else:
+        point_harness(previous['target'])
+    for name, content in previous['units'].items():
+        target = SYSTEMD / name
+        if content is None:
+            target.unlink(missing_ok=True)
+        else:
+            target.write_bytes(content)
+            target.chmod(0o644)
+    static = ROOT / 'bin/canter-static-linux'
+    if previous['static'] is None:
+        static.unlink(missing_ok=True)
+    else:
+        install_file(previous['static'], static)
+    # A deleted first-install unit can no longer be disabled with systemctl.
+    if not previous['enabled']:
+        (SYSTEMD / 'sockets.target.wants/canter-harness.socket').unlink(missing_ok=True)
+    run('systemctl', 'daemon-reload')
+    if previous['active']:
+        run('systemctl', 'start', 'canter-harness.socket')
+
+
 def activate(release, sha):
     previous_web = release / 'previous-web'
     previous_binary = release / 'previous-controlplane'
@@ -57,10 +158,14 @@ def activate(release, sha):
             subprocess.run(['sudo', '-u', 'postgres', 'pg_restore', '--exit-on-error', '-d', database], stdin=source, check=True)
     finally:
         run('sudo', '-u', 'postgres', 'dropdb', database)
+    runtime = runtime_snapshot(release)
     run('chown', '-R', 'canter:canter', str(release / 'web'))
-    run('systemctl', 'stop', 'canter-web')
     switched = False
+    runtime_changed = False
     try:
+        run('systemctl', 'stop', 'canter-web', 'canter-controlplane')
+        runtime_changed = True
+        install_runtime(release, sha)
         (ROOT / 'web').rename(previous_web)
         switched = True
         (release / 'web').rename(ROOT / 'web')
@@ -80,6 +185,8 @@ def activate(release, sha):
                 (ROOT / 'web').rename(release / 'failed-web')
             previous_web.rename(ROOT / 'web')
         install_binary(previous_binary)
+        if runtime_changed:
+            restore_runtime(runtime)
         run('systemctl', 'start', 'canter-controlplane', 'canter-web')
         (STATE / 'failed').write_text(sha)
         # Additive migrations remain; restoring a live DB would discard new writes.
