@@ -34,6 +34,7 @@ type operatorShellResult struct {
 	Failed           bool              `json:"failed,omitempty"`
 	Metrics          struct {
 		PeakRSSKiB int64 `json:"peakRssKiB"`
+		RSSKiB     int64 `json:"rssKiB"`
 	} `json:"metrics"`
 }
 

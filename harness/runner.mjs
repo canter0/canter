@@ -67,7 +67,9 @@ export async function execute(input) {
     stdout: textLimit(result.stdout, limits.output), stderr: textLimit(result.stderr, limits.output),
     exitCode: result.exitCode, scratch: saved,
     ...(persistenceError ? { persistenceError } : {}),
-    metrics: { peakRssKiB: process.resourceUsage().maxRSS },
+    // Linux retains pre-exec high-water usage, including a Go race-instrumented
+    // launcher's resident pages. Report current worker RSS separately.
+    metrics: { peakRssKiB: process.resourceUsage().maxRSS, rssKiB: Math.ceil(process.memoryUsage.rss() / 1024) },
   };
 }
 
