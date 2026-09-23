@@ -38,6 +38,8 @@ jobs:
           git merge-base --is-ancestor "$sha" origin/main
           gh run list --workflow ci.yml --commit "$sha" --status success --json headBranch,event --jq '.[] | select(.headBranch == "main" and .event == "push")' | grep -q 'main'
           echo "RELEASE_SHA=$sha" >> "$GITHUB_ENV"
+      - name: Verify persistent font assets before publishing
+        run: python3 scripts/check_fonts.py
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
@@ -93,6 +95,7 @@ jobs:
             echo "Checking production activation ($attempt/100)"
             if curl -fsS --max-time 10 https://canter.dev/release.json | jq -e --arg sha "$RELEASE_SHA" '.commit == $sha' >/dev/null && curl -fsS --max-time 10 https://canter.dev/readyz | jq -e '.status == "ready"' >/dev/null; then
               echo "Production is healthy on $RELEASE_SHA"
+              python3 scripts/check_fonts.py
               exit 0
             fi
             sleep 10

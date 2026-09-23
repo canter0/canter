@@ -10,6 +10,8 @@ Public routing is same-origin:
 - `/`, `/.well-known/canter`, `/llms.txt`, and the dashboard go to Next.js.
 - `/v1/*`, `/mcp`, `/healthz`, and `/readyz` go directly to the Go process.
 - `/api/canter/*` remains an internal Next.js rewrite for browser calls.
+- `/fonts/*` is served by Caddy from `/var/lib/canter-assets/fonts`, outside
+  the replaceable Next.js release directory.
 
 Production secrets live only in `/etc/canter/controlplane.env` with root ownership
 and group-readable access for the `canter` service account. Never copy the root
@@ -30,6 +32,26 @@ the callback registration or token exchange.
 `postgres-backup.sh` writes a custom-format database archive directly to the
 private m1 bucket. Every launch must verify both `pg_restore --list` and one
 actual restore into an isolated temporary database before the site is announced.
+
+## Persistent site fonts
+
+Font files are provisioned separately from the public repository and release
+archives. Keep the files referenced by `web/src/app/globals.css` in
+`/var/lib/canter-assets/fonts` (root-owned directories mode `0755`, files `0644`).
+Do not store the only copy under `/opt/canter/web`: release activation replaces
+that entire directory. Include the persistent assets in server backups.
+
+After provisioning the fonts, install `deploy/Caddyfile`, run
+`caddy validate --config /etc/caddy/Caddyfile`, and reload Caddy. Then run
+`python3 scripts/check_fonts.py`. This requests every font referenced by the
+stylesheet and validates its WOFF2 header and declared file length; a successful
+HTML response is not a font. Release publication and activation verification
+both run this check, and `production-status.py` includes the result in health.
+
+When changing fonts, provision the new assets before publishing the release and
+retain the previous files for cached pages and rollback. Keep font binaries out
+of public Git history and GitHub release archives unless their license permits
+redistribution.
 
 ## GitHub Actions production releases
 
