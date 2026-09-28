@@ -2,24 +2,18 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import "./globals.css";
 import { CanterSiteTools } from "@/components/canter-site-tools";
+import { siteDescription, siteOrigin, siteTitle } from "@/lib/seo";
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://canter.dev"),
+  metadataBase: new URL(siteOrigin),
   title: {
-    default: "Canter — Give agents somewhere to run.",
+    default: siteTitle,
     template: "%s — Canter",
   },
-  description:
-    "An agent-operated, human-governed hosting control plane built around inspectable Changes.",
-  openGraph: {
-    title: "Canter — Give agents somewhere to run.",
-    description: "Your agent proposes infrastructure Changes. Canter governs execution, approval, rollback, and proof.",
-  },
-  twitter: {
-    card: "summary",
-    title: "Canter — Give agents somewhere to run.",
-    description: "Your agent proposes infrastructure Changes. Canter governs execution, approval, rollback, and proof.",
-  },
+  description: siteDescription,
+  // Public pages opt in individually. Account, authorization, approval and
+  // workspace routes inherit noindex without exposing private URLs in robots.txt.
+  robots: { index: false, follow: true },
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

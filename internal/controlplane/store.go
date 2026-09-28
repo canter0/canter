@@ -89,6 +89,9 @@ var operatorHarnessMigration string
 //go:embed migrations/024_operator_web.sql
 var operatorWebMigration string
 
+//go:embed migrations/026_acquisition.sql
+var acquisitionMigration string
+
 var (
 	ErrNotFound      = errors.New("not found")
 	ErrUnauthorized  = errors.New("unauthorized")
@@ -283,6 +286,12 @@ func (s *Store) Migrate(ctx context.Context) error {
 		return fmt.Errorf("apply operator web evidence migration: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('024_operator_web') ON CONFLICT DO NOTHING`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, acquisitionMigration); err != nil {
+		return fmt.Errorf("apply acquisition migration: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('026_acquisition') ON CONFLICT DO NOTHING`); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

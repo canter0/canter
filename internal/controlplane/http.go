@@ -82,6 +82,9 @@ func (h *HTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch parts[1] {
+	case "acquisition":
+		h.acquisition(w, r)
+		return
 	case "billing":
 		h.billingPublic(w, r, parts[2:])
 		return
@@ -267,6 +270,7 @@ func (h *HTTPServer) auth(w http.ResponseWriter, r *http.Request, parts []string
 			return
 		}
 		h.setHumanCookie(w, token, 7*24*time.Hour)
+		h.claimAcquisition(r, token)
 		writeJSON(w, http.StatusCreated, map[string]any{"account": account, "workspace": workspace})
 	case "signin":
 		if r.Method != http.MethodPost {
