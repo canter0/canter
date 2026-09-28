@@ -23,6 +23,13 @@ func main() {
 	if _, err := envfile.Load(); err != nil {
 		log.Fatal(err)
 	}
+	publicURL := os.Getenv("CANTER_PUBLIC_URL")
+	if publicURL == "" {
+		publicURL = "http://127.0.0.1:3000"
+	}
+	if err := requireProductionAuth(publicURL, os.Getenv); err != nil {
+		log.Fatal(err)
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	databaseURL := os.Getenv("CANTER_DATABASE_URL")
@@ -63,10 +70,6 @@ func main() {
 	addr := os.Getenv("CANTER_CONTROLPLANE_ADDR")
 	if addr == "" {
 		addr = "127.0.0.1:8081"
-	}
-	publicURL := os.Getenv("CANTER_PUBLIC_URL")
-	if publicURL == "" {
-		publicURL = "http://127.0.0.1:3000"
 	}
 	cookieSecure, err := cookieSecurity(publicURL, os.Getenv("CANTER_COOKIE_SECURE"))
 	if err != nil {
@@ -178,7 +181,33 @@ func main() {
 			log.Fatal(err)
 		}
 	}
-	handler := controlplane.NewHTTPServer(service, controlplane.HTTPConfig{PublicURL: publicURL, CookieSecure: cookieSecure, RequireInvite: strings.EqualFold(os.Getenv("CANTER_REQUIRE_INVITE"), "true"), GoogleOAuth: googleOAuth, GitHubOAuth: githubOAuth, GitHubApp: githubApp, GitHubAppSlug: os.Getenv("CANTER_GITHUB_APP_SLUG"), Billing: billing, Operator: operator, Secrets: vault})
+	auth := controlplane.AuthConfig{TurnstileSecret: os.Getenv("CANTER_TURNSTILE_SECRET"), TurnstileSiteKey: os.Getenv("CANTER_TURNSTILE_SITE_KEY"), WebhookSecret: os.Getenv("RESEND_WEBHOOK_SECRET")}
+	if path := os.Getenv("CANTER_PASSWORD_DENYLIST_FILE"); path != "" {
+		file, e := os.Open(path)
+		if e != nil {
+			log.Fatal("cannot open password denylist")
+		}
+		auth.PasswordDenylist, e = controlplane.ReadPasswordDenylist(file)
+		file.Close()
+		if e != nil {
+			log.Fatal(e)
+		}
+	}
+	if (auth.TurnstileSecret == "") != (auth.TurnstileSiteKey == "") {
+		log.Fatal("configure both Turnstile keys")
+	}
+	if key := os.Getenv("RESEND_API_KEY"); key != "" {
+		from := os.Getenv("CANTER_EMAIL_FROM")
+		if from == "" {
+			from = "Canter <security@canter.dev>"
+		}
+		if vault == nil {
+			log.Fatal("email verification requires CANTER_SECRETS_KEY_FILE")
+		}
+		auth.Mailer = &controlplane.ResendMailer{APIKey: key, From: from}
+	}
+	handler := controlplane.NewHTTPServer(service, controlplane.HTTPConfig{Auth: auth, PublicURL: publicURL, CookieSecure: cookieSecure, RequireInvite: strings.EqualFold(os.Getenv("CANTER_REQUIRE_INVITE"), "true"), GoogleOAuth: googleOAuth, GitHubOAuth: githubOAuth, GitHubApp: githubApp, GitHubAppSlug: os.Getenv("CANTER_GITHUB_APP_SLUG"), Billing: billing, Operator: operator, Secrets: vault})
+	go func() { _ = handler.(*controlplane.HTTPServer).RunAuthMaintenance(ctx) }()
 	if operator.Ready() || vault != nil {
 		for i := 0; i < 2; i++ {
 			go func() {

@@ -107,6 +107,9 @@ func (h *HTTPServer) workspaceAgentSettings(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusMethodNotAllowed, fmt.Errorf("method not allowed"))
 		return
 	}
+	if !h.requireRecent(w, r, p) {
+		return
+	}
 	var in struct {
 		Authority Authority `json:"authority"`
 	}
