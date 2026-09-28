@@ -1,10 +1,11 @@
-import type { Metadata } from "next";
 import Link from "next/link";
 import { SiteHeader } from "@/components/site-header";
 import { PricingPlans } from "@/components/pricing-plans";
+import { AcquisitionVisit } from "@/components/acquisition-visit";
+import { publicPageMetadata } from "@/lib/seo";
 import styles from "./pricing.module.css";
 
-export const metadata: Metadata = { title: "Pricing", description: "Pay as you go, or choose Pro with $20 of monthly usage included. Bring your agent. Review your costs. Stay in control." };
+export const metadata = publicPageMetadata("/pricing", "App Hosting Pricing — Canter", "Compare Canter's pay-as-you-go hosting and Pro plan. See compute and object storage prices, included usage, and how your hosting bill is calculated.");
 
 const questions = [
   { question: "When do I add a payment method?", answer: "Every workspace starts on pay as you go. You can choose Pro for $20/month, including $20 of infrastructure usage. Before deploying paid resources, the owner adds a card securely through Stripe." },
@@ -25,6 +26,7 @@ const comparisons = [
 
 export default function PricingPage() {
   return <div className={styles.page}><div className={styles.frame}>
+    <AcquisitionVisit landingPath="/pricing" />
     <SiteHeader />
     <main className={styles.main}>
       <section className={styles.hero} aria-labelledby="pricing-title">
@@ -57,6 +59,6 @@ export default function PricingPage() {
       </section>
       <section className={styles.bottomCTA}><div><span className={styles.eyebrow}><span /> Bring your agent</span><h2>Your next app starts here.</h2><p>Connect your agent. Review the plan. Let Canter run it.</p></div><Link href="/create-account">Get started <span aria-hidden="true">↗</span></Link></section>
     </main>
-    <footer className={styles.footer}><Link href="/" className="wordmark">canter</Link><span>A place for your agents to run.</span><nav aria-label="Footer"><a href="https://github.com/canter0/canter#how-it-works">Docs</a><a href="https://github.com/canter0/canter">GitHub</a><Link href="/sign-in">Sign in</Link></nav></footer>
+    <footer className={styles.footer}><Link href="/" className="wordmark">canter</Link><span>Infrastructure you can talk to.</span><nav aria-label="Footer"><a href="https://github.com/canter0/canter#how-it-works">Docs</a><a href="https://github.com/canter0/canter">GitHub</a><Link href="/sign-in">Sign in</Link></nav></footer>
   </div></div>;
 }

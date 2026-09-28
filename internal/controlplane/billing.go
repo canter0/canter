@@ -338,7 +338,14 @@ func (h *HTTPServer) billingWebhook(w http.ResponseWriter, r *http.Request) {
 		Type string `json:"type"`
 		Data struct {
 			Object struct {
-				Customer string `json:"customer"`
+				Customer          string `json:"customer"`
+				ID                string `json:"id"`
+				Status            string `json:"status"`
+				AmountPaid        int64  `json:"amount_paid"`
+				Currency          string `json:"currency"`
+				StatusTransitions struct {
+					PaidAt int64 `json:"paid_at"`
+				} `json:"status_transitions"`
 			} `json:"object"`
 		} `json:"data"`
 	}
@@ -386,6 +393,16 @@ func (h *HTTPServer) billingWebhook(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeStoreError(w, err)
 		return
+	}
+	// Count actual positive settled invoices once, independently of the current
+	// subscription state. Usage, checkout completion and zero-dollar invoices
+	// are not payment conversions. The event's signature was verified above.
+	invoice := event.Data.Object
+	if event.Type == "invoice.paid" && invoice.ID != "" && invoice.Status == "paid" && invoice.AmountPaid > 0 && len(invoice.Currency) == 3 && invoice.StatusTransitions.PaidAt > 0 {
+		if _, err = tx.Exec(r.Context(), `INSERT INTO billing_paid_invoices(invoice_id,workspace_id,amount_paid,currency,paid_at) VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING`, invoice.ID, workspace, invoice.AmountPaid, strings.ToLower(invoice.Currency), time.Unix(invoice.StatusTransitions.PaidAt, 0)); err != nil {
+			writeStoreError(w, err)
+			return
+		}
 	}
 	// Fetch the current provider state under the workspace lock. Replayed or
 	// out-of-order webhook payloads cannot resurrect a canceled subscription.

@@ -347,6 +347,9 @@ func (h *HTTPServer) oauthCallback(w http.ResponseWriter, r *http.Request, name 
 		return
 	}
 	h.setHumanCookie(w, session, 7*24*time.Hour)
+	if login.LinkAccountID == nil {
+		h.claimAcquisition(r, session)
+	}
 	w.Header().Del("Content-Type")
 	http.Redirect(w, r, strings.TrimRight(h.config.PublicURL, "/")+safeOAuthNext(login.Next, login.Mode), http.StatusSeeOther)
 }

@@ -11,6 +11,14 @@ const nextConfig: NextConfig = {
   poweredByHeader: false,
   // Eight MiB of attachments expand when encoded in the task's JSON body.
   experimental: { proxyClientMaxBodySize: "16mb" },
+  async redirects() {
+    return [{
+      source: "/:path*",
+      has: [{ type: "host", value: "www.canter.dev" }],
+      destination: "https://canter.dev/:path*",
+      permanent: true,
+    }];
+  },
   async headers() {
     return [
       {

@@ -6,6 +6,7 @@ import { type FormEvent, useEffect, useRef, useState } from "react";
 import { canterFetch } from "@/lib/canter-api";
 import { authDestination, authError, type AuthProviders } from "@/lib/auth";
 import { ProviderIcon } from "./provider-icon";
+import { finishAcquisition } from "@/lib/acquisition";
 
 const inputClass = "h-9 w-full rounded-[5px] border border-[#363636] bg-[#222] px-3 text-[14px] outline-none transition-colors placeholder:text-[#858585] focus:border-[#4aaaf0] focus:ring-1 focus:ring-[#4aaaf0]";
 
@@ -35,6 +36,7 @@ export function AuthForm({ mode, next = "", initialError = "" }: { mode: "sign-i
     setPending(true);
     const data = new FormData(event.currentTarget);
     try {
+      await finishAcquisition();
       await canterFetch(create ? "/auth/signup" : "/auth/signin", {
         method: "POST",
         body: JSON.stringify({ email, password: String(data.get("password") ?? "") }),
@@ -48,9 +50,14 @@ export function AuthForm({ mode, next = "", initialError = "" }: { mode: "sign-i
     }
   }
 
-  function startProvider(event: React.MouseEvent<HTMLAnchorElement>, enabled: boolean) {
+  async function startProvider(event: React.MouseEvent<HTMLAnchorElement>, enabled: boolean) {
     if (pending || !enabled) { event.preventDefault(); return; }
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return;
+    event.preventDefault();
+    const destination = event.currentTarget.href;
     setPending(true);
+    await finishAcquisition();
+    window.location.assign(destination);
   }
 
   return (

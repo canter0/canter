@@ -142,6 +142,7 @@ func TestOAuthHTTPFlowSetsSessionAndPreservesDestination(t *testing.T) {
 	}))
 	defer providerServer.Close()
 	h := NewHTTPServer(&Service{Store: s}, HTTPConfig{PublicURL: "http://canter.test"}).(*HTTPServer)
+	visit := captureAcquisition(t, h)
 	h.oauth["google"] = &oauthProvider{config: oauth2.Config{ClientID: "test-client", ClientSecret: "test-secret", RedirectURL: "http://canter.test/api/canter/auth/oauth/google/callback", Endpoint: oauth2.Endpoint{AuthURL: providerServer.URL + "/authorize", TokenURL: providerServer.URL, AuthStyle: oauth2.AuthStyleInParams}}, identity: func(_ context.Context, token *oauth2.Token, wantNonce string) (oauthIdentity, error) {
 		if wantNonce != nonce || token.AccessToken != "access-token" {
 			t.Error("identity binding failed")
@@ -169,6 +170,7 @@ func TestOAuthHTTPFlowSetsSessionAndPreservesDestination(t *testing.T) {
 	}
 	callback := httptest.NewRequest(http.MethodGet, "http://canter.test/v1/auth/oauth/google/callback?code=authorization-code&state="+state, nil)
 	callback.AddCookie(cookies[0])
+	callback.AddCookie(visit)
 	result := httptest.NewRecorder()
 	h.ServeHTTP(result, callback)
 	if result.Code != http.StatusSeeOther || result.Header().Get("Location") != "http://canter.test/onboarding/authorize?code=ABCD-EFGH" {
@@ -185,6 +187,10 @@ func TestOAuthHTTPFlowSetsSessionAndPreservesDestination(t *testing.T) {
 	}
 	if _, err = s.ResolveHuman(context.Background(), session.Value); err != nil {
 		t.Fatal(err)
+	}
+	var source, landing string
+	if err = s.pool.QueryRow(context.Background(), `SELECT source,landing_path FROM account_acquisition WHERE visit_hash=$1`, secretHash(visit.Value)).Scan(&source, &landing); err != nil || source != "google" || landing != "/pricing" {
+		t.Fatalf("OAuth lost acquisition: %q %q %v", source, landing, err)
 	}
 	replay := httptest.NewRecorder()
 	h.ServeHTTP(replay, callback)
