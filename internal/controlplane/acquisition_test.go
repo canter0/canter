@@ -94,12 +94,9 @@ func TestAcquisitionSignupFunnelAndSettledPaymentDeduplication(t *testing.T) {
 	s, h := acquisitionTestServer(t)
 	ctx := context.Background()
 	cookie := captureAcquisition(t, h)
-	signup := httptest.NewRequest(http.MethodPost, "/v1/auth/signup", strings.NewReader(`{"email":"seo-test@example.com","password":"correct horse battery staple"}`))
-	signup.Header.Set("Content-Type", "application/json")
-	signup.Header.Set("Origin", "http://canter.test")
+	signup := httptest.NewRequest(http.MethodPost, "/v1/auth/signup/finish", nil)
 	signup.AddCookie(cookie)
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, signup)
+	w := signupHTTP(t, h, "seo-test@example.com", cookie)
 	if w.Code != 201 {
 		t.Fatalf("signup %d: %s", w.Code, w.Body.String())
 	}

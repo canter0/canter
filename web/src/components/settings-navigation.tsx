@@ -7,7 +7,7 @@ import { useWorkspace } from "./workspace-context";
 import styles from "./settings.module.css";
 
 const groups: { title: string; items: { label: string; href: string; icon: WorkspaceIconName }[] }[] = [
-  { title: "Personal", items: [{ label: "Profile", href: "/app/account", icon: "agent" }, { label: "Connections", href: "/app/account/connections", icon: "apps" }] },
+  { title: "Personal", items: [{ label: "Profile", href: "/app/account", icon: "agent" }, { label: "Security", href: "/app/account/security", icon: "lock" }, { label: "Connections", href: "/app/account/connections", icon: "apps" }] },
   { title: "Workspace", items: [{ label: "General", href: "/app/settings", icon: "settings" }, { label: "Plans", href: "/app/billing?view=plans", icon: "panel" }, { label: "Invoices", href: "/app/billing?view=invoices", icon: "file" }, { label: "Usage", href: "/app/billing", icon: "activity" }] },
   { title: "Resources & access", items: [{ label: "Secrets", href: "/app/settings/secrets", icon: "lock" }, { label: "Agents", href: "/app/settings/agent", icon: "agent" }] },
 ];

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/coreos/go-oidc/v3/oidc"
+	"github.com/jackc/pgx/v5"
 	"golang.org/x/oauth2"
 )
 
@@ -256,6 +257,9 @@ func (h *HTTPServer) oauthAuth(w http.ResponseWriter, r *http.Request, parts []s
 			h.oauthFailure(w, r, "session_expired", "sign-in", "/app/account")
 			return
 		}
+		if !h.requireRecent(w, r, principal) {
+			return
+		}
 		login.LinkAccountID = &principal.Actor.ID
 		if mode == "repository" {
 			workspace := r.URL.Query().Get("workspace")
@@ -307,7 +311,7 @@ func (h *HTTPServer) oauthCallback(w http.ResponseWriter, r *http.Request, name 
 	}
 	if login.LinkAccountID != nil {
 		principal, err := h.human(r)
-		if err != nil || principal.Actor.ID != *login.LinkAccountID {
+		if err != nil || principal.Actor.ID != *login.LinkAccountID || !h.recentAuth(r.Context(), principal) {
 			fail("session_expired")
 			return
 		}
@@ -333,7 +337,7 @@ func (h *HTTPServer) oauthCallback(w http.ResponseWriter, r *http.Request, name 
 		fail("unverified_email")
 		return
 	}
-	session, err := h.service.Store.signinOAuth(ctx, identity, login, h.config.RequireInvite)
+	session, err := h.service.Store.signinOAuth(ctx, identity, login, h.config.RequireInvite, h.oauthLinkGuard(r))
 	if errors.Is(err, errOAuthAccountExists) {
 		fail("account_exists")
 		return
@@ -346,12 +350,34 @@ func (h *HTTPServer) oauthCallback(w http.ResponseWriter, r *http.Request, name 
 		fail("sign_in_failed")
 		return
 	}
-	h.setHumanCookie(w, session, 7*24*time.Hour)
-	if login.LinkAccountID == nil {
-		h.claimAcquisition(r, session)
+	if !h.finishOAuthSecurity(w, r, session, login) {
+		return
 	}
 	w.Header().Del("Content-Type")
 	http.Redirect(w, r, strings.TrimRight(h.config.PublicURL, "/")+safeOAuthNext(login.Next, login.Mode), http.StatusSeeOther)
+}
+
+func (h *HTTPServer) oauthLinkGuard(r *http.Request) func(context.Context, pgx.Tx, string) error {
+	return func(ctx context.Context, tx pgx.Tx, account string) error {
+		cookie, err := h.humanCookie(r)
+		if err != nil {
+			return ErrUnauthorized
+		}
+		a, err := authAccountTx(ctx, tx, account)
+		if err != nil {
+			return err
+		}
+		var session string
+		now := h.service.Store.now()
+		err = tx.QueryRow(ctx, `SELECT id FROM human_sessions WHERE account_id=$1 AND token_hash=$2 AND revoked_at IS NULL AND expires_at>$3 AND authenticated_at>$4 AND auth_version=$5 AND (mfa_verified_at IS NOT NULL OR NOT $6)`, account, secretHash(cookie.Value), now, now.Add(-5*time.Minute), a.Version, a.MFA).Scan(&session)
+		if err != nil {
+			return ErrUnauthorized
+		}
+		if err = h.invalidateAuthTx(ctx, tx, account, session); err != nil {
+			return err
+		}
+		return h.securityEventTx(ctx, tx, a, "Connected sign-in account added")
+	}
 }
 
 func ValidateOAuthCredentials(name string, c OAuthCredentials) error {

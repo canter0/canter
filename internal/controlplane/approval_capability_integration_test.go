@@ -128,7 +128,7 @@ func TestAgentRequestsHumanGatedChangeApprovalAndLinkCannotReplay(t *testing.T) 
 	if unauthenticated.Code != http.StatusUnauthorized {
 		t.Fatalf("unauthenticated review status %d: %s", unauthenticated.Code, unauthenticated.Body.String())
 	}
-	otherSignup := requestJSON(t, handler, http.MethodPost, "/v1/auth/signup", map[string]any{"email": "approval-outsider@example.com", "password": "correct horse battery staple"}, nil)
+	otherSignup := signupHTTP(t, handler, "approval-outsider@example.com")
 	if otherSignup.Code != http.StatusCreated {
 		t.Fatal(otherSignup.Body.String())
 	}

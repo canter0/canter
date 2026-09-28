@@ -45,7 +45,7 @@ var errOAuthAccountExists = errors.New("an account with this email already exist
 
 // OAuth identities are keyed by the provider's stable subject, never by email.
 // An existing account must authenticate before attaching a new identity.
-func (s *Store) signinOAuth(ctx context.Context, identity oauthIdentity, login oauthLoginState, requireInvite bool) (string, error) {
+func (s *Store) signinOAuth(ctx context.Context, identity oauthIdentity, login oauthLoginState, requireInvite bool, linkGuard func(context.Context, pgx.Tx, string) error) (string, error) {
 	if identity.Subject == "" || (identity.Provider != "google" && identity.Provider != "github") {
 		return "", ErrUnauthorized
 	}
@@ -100,7 +100,7 @@ func (s *Store) signinOAuth(ctx context.Context, identity oauthIdentity, login o
 				}
 			}
 			// This sentinel cannot pass password verification. No password is generated or exposed.
-			if _, err = tx.Exec(ctx, `INSERT INTO accounts(id,email,password_hash,created_at) VALUES($1,$2,'!oauth',$3)`, accountID, email, s.now()); err != nil {
+			if _, err = tx.Exec(ctx, `INSERT INTO accounts(id,email,password_hash,created_at,email_verified_at) VALUES($1,$2,'!oauth',$3,$3)`, accountID, email, s.now()); err != nil {
 				return "", err
 			}
 			if _, err = tx.Exec(ctx, `INSERT INTO workspaces(id,name,created_at) VALUES($1,'default',$2)`, workspaceID, s.now()); err != nil {
@@ -117,6 +117,11 @@ func (s *Store) signinOAuth(ctx context.Context, identity oauthIdentity, login o
 			return "", fmt.Errorf("%w: this provider is already connected", ErrConflict)
 		}
 	}
+	if login.LinkAccountID != nil && linkGuard != nil {
+		if err = linkGuard(ctx, tx, accountID); err != nil {
+			return "", err
+		}
+	}
 	sessionID, err := newID("hss_")
 	if err != nil {
 		return "", err
@@ -125,7 +130,7 @@ func (s *Store) signinOAuth(ctx context.Context, identity oauthIdentity, login o
 	if err != nil {
 		return "", err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO human_sessions(id,account_id,token_hash,created_at,last_seen_at,expires_at) VALUES($1,$2,$3,$4,$4,$5)`, sessionID, accountID, secretHash(token), s.now(), s.now().Add(7*24*time.Hour))
+	_, err = tx.Exec(ctx, `INSERT INTO human_sessions(id,account_id,token_hash,created_at,last_seen_at,expires_at,auth_version,authenticated_at) SELECT $1,id,$3,$4,$4,$5,auth_version,$4 FROM accounts WHERE id=$2`, sessionID, accountID, secretHash(token), s.now(), s.now().Add(7*24*time.Hour))
 	if err != nil {
 		return "", err
 	}
