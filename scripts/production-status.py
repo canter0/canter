@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import sys
 import urllib.request
+from check_fonts import check_fonts
 
 ALIAS = 'canter-production'
 ROOT = Path(__file__).resolve().parents[1]
@@ -75,11 +76,13 @@ def main():
             public[name] = json.load(response)
     local = command(['git', '-C', str(ROOT), 'rev-parse', 'HEAD']).strip()
     dirty = bool(command(['git', '-C', str(ROOT), 'status', '--porcelain']).strip())
+    public['fonts'] = check_fonts()
     report = {'access': 'SSH over Tailscale', 'target': ALIAS, 'localCommit': local,
               'uncommittedChanges': dirty, 'production': remote, 'public': public}
     report['healthy'] = (all(state == 'active' for state in remote['services'].values())
                          and remote['readiness'].get('status') == 'ready'
                          and public['readyz'].get('status') == 'ready'
+                         and all(font['healthy'] for font in public['fonts'].values())
                          and remote['activeCommit'] == public['release.json'].get('commit'))
     print(json.dumps(report, indent=2))
     return 0 if report['healthy'] else 1

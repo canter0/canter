@@ -42,6 +42,7 @@ jobs:
       - run: go vet ./...
       - run: python3 deploy/test_pull_release.py
       - run: python3 scripts/test_production_status.py
+      - run: python3 scripts/test_check_fonts.py
       - run: test -z "$(find . -name '*.go' -not -path './web/node_modules/*' -print0 | xargs -0 gofmt -l)"
 
   web:
