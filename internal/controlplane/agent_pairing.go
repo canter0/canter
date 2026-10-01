@@ -292,6 +292,9 @@ func (h *HTTPServer) agentPairings(w http.ResponseWriter, r *http.Request, parts
 		return
 	}
 	if len(parts) == 2 && parts[1] == "approve" && r.Method == http.MethodPost {
+		if !h.requireRecent(w, r, p) {
+			return
+		}
 		var in struct {
 			Remember  bool       `json:"remember"`
 			Authority *Authority `json:"authority"`

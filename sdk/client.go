@@ -316,6 +316,10 @@ func (c *Client) createIntent(ctx context.Context, spec Spec, key string, replac
 	if err != nil {
 		return State{}, err
 	}
+	return c.createResolvedIntent(ctx, spec, key, replacing, etag, shape, imageID, networkIDs)
+}
+
+func (c *Client) createResolvedIntent(ctx context.Context, spec Spec, key string, replacing bool, etag string, shape compute.Shape, imageID string, networkIDs []string) (State, error) {
 	opID := newID()
 	networkIDs = rotate(networkIDs, opID)
 	createdAt := time.Now().UTC()
@@ -336,6 +340,7 @@ func (c *Client) createIntent(ctx context.Context, spec Spec, key string, replac
 	// This write is the mutation boundary: no provider create may occur before
 	// the complete deterministic intent is durable.
 	var written bool
+	var err error
 	if replacing {
 		_, written, err = c.m1.PutJSONIfMatch(ctx, key, etag, state)
 	} else {

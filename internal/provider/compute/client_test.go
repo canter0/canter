@@ -268,3 +268,31 @@ func TestManagedExposureReturnsTerminalAmbiguityWhenRuleInvisible(t *testing.T) 
 		t.Fatalf("err=%v creates=%d", err, creates.Load())
 	}
 }
+
+func TestResolveSizeUsesAllDimensionsAndPreservesClassResolution(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/flavors/detail":
+			_, _ = w.Write([]byte(`{"flavors":[{"id":"small","name":"small","vcpus":2,"ram":4096,"disk":40},{"id":"fits","name":"fits","vcpus":2,"ram":8192,"disk":80}]}`))
+		case "/v2/images":
+			_, _ = w.Write([]byte(`{"images":[{"id":"ubuntu","name":"Ubuntu-24.04-amd64","status":"active"}]}`))
+		case "/v2.0/networks":
+			_, _ = w.Write([]byte(`{"networks":[{"id":"network","name":"public","status":"ACTIVE","router:external":true}]}`))
+		default:
+			t.Fatalf("unexpected catalog request %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+	client := &Client{http: server.Client(), session: session{Token: "test", ComputeURL: server.URL, ImageURL: server.URL, NetworkURL: server.URL, Expires: time.Now().Add(time.Hour)}}
+	shape, _, _, err := client.ResolveSize(context.Background(), 2, 4096, 80, "ubuntu-24.04")
+	if err != nil || shape.ID != "fits" {
+		t.Fatalf("disk target ignored: %+v %v", shape, err)
+	}
+	if _, _, _, err = client.ResolveSize(context.Background(), 4, 4096, 80, "ubuntu-24.04"); err == nil {
+		t.Fatal("unavailable CPU target silently reduced")
+	}
+	shape, _, _, err = client.Resolve(context.Background(), "c1", "ubuntu-24.04")
+	if err != nil || shape.ID != "small" {
+		t.Fatalf("existing class mapping changed: %+v %v", shape, err)
+	}
+}

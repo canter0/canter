@@ -1,8 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { SettingsShell, SettingRow } from "@/components/settings-shell";
+import { CopyValue } from "@/components/copy-value";
 import { useWorkspace } from "@/components/workspace-context";
 import { canterFetch } from "@/lib/canter-api";
 import styles from "@/components/settings.module.css";
@@ -22,8 +24,9 @@ export default function AccountPage() {
     <section className={styles.section}><h2>Personal information</h2><div className={styles.card}>
       <SettingRow title="Profile" description="Your account in Canter"><span className={styles.avatar}>{data?.account.email.slice(0, 1).toUpperCase() ?? "…"}</span></SettingRow>
       <SettingRow title="Email" description="The email you use to sign in">{data?.account.email ?? "Loading…"}</SettingRow>
-      <SettingRow title="Account ID" description="Use this when contacting support"><span className={styles.muted}>{data?.account.id ?? "—"}</span></SettingRow>
+      <SettingRow title="Account ID" description="Use this when contacting support"><CopyValue value={data?.account.id} label="Account ID" /></SettingRow>
     </div></section>
+    <section className={styles.section}><h2>Account security</h2><div className={styles.card}><SettingRow title="Sign-in and recovery" description="Passkeys, authenticator apps, recovery codes, and sessions."><Link className={styles.button} href="/app/account/security">Manage security</Link></SettingRow></div></section>
     <section className={styles.section}><h2>Session</h2><div className={styles.card}>
       <SettingRow title="Sign out" description="End this browser’s Canter session."><button className={styles.button} disabled={busy} onClick={() => void signOut()}>{busy ? "Signing out…" : "Sign out"}</button></SettingRow>
     </div></section>

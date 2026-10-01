@@ -103,6 +103,32 @@ func (s *Store) collectWorkspaceUsage(ctx context.Context, source BillingResourc
 			resources = append(resources, r)
 		}
 	}
+	vms, err := s.ListVPS(ctx, workspace)
+	if err != nil {
+		return err
+	}
+	for _, vm := range vms {
+		if vm.Phase == "drafted" || vm.Phase == "deleted" {
+			continue
+		}
+		meter, ok := source.(interface {
+			VPSBillingResources(context.Context, sdk.VPSPlan) ([]sdk.BillingResource, error)
+		})
+		if !ok {
+			return fmt.Errorf("VPS metering unavailable")
+		}
+		items, err := meter.VPSBillingResources(ctx, vm.Plan)
+		if err != nil {
+			return err
+		}
+		for _, resource := range items {
+			if resource.ID == "" || resource.Kind != "compute" || resource.Units < 1 || resource.Units > 1<<50 || seen[resource.ID] {
+				return fmt.Errorf("invalid VPS metering snapshot")
+			}
+			seen[resource.ID] = true
+			resources = append(resources, resource)
+		}
+	}
 	return s.recordResourceSnapshot(ctx, workspace, resources, s.now().UTC().Truncate(time.Second))
 }
 

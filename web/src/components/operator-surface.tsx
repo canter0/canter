@@ -1,5 +1,6 @@
 "use client";
 import Link from "next/link";
+import { VPSReview } from "./vps-review";
 import { RepositoryOverview } from "./repository-overview";
 import { RepositoryCode } from "./repository-code";
 import { useEffect, useState } from "react";
@@ -44,6 +45,7 @@ export function OperatorSurfaceView({ surface, workspaceId, onSelect, conversati
     {surface.kind === "file" || surface.kind === "repository-changes" ? <RepositoryCode surface={surface} workspaceId={workspaceId} onSelect={onSelect} /> : null}
     {surface.kind === "github" ? <GitHubRepositories workspaceId={workspaceId} conversationId={conversationId} result={githubResult} busy={busy} onDeploy={onDeploy} /> : null}
     {surface.kind === "billing" ? <BillingSettings initialPlan="payg" checkoutReturned={false} /> : null}
+    {surface.kind === "vps" && surface.id ? <VPSReview key={surface.id} id={surface.id} workspaceId={workspaceId} /> : null}
     {surface.kind === "deployment" && surface.id ? <InitialDeploymentReview id={surface.id} /> : null}
     {surface.kind === "change" && surface.id && surface.system ? <ChangeReview id={surface.id} system={surface.system} /> : null}
     {surface.kind === "app" && surface.system ? <SystemDetail name={surface.system} /> : null}

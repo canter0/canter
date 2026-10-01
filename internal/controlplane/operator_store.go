@@ -37,14 +37,15 @@ type OperatorEvent struct {
 	CreatedAt time.Time       `json:"createdAt"`
 }
 type OperatorRun struct {
-	ID             string         `json:"id"`
-	ConversationID string         `json:"conversationId"`
-	Status         string         `json:"status"`
-	Model          string         `json:"model"`
-	Failure        string         `json:"failure,omitempty"`
-	Checkpoint     []modelMessage `json:"-"`
-	Steps          int            `json:"-"`
-	Lease          string         `json:"-"`
+	ID             string               `json:"id"`
+	ConversationID string               `json:"conversationId"`
+	Status         string               `json:"status"`
+	Model          string               `json:"model"`
+	ModelOptions   OperatorModelOptions `json:"modelOptions"`
+	Failure        string               `json:"failure,omitempty"`
+	Checkpoint     []modelMessage       `json:"-"`
+	Steps          int                  `json:"-"`
+	Lease          string               `json:"-"`
 }
 
 func (s *Store) Conversations(ctx context.Context, workspace, account string) ([]Conversation, error) {
@@ -89,6 +90,13 @@ func (s *Store) CreateConversation(ctx context.Context, workspace, account, id, 
 	return s.Conversation(ctx, workspace, account, id)
 }
 func (s *Store) EnqueueOperator(ctx context.Context, c Conversation, request, prompt, model string, surface *OperatorSurface, attachments ...OperatorAttachment) (OperatorRun, error) {
+	return s.EnqueueOperatorWithOptions(ctx, c, request, prompt, model, OperatorModelOptions{}, surface, attachments...)
+}
+
+func (s *Store) EnqueueOperatorWithOptions(ctx context.Context, c Conversation, request, prompt, model string, options OperatorModelOptions, surface *OperatorSurface, attachments ...OperatorAttachment) (OperatorRun, error) {
+	if err := validateOperatorModelOptions(model, options); err != nil {
+		return OperatorRun{}, err
+	}
 	if err := validateOperatorAttachments(attachments); err != nil {
 		return OperatorRun{}, err
 	}
@@ -119,7 +127,7 @@ func (s *Store) EnqueueOperator(ctx context.Context, c Conversation, request, pr
 		return OperatorRun{}, err
 	}
 	var run OperatorRun
-	err = tx.QueryRow(ctx, `SELECT id,conversation_id,status,model,failure FROM operator_runs WHERE conversation_id=$1 AND request_id=$2`, c.ID, request).Scan(&run.ID, &run.ConversationID, &run.Status, &run.Model, &run.Failure)
+	err = tx.QueryRow(ctx, `SELECT id,conversation_id,status,model,failure,model_options FROM operator_runs WHERE conversation_id=$1 AND request_id=$2`, c.ID, request).Scan(&run.ID, &run.ConversationID, &run.Status, &run.Model, &run.Failure, &run.ModelOptions)
 	if err == nil {
 		return run, nil
 	}
@@ -149,7 +157,8 @@ func (s *Store) EnqueueOperator(ctx context.Context, c Conversation, request, pr
 	run.ConversationID = c.ID
 	run.Status = "queued"
 	run.Model = model
-	_, err = tx.Exec(ctx, `INSERT INTO operator_runs(id,conversation_id,request_id,model) VALUES($1,$2,$3,$4)`, run.ID, c.ID, request, model)
+	run.ModelOptions = options
+	_, err = tx.Exec(ctx, `INSERT INTO operator_runs(id,conversation_id,request_id,model,model_options) VALUES($1,$2,$3,$4,$5)`, run.ID, c.ID, request, model, options)
 	if err != nil {
 		return run, err
 	}
@@ -165,7 +174,7 @@ func (s *Store) EnqueueOperator(ctx context.Context, c Conversation, request, pr
 	if err != nil {
 		return run, err
 	}
-	data, _ := json.Marshal(map[string]any{"status": "queued", "message": OperatorMessage{ID: id, RunID: run.ID, Role: "user", Content: prompt, Surface: surface, CreatedAt: s.now()}, "model": model})
+	data, _ := json.Marshal(map[string]any{"status": "queued", "message": OperatorMessage{ID: id, RunID: run.ID, Role: "user", Content: prompt, Surface: surface, CreatedAt: s.now()}, "model": model, "modelOptions": options})
 	_, err = tx.Exec(ctx, `INSERT INTO operator_events(conversation_id,run_id,kind,data) VALUES($1,$2,'queued',$3)`, c.ID, run.ID, data)
 	if err != nil {
 		return run, err
@@ -206,7 +215,7 @@ func (s *Store) OperatorEvents(ctx context.Context, id string, after int64) ([]O
 }
 func (s *Store) LatestOperatorRun(ctx context.Context, id string) (*OperatorRun, error) {
 	var r OperatorRun
-	err := s.pool.QueryRow(ctx, `SELECT id,conversation_id,status,model,failure FROM operator_runs WHERE conversation_id=$1 ORDER BY CASE status WHEN 'running' THEN 0 WHEN 'queued' THEN 1 ELSE 2 END, CASE WHEN status IN ('queued','running') THEN created_at END ASC, created_at DESC,id DESC LIMIT 1`, id).Scan(&r.ID, &r.ConversationID, &r.Status, &r.Model, &r.Failure)
+	err := s.pool.QueryRow(ctx, `SELECT id,conversation_id,status,model,failure,model_options FROM operator_runs WHERE conversation_id=$1 ORDER BY CASE status WHEN 'running' THEN 0 WHEN 'queued' THEN 1 ELSE 2 END, CASE WHEN status IN ('queued','running') THEN created_at END ASC, created_at DESC,id DESC LIMIT 1`, id).Scan(&r.ID, &r.ConversationID, &r.Status, &r.Model, &r.Failure, &r.ModelOptions)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -220,7 +229,7 @@ func (s *Store) claimOperator(ctx context.Context) (OperatorRun, bool, error) {
 	defer tx.Rollback(ctx)
 	var r OperatorRun
 	var raw []byte
-	err = tx.QueryRow(ctx, `SELECT r.id,r.conversation_id,r.status,r.model,r.failure,r.checkpoint,r.steps FROM operator_runs r WHERE (r.status='running' AND r.lease_expires_at<now()) OR (r.status='queued' AND NOT EXISTS(SELECT 1 FROM operator_runs earlier WHERE earlier.conversation_id=r.conversation_id AND earlier.id<>r.id AND (earlier.status='running' OR (earlier.status='queued' AND (earlier.created_at,earlier.id)<(r.created_at,r.id))))) ORDER BY r.created_at,r.id FOR UPDATE OF r SKIP LOCKED LIMIT 1`).Scan(&r.ID, &r.ConversationID, &r.Status, &r.Model, &r.Failure, &raw, &r.Steps)
+	err = tx.QueryRow(ctx, `SELECT r.id,r.conversation_id,r.status,r.model,r.failure,r.checkpoint,r.steps,r.model_options FROM operator_runs r WHERE (r.status='running' AND r.lease_expires_at<now()) OR (r.status='queued' AND NOT EXISTS(SELECT 1 FROM operator_runs earlier WHERE earlier.conversation_id=r.conversation_id AND earlier.id<>r.id AND (earlier.status='running' OR (earlier.status='queued' AND (earlier.created_at,earlier.id)<(r.created_at,r.id))))) ORDER BY r.created_at,r.id FOR UPDATE OF r SKIP LOCKED LIMIT 1`).Scan(&r.ID, &r.ConversationID, &r.Status, &r.Model, &r.Failure, &raw, &r.Steps, &r.ModelOptions)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return r, false, nil
 	}

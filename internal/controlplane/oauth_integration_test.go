@@ -47,7 +47,7 @@ func TestOAuthAccountsRequireExplicitLinkingAndHonorAccess(t *testing.T) {
 	ctx := context.Background()
 	login := oauthLoginState{InviteHash: secretHash("")}
 	id := oauthIdentity{Provider: "google", Subject: "google-one", Email: "owner@example.com"}
-	token, err := s.signinOAuth(ctx, id, login, false)
+	token, err := s.signinOAuth(ctx, id, login, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +83,7 @@ func TestOAuthAccountsRequireExplicitLinkingAndHonorAccess(t *testing.T) {
 	}
 	// The stable subject remains authoritative if the provider changes its email.
 	id.Email = "changed@example.com"
-	repeat, err := s.signinOAuth(ctx, id, login, true)
+	repeat, err := s.signinOAuth(ctx, id, login, true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,18 +92,18 @@ func TestOAuthAccountsRequireExplicitLinkingAndHonorAccess(t *testing.T) {
 		t.Fatal(repeatPrincipal, err)
 	}
 	github := oauthIdentity{Provider: "github", Subject: "123", Email: "owner@example.com"}
-	if _, err = s.signinOAuth(ctx, github, login, false); !errors.Is(err, errOAuthAccountExists) {
+	if _, err = s.signinOAuth(ctx, github, login, false, nil); !errors.Is(err, errOAuthAccountExists) {
 		t.Fatal("automatically linked email", err)
 	}
 	link := login
 	link.LinkAccountID = &principal.Actor.ID
 	// Explicitly authenticated linking also works when the user's provider email differs.
 	github.Email = "github-owner@example.com"
-	if _, err = s.signinOAuth(ctx, github, link, false); err != nil {
+	if _, err = s.signinOAuth(ctx, github, link, false, nil); err != nil {
 		t.Fatal(err)
 	}
 	other := oauthIdentity{Provider: "google", Subject: "google-two", Email: "other@example.com"}
-	if _, err = s.signinOAuth(ctx, other, login, true); !errors.Is(err, ErrForbidden) {
+	if _, err = s.signinOAuth(ctx, other, login, true, nil); !errors.Is(err, ErrForbidden) {
 		t.Fatal("invite bypass", err)
 	}
 	if err = s.SeedInvite(ctx, "invite-test", "OAuth test"); err != nil {
@@ -111,18 +111,18 @@ func TestOAuthAccountsRequireExplicitLinkingAndHonorAccess(t *testing.T) {
 	}
 	inviteLogin := login
 	inviteLogin.InviteHash = secretHash("invite-test")
-	if _, err = s.signinOAuth(ctx, other, inviteLogin, true); err != nil {
+	if _, err = s.signinOAuth(ctx, other, inviteLogin, true, nil); err != nil {
 		t.Fatal(err)
 	}
 	other.Subject = "google-three"
 	other.Email = "third@example.com"
-	if _, err = s.signinOAuth(ctx, other, inviteLogin, true); !errors.Is(err, ErrForbidden) {
+	if _, err = s.signinOAuth(ctx, other, inviteLogin, true, nil); !errors.Is(err, ErrForbidden) {
 		t.Fatal("reused invite", err)
 	}
 	if _, err = s.pool.Exec(ctx, `UPDATE accounts SET disabled_at=now() WHERE id=$1`, principal.Actor.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.signinOAuth(ctx, id, login, false); !errors.Is(err, ErrForbidden) {
+	if _, err = s.signinOAuth(ctx, id, login, false, nil); !errors.Is(err, ErrForbidden) {
 		t.Fatal("disabled account authenticated", err)
 	}
 }

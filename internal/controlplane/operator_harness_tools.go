@@ -26,9 +26,9 @@ func operatorPolicy(name string) (operatorToolPolicy, bool) {
 		return operatorToolPolicy{Effect: "web", RetrySafe: false}, true
 	case "canter_read_web":
 		return operatorToolPolicy{Effect: "read", RetrySafe: true}, true
-	case "canter_capabilities", "canter_show_compute", "canter_show_storage", "canter_estimate_compute_cost", "canter_list_changes", "canter_inspect_change_execution", "canter_list_standing_policies", "canter_list_initial_deployments", "canter_inspect_initial_deployment_execution", "canter_list_tasks", "canter_inspect_task", "canter_read_task_context", "canter_search_history", "canter_read_history", "canter_read_result":
+	case "canter_list_vps", "canter_capabilities", "canter_show_compute", "canter_show_storage", "canter_estimate_compute_cost", "canter_list_changes", "canter_inspect_change_execution", "canter_list_standing_policies", "canter_list_initial_deployments", "canter_inspect_initial_deployment_execution", "canter_list_tasks", "canter_inspect_task", "canter_read_task_context", "canter_search_history", "canter_read_history", "canter_read_result":
 		return operatorToolPolicy{Effect: "read", RetrySafe: true}, true
-	case "canter_show_apps", "canter_show_deployments", "canter_show_billing", "canter_show_activity", "canter_show_agents", "canter_show_repositories", "canter_inspect_repository", "canter_show_repository_changes", "canter_read_repository_file", "canter_inspect_system", "canter_inspect_change", "canter_inspect_initial_deployment":
+	case "canter_inspect_vps", "canter_show_apps", "canter_show_deployments", "canter_show_billing", "canter_show_activity", "canter_show_agents", "canter_show_repositories", "canter_inspect_repository", "canter_show_repository_changes", "canter_read_repository_file", "canter_inspect_system", "canter_inspect_change", "canter_inspect_initial_deployment":
 		return operatorToolPolicy{Effect: "view", RetrySafe: true}, true
 	case "canter_save_context":
 		return operatorToolPolicy{Effect: "context", RetrySafe: true}, true
@@ -37,7 +37,7 @@ func operatorPolicy(name string) (operatorToolPolicy, bool) {
 		return operatorToolPolicy{Effect: "scratch"}, true
 	case "canter_create_task":
 		return operatorToolPolicy{Effect: "task", RetrySafe: true, RequireDraft: true}, true
-	case "canter_draft_change", "canter_prepare_repository_deployment":
+	case "canter_prepare_vps", "canter_draft_change", "canter_prepare_repository_deployment":
 		return operatorToolPolicy{Effect: "draft", RequireDraft: true}, true
 	case "canter_apply_change_under_policy":
 		return operatorToolPolicy{Effect: "apply", RequireDraft: true}, true

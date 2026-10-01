@@ -146,6 +146,9 @@ func (h *HTTPServer) workspaceSecrets(w http.ResponseWriter, r *http.Request, p 
 		writeStoreError(w, ErrNotFound)
 		return
 	}
+	if !h.requireRecent(w, r, p) {
+		return
+	}
 	var input struct {
 		Name    string `json:"name"`
 		Purpose string `json:"purpose"`

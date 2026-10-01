@@ -5,6 +5,7 @@ import { SettingsShell } from "./settings-shell";
 import { WorkspaceIcon } from "./workspace-icon";
 import { useWorkspace } from "./workspace-context";
 import { canterFetch } from "@/lib/canter-api";
+import { useDialog } from "./use-dialog";
 import styles from "./settings.module.css";
 
 type Secret = { id: string; name: string; purpose: "stored" | "openrouter"; note: string; version: number; updatedBy: string; updatedAt: string; lastUsedAt: string | null };
@@ -27,21 +28,21 @@ export function WorkspaceSecrets() {
     canterFetch<SecretState>(`/workspaces/${encodeURIComponent(workspace)}/secrets`).then(result => { if (!cancelled) { setState(result); setError(""); } }).catch(cause => { if (!cancelled) setError(cause instanceof Error ? cause.message : "Could not load secrets."); });
     return () => { cancelled = true; };
   }, [workspace, reload]);
-  const secrets = state?.secrets.filter(secret => `${secret.name} ${secret.note}`.toLowerCase().includes(search.toLowerCase())) ?? [];
-  return <SettingsShell active="Secrets" title="Secrets">
+  const secrets = state?.secrets.filter(secret => `${secret.name} ${secret.note}`.toLowerCase().includes(search.trim().toLowerCase())) ?? [];
+  return <SettingsShell active="Secrets" title="Secrets" description="Store credentials securely and choose where Canter can use them.">
     {state && !state.enabled ? <p className={styles.notice}>Secret storage hasn’t been configured on this server yet. Ask your administrator to enable it.</p> : null}
     {state && !state.canManage ? <p className={styles.muted}>Only workspace owners can add, rotate, or remove secrets.</p> : null}
     {error ? <p className={`${styles.notice} ${styles.error}`} role="alert">{error}<button onClick={() => setReload(value => value + 1)}>Retry</button></p> : null}
     {notice ? <p className={styles.notice} role="status">{notice}</p> : null}
     <div className={styles.toolbar}><label className={styles.search}><WorkspaceIcon name="search" width="15" height="15" /><input aria-label="Search secrets" placeholder="Search secrets…" value={search} onChange={event => setSearch(event.target.value)} /></label><button className={styles.primary} disabled={!state?.enabled || !state.canManage} onClick={() => { setNotice(""); setEditing({ mode: "create" }); }}><WorkspaceIcon name="plus" width="14" height="14" />Add secret</button></div>
-    <div className={styles.tableWrap}>
+    <div className={styles.tableWrap} role="region" aria-label="Workspace secrets" tabIndex={0}>
       <table className={styles.table}><thead><tr><th>Name</th><th>Use</th><th>Updated</th><th><span className="sr-only">Actions</span></th></tr></thead><tbody>{secrets.map(secret => <tr key={secret.id}>
         <td><strong>{secret.name}</strong>{secret.note ? <small>{secret.note}</small> : <small>Value hidden</small>}</td>
         <td><span className={styles.badge}>{secret.purpose === "openrouter" ? "Hosted agent" : "Stored only"}</span><small>{secret.lastUsedAt ? `Last used ${date(secret.lastUsedAt)}` : "Not used yet"}</small></td>
         <td>{date(secret.updatedAt)}<small>Version {secret.version}{secret.updatedBy === data?.account.id ? " · You" : ""}</small></td>
         <td>{state?.canManage ? <div className={styles.actions}><button className={styles.button} disabled={!state.enabled} aria-label={`Rotate ${secret.name}`} onClick={() => setEditing({ mode: "rotate", secret })}>Rotate</button><button className={styles.button} aria-label={`Remove ${secret.name}`} onClick={() => setEditing({ mode: "revoke", secret })}><WorkspaceIcon name="close" width="13" height="13" /></button></div> : null}</td>
       </tr>)}</tbody></table>
-      {!secrets.length ? <div className={styles.empty}><WorkspaceIcon name="lock" width="26" height="26" /><h2>{!state && !error ? "Loading secrets…" : search ? "No matching secrets" : "No workspace secrets yet"}</h2><p>{search ? "Try another name or note." : "Add a credential once. Choose where Canter can use it."}</p></div> : null}
+      {!secrets.length && !error ? <div className={styles.empty} role="status"><WorkspaceIcon name="lock" width="26" height="26" /><h2>{!state ? "Loading secrets…" : search ? "No matching secrets" : "No workspace secrets yet"}</h2><p>{search ? "Try another name or note." : "Add a credential once. Choose where Canter can use it."}</p>{search ? <button type="button" className={styles.button} onClick={() => setSearch("")}>Clear search</button> : null}</div> : null}
     </div>
     {editing && workspace ? <SecretDialog key={`${workspace}-${editing.mode}`} workspace={workspace} editing={editing} hasOpenRouter={!!state?.secrets.some(secret => secret.purpose === "openrouter")} onClose={() => setEditing(null)} onSaved={() => { setNotice(editing.mode === "revoke" ? "Secret removed from Canter. Revoke the original key with its provider if it should no longer work anywhere." : editing.mode === "rotate" ? "Secret rotated. Future integration requests will use the new value." : "Secret saved. Its value will stay hidden."); setEditing(null); setReload(value => value + 1); }} /> : null}
   </SettingsShell>;
@@ -55,7 +56,7 @@ function SecretDialog({ workspace, editing, hasOpenRouter, onClose, onSaved }: {
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  useEffect(() => { const node = dialog.current; node?.showModal(); node?.querySelector<HTMLInputElement>("input")?.focus(); return () => node?.close(); }, []);
+  useDialog(dialog, editing.mode === "revoke" ? "[data-cancel]" : "input");
   async function save(event: React.FormEvent) {
     event.preventDefault(); setBusy(true); setError("");
     try {
@@ -74,7 +75,7 @@ function SecretDialog({ workspace, editing, hasOpenRouter, onClose, onSaved }: {
       {editing.mode === "create" ? <label>Note <textarea maxLength={500} placeholder="What is this used for? Don’t include credentials." value={note} onChange={event => setNote(event.target.value)} /><small>Notes and names are visible to workspace members and authorized agents.</small></label> : null}
       {remove && editing.secret.purpose === "openrouter" ? <p className={styles.notice}>Future conversations will return to the server’s default model connection, if one is configured.</p> : null}
       {error ? <p className={`${styles.notice} ${styles.error}`} role="alert">{error}</p> : null}
-      <div className={styles.actions}><button type="button" className={styles.button} disabled={busy} onClick={onClose}>Cancel</button><button className={styles.primary} disabled={busy}>{busy ? "Saving…" : remove ? "Remove secret" : editing.mode === "rotate" ? "Replace value" : "Save secret"}</button></div>
+      <div className={styles.actions}><button type="button" data-cancel className={styles.button} disabled={busy} onClick={onClose}>Cancel</button><button className={styles.primary} disabled={busy}>{busy ? "Saving…" : remove ? "Remove secret" : editing.mode === "rotate" ? "Replace value" : "Save secret"}</button></div>
     </form>
   </dialog>;
 }

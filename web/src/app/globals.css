@@ -25,6 +25,7 @@
 }
 
 :root {
+  --font-app: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --paper: #f7f7f2;
   --ink: #11130f;
   --muted: #6b7065;
@@ -34,13 +35,28 @@
 }
 
 .dashboard-theme {
-  --paper: #131313;
-  --ink: #e5e5e5;
+  --paper: #101010;
+  --ink: #ececec;
   --muted: #a0a0a0;
   --rule: #303030;
   --rule-strong: #505050;
   --surface: #181818;
+  --surface-raised: #202020;
+  --surface-hover: #292929;
+  --text-secondary: #aaa;
+  --text-subtle: #969696;
+  --focus: #bacbc0;
+  --radius-control: 8px;
+  --radius-panel: 16px;
+  --radius-menu: 12px;
+  --menu-inset: 5px;
+  --radius-menu-item: calc(var(--radius-menu) - var(--menu-inset) - 1px);
+  --motion-fast: 120ms;
+  --motion-enter: 180ms;
+  --motion-layout: 240ms;
+  --ease-out: cubic-bezier(.2,.8,.2,1);
   color-scheme: dark;
+  font-family: var(--font-app);
   background: var(--paper);
   color: var(--ink);
 }
@@ -50,7 +66,7 @@
 /* Keep the dashboard canvas dark and prevent browser rubber-banding. */
 html:has(.dashboard-theme),
 body:has(.dashboard-theme) {
-  background: #111;
+  background: #101010;
   color-scheme: dark;
   overscroll-behavior: none;
 }
@@ -66,7 +82,14 @@ body {
   font-size: 12px;
   text-rendering: geometricPrecision;
 }
-button, input { font: inherit; }
+button, input, select, textarea { font: inherit; }
+button, a, input, select, textarea, summary { -webkit-tap-highlight-color: transparent; }
+button:disabled { cursor: default; }
+:where(button, a, input, textarea, select, summary, [tabindex]):focus-visible { outline: 2px solid var(--focus, #52694d); outline-offset: 3px; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+.dashboard-theme :where(time, dd, progress) { font-variant-numeric: tabular-nums; }
+.dashboard-theme :where(button, a) { touch-action: manipulation; }
+.dashboard-theme :where(input, textarea) { caret-color: var(--ink); }
 @layer base {
   a, button { color: inherit; }
 }
@@ -101,5 +124,6 @@ button, input { font: inherit; }
 @keyframes sidebar-fade-out { to { opacity: 0; } }
 @keyframes sidebar-fade-in { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; transition-delay: 0ms !important; }
   ::view-transition-group(.sidebar-fade), ::view-transition-old(.sidebar-fade), ::view-transition-new(.sidebar-fade) { animation: none !important; }
 }

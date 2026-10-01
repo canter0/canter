@@ -31,7 +31,7 @@ export function FocusedChangeApproval({ token }: { token: string }) {
   }, [reviewPath, router, token]);
 
   async function approve() {
-    if (!review || !review.canApprove) return;
+    if (!review || !review.canApprove || pending) return;
     setPending(true);
     setError("");
     try {
@@ -52,7 +52,7 @@ export function FocusedChangeApproval({ token }: { token: string }) {
     ["base release", change.plan?.baseVersion ?? "none"],
     ["availability", impact?.availability ?? "not assessed"],
     ["data", impact?.data ?? "not assessed"],
-    ["monthly cost", impact?.monthlyCostDeltaCents == null ? "not assessed" : `${impact.monthlyCostDeltaCents >= 0 ? "+" : "−"}$${Math.abs(impact.monthlyCostDeltaCents / 100).toFixed(2)}`],
+    ["estimated monthly change (USD)", impact?.monthlyCostDeltaCents == null ? "not assessed" : `${impact.monthlyCostDeltaCents >= 0 ? "+" : "−"}$${Math.abs(impact.monthlyCostDeltaCents / 100).toFixed(2)}`],
     ["expires", new Date(review.capability.expiresAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })],
   ] : [];
 
@@ -64,12 +64,12 @@ export function FocusedChangeApproval({ token }: { token: string }) {
           <div className="max-w-[680px]">
             <span className="signal mb-8" />
             <div className="meta">APPROVAL RECORDED</div>
-            <h1 className="display mt-4 text-[clamp(40px,5vw,68px)] leading-[0.96] tracking-[-0.045em]">The exact Change is executing.</h1>
+            <h1 className="display mt-4 text-[clamp(40px,5vw,68px)] leading-[0.96] tracking-[-0.045em]">The exact change was approved.</h1>
             <div className="mt-12 border-y border-[var(--ink)] py-6">
               <div className="flex justify-between gap-8"><span>execution</span><span className="text-right text-[var(--muted)]">{result.execution.id}</span></div>
               <div className="mt-4 flex justify-between gap-8"><span>digest</span><span className="max-w-[480px] break-all text-right text-[10px] text-[var(--muted)]">{result.capability.digest}</span></div>
             </div>
-            <p className="mt-8 text-[var(--muted)]">Return to your agent. Canter retained the human identity, exact digest, execution, and evidence in the ledger.</p>
+            <p className="mt-8 text-[var(--muted)]">Execution is recorded and may still be in progress. Follow its status and verification evidence in your workspace.</p>
           </div>
         ) : (
           <>

@@ -375,6 +375,11 @@ func (c *Client) exposeSystemHostMode(ctx context.Context, system System, result
 		return err
 	}
 	spec := SystemHostSpec(system, "true")
+	name, ownership := systemEndpointPolicyIdentity(system)
+	return c.exposeSpecTCP(ctx, spec, result, recoverEscalated, port, name, ownership)
+}
+
+func (c *Client) exposeSpecTCP(ctx context.Context, spec Spec, result *ApplyResult, recoverEscalated bool, port int, name, ownership string) error {
 	key := stateKey(spec)
 	var current State
 	foundState, etag, err := c.m1.GetJSONVersion(ctx, key, &current)
@@ -390,7 +395,6 @@ func (c *Client) exposeSystemHostMode(ctx context.Context, system System, result
 		return fmt.Errorf("public endpoint currently requires exactly one host")
 	}
 	serverID := result.State.Resources[0].ID
-	name, ownership := systemEndpointPolicyIdentity(system)
 	intent := result.State.ExposureIntent
 	createCapable := false
 	if intent == nil {

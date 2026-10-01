@@ -92,6 +92,15 @@ var operatorWebMigration string
 //go:embed migrations/026_acquisition.sql
 var acquisitionMigration string
 
+//go:embed migrations/025_operator_model_options.sql
+var operatorModelOptionsMigration string
+
+//go:embed migrations/027_account_security.sql
+var accountSecurityMigration string
+
+//go:embed migrations/028_vps.sql
+var vpsMigration string
+
 var (
 	ErrNotFound      = errors.New("not found")
 	ErrUnauthorized  = errors.New("unauthorized")
@@ -294,6 +303,25 @@ func (s *Store) Migrate(ctx context.Context) error {
 	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('026_acquisition') ON CONFLICT DO NOTHING`); err != nil {
 		return err
 	}
+	if _, err := tx.Exec(ctx, operatorModelOptionsMigration); err != nil {
+		return fmt.Errorf("apply operator model options migration: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('025_operator_model_options') ON CONFLICT DO NOTHING`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, accountSecurityMigration); err != nil {
+		return fmt.Errorf("apply account security migration: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('027_account_security') ON CONFLICT DO NOTHING`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, vpsMigration); err != nil {
+		return fmt.Errorf("apply VPS migration: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('028_vps') ON CONFLICT DO NOTHING`); err != nil {
+		return err
+	}
+
 	return tx.Commit(ctx)
 }
 
@@ -305,6 +333,8 @@ func (s *Store) SeedInvite(ctx context.Context, key, label string) error {
 	return err
 }
 
+// Signup is a trusted internal provisioning helper. Public registration uses
+// signupVerifiedTx only after consuming a browser-bound email proof.
 func (s *Store) Signup(ctx context.Context, email, password, invite string, requireInvite bool) (Account, Workspace, string, error) {
 	email, err := normalizeEmail(email)
 	if err != nil {
@@ -314,16 +344,39 @@ func (s *Store) Signup(ctx context.Context, email, password, invite string, requ
 	if err != nil {
 		return Account{}, Workspace{}, "", err
 	}
-	accountID, _ := newID("usr_")
-	workspaceID, _ := newID("wrk_")
-	sessionID, _ := newID("hss_")
-	token, _ := newSecret("chs_", 32)
-	now := s.now()
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		return Account{}, Workspace{}, "", err
 	}
 	defer tx.Rollback(ctx)
+	account, workspace, token, err := s.signupVerifiedTx(ctx, tx, email, passwordHash, invite, requireInvite)
+	if err != nil {
+		return Account{}, Workspace{}, "", err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return Account{}, Workspace{}, "", err
+	}
+	return account, workspace, token, nil
+}
+
+func (s *Store) signupVerifiedTx(ctx context.Context, tx pgx.Tx, email, passwordHash, invite string, requireInvite bool) (Account, Workspace, string, error) {
+	accountID, err := newID("usr_")
+	if err != nil {
+		return Account{}, Workspace{}, "", err
+	}
+	workspaceID, err := newID("wrk_")
+	if err != nil {
+		return Account{}, Workspace{}, "", err
+	}
+	sessionID, err := newID("hss_")
+	if err != nil {
+		return Account{}, Workspace{}, "", err
+	}
+	token, err := newSecret("chs_", 32)
+	if err != nil {
+		return Account{}, Workspace{}, "", err
+	}
+	now := s.now()
 	if requireInvite {
 		result, err := tx.Exec(ctx, `UPDATE beta_invites SET consumed_by=$1,consumed_at=$2 WHERE key_hash=$3 AND consumed_at IS NULL`, accountID, now, secretHash(invite))
 		if err != nil {
@@ -333,7 +386,7 @@ func (s *Store) Signup(ctx context.Context, email, password, invite string, requ
 			return Account{}, Workspace{}, "", fmt.Errorf("%w: invalid or consumed beta invite", ErrForbidden)
 		}
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO accounts(id,email,password_hash,created_at) VALUES($1,$2,$3,$4)`, accountID, email, passwordHash, now); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO accounts(id,email,password_hash,created_at,email_verified_at) VALUES($1,$2,$3,$4,$4)`, accountID, email, passwordHash, now); err != nil {
 		if strings.Contains(err.Error(), "accounts_email_key") {
 			return Account{}, Workspace{}, "", fmt.Errorf("%w: account already exists", ErrConflict)
 		}
@@ -352,40 +405,53 @@ func (s *Store) Signup(ctx context.Context, email, password, invite string, requ
 	if _, err := tx.Exec(ctx, `INSERT INTO human_sessions(id,account_id,token_hash,created_at,last_seen_at,expires_at) VALUES($1,$2,$3,$4,$4,$5)`, sessionID, accountID, secretHash(token), now, now.Add(7*24*time.Hour)); err != nil {
 		return Account{}, Workspace{}, "", err
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return Account{}, Workspace{}, "", err
-	}
 	return Account{ID: accountID, Email: email, CreatedAt: now}, Workspace{ID: workspaceID, Name: "default", Revision: 1, Role: "owner", AgentAuthority: agentAuthority}, token, nil
 }
 
 func (s *Store) Signin(ctx context.Context, email, password string) (Account, []Workspace, string, error) {
 	email, err := normalizeEmail(email)
 	if err != nil {
+		verifyPassword(dummyPasswordHash, password)
 		return Account{}, nil, "", ErrUnauthorized
 	}
-	var account Account
-	var passwordHash string
-	var disabled *time.Time
-	err = s.pool.QueryRow(ctx, `SELECT id,email,password_hash,created_at,disabled_at FROM accounts WHERE email=$1`, email).Scan(&account.ID, &account.Email, &passwordHash, &account.CreatedAt, &disabled)
-	if err != nil || disabled != nil || !verifyPassword(passwordHash, password) {
-		return Account{}, nil, "", ErrUnauthorized
-	}
-	workspaces, err := s.WorkspacesForAccount(ctx, account.ID)
+	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return Account{}, nil, "", err
 	}
-	sessionID, _ := newID("hss_")
-	token, _ := newSecret("chs_", 32)
+	defer tx.Rollback(ctx)
+	var account Account
+	var passwordHash string
+	var disabled *time.Time
+	var version int64
+	err = tx.QueryRow(ctx, `SELECT id,email,password_hash,created_at,disabled_at,auth_version FROM accounts WHERE email=$1 FOR UPDATE`, email).Scan(&account.ID, &account.Email, &passwordHash, &account.CreatedAt, &disabled, &version)
+	if err != nil || !strings.HasPrefix(passwordHash, "$argon2id$") {
+		verifyPassword(dummyPasswordHash, password)
+		return Account{}, nil, "", ErrUnauthorized
+	}
+	if !verifyPassword(passwordHash, password) || disabled != nil {
+		return Account{}, nil, "", ErrUnauthorized
+	}
+	sessionID, err := newID("hss_")
+	if err != nil {
+		return Account{}, nil, "", err
+	}
+	token, err := newSecret("chs_", 32)
+	if err != nil {
+		return Account{}, nil, "", err
+	}
 	now := s.now()
-	_, err = s.pool.Exec(ctx, `INSERT INTO human_sessions(id,account_id,token_hash,created_at,last_seen_at,expires_at) VALUES($1,$2,$3,$4,$4,$5)`, sessionID, account.ID, secretHash(token), now, now.Add(7*24*time.Hour))
-	return account, workspaces, token, err
+	_, err = tx.Exec(ctx, `INSERT INTO human_sessions(id,account_id,token_hash,created_at,last_seen_at,expires_at,auth_version,authenticated_at) VALUES($1,$2,$3,$4,$4,$5,$6,$4)`, sessionID, account.ID, secretHash(token), now, now.Add(authLifetime), version)
+	if err == nil {
+		err = tx.Commit(ctx)
+	}
+	return account, nil, token, err
 }
 
 func (s *Store) ResolveHuman(ctx context.Context, token string) (Principal, error) {
 	var p Principal
 	var account Account
 	var sessionID string
-	err := s.pool.QueryRow(ctx, `SELECT a.id,a.email,a.created_at,hs.id FROM human_sessions hs JOIN accounts a ON a.id=hs.account_id WHERE hs.token_hash=$1 AND hs.revoked_at IS NULL AND hs.expires_at>$2 AND a.disabled_at IS NULL`, secretHash(token), s.now()).Scan(&account.ID, &account.Email, &account.CreatedAt, &sessionID)
+	err := s.pool.QueryRow(ctx, `SELECT a.id,a.email,a.created_at,hs.id FROM human_sessions hs JOIN accounts a ON a.id=hs.account_id WHERE hs.token_hash=$1 AND hs.revoked_at IS NULL AND hs.expires_at>$2 AND a.disabled_at IS NULL AND a.email_verified_at IS NOT NULL AND hs.auth_version=a.auth_version AND (hs.mfa_verified_at IS NOT NULL OR NOT EXISTS (SELECT 1 FROM account_totp t WHERE t.account_id=a.id AND t.enabled_at IS NOT NULL))`, secretHash(token), s.now()).Scan(&account.ID, &account.Email, &account.CreatedAt, &sessionID)
 	if err != nil {
 		return p, ErrUnauthorized
 	}

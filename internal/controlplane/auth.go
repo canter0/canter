@@ -6,7 +6,9 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"fmt"
+	"net/mail"
 	"strings"
+	"unicode/utf8"
 
 	"golang.org/x/crypto/argon2"
 )
@@ -32,8 +34,8 @@ func secretHash(value string) []byte {
 }
 
 func hashPassword(password string) (string, error) {
-	if len(password) < 12 || len(password) > 1024 {
-		return "", fmt.Errorf("password must contain between 12 and 1024 characters")
+	if err := validateNewPassword(password); err != nil {
+		return "", err
 	}
 	salt := make([]byte, 16)
 	if _, err := rand.Read(salt); err != nil {
@@ -55,7 +57,7 @@ func verifyPassword(encoded, password string) bool {
 	if _, err := fmt.Sscanf(parts[3], "m=%d,t=%d,p=%d", &memory, &iterations, &threads); err != nil {
 		return false
 	}
-	if memory > argonMemory || iterations > 10 || threads > 16 {
+	if memory < 8*uint32(threads) || memory > argonMemory || iterations == 0 || iterations > 10 || threads == 0 || threads > 16 {
 		return false
 	}
 	salt, err := base64.RawStdEncoding.DecodeString(parts[4])
@@ -63,7 +65,7 @@ func verifyPassword(encoded, password string) bool {
 		return false
 	}
 	want, err := base64.RawStdEncoding.DecodeString(parts[5])
-	if err != nil || len(want) == 0 {
+	if err != nil || len(want) != argonKeyLen {
 		return false
 	}
 	actual := argon2.IDKey([]byte(password), salt, iterations, memory, threads, uint32(len(want)))
@@ -72,7 +74,8 @@ func verifyPassword(encoded, password string) bool {
 
 func normalizeEmail(email string) (string, error) {
 	email = strings.ToLower(strings.TrimSpace(email))
-	if len(email) > 254 || !strings.Contains(email, "@") || strings.HasPrefix(email, "@") || strings.HasSuffix(email, "@") {
+	parsed, err := mail.ParseAddress(email)
+	if err != nil || parsed.Address != email || len(email) > 254 || !strings.Contains(email, "@") {
 		return "", fmt.Errorf("valid email is required")
 	}
 	return email, nil
@@ -97,3 +100,21 @@ func newUserCode() (string, error) {
 	}
 	return string(raw[:4]) + "-" + string(raw[4:]), nil
 }
+
+func validateNewPassword(password string) error {
+	if !utf8.ValidString(password) || utf8.RuneCountInString(password) < 15 || utf8.RuneCountInString(password) > 1024 {
+		return fmt.Errorf("use a password between 15 and 1024 characters")
+	}
+	if passwordDenied(password, commonPasswordDenylist) {
+		return fmt.Errorf("this password is too common; choose another")
+	}
+	lower := strings.ToLower(strings.TrimSpace(password))
+	for _, word := range []string{"password", "1234567890", "qwerty", "letmein", "iloveyou", "123456789", "abcdefgh"} {
+		if strings.ReplaceAll(lower, word, "") == "" {
+			return fmt.Errorf("choose a less common password or a longer passphrase")
+		}
+	}
+	return nil
+}
+
+var dummyPasswordHash = func() string { h, _ := hashPassword("Canter dummy comparison 6a4e7c2b"); return h }()
