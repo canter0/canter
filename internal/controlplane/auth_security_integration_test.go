@@ -504,7 +504,7 @@ func TestAuthOAuthReauthenticationClearsPreviousSessionBeforeMFA(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "/v1/auth/oauth/github/callback", nil)
 	r.AddCookie(cookie)
 	w = httptest.NewRecorder()
-	if h.finishOAuthSecurity(w, r, token, oauthLoginState{Next: "/app/account/security"}) {
+	if h.finishOAuthSecurity(w, r, token, oauthLoginState{Next: "/app/account/security"}, nil) {
 		t.Fatal("MFA bypassed")
 	}
 	requireStatus(t, w, http.StatusSeeOther)

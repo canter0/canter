@@ -43,8 +43,9 @@ func (s *Store) consumeOAuth(ctx context.Context, state, browser, provider strin
 
 var errOAuthAccountExists = errors.New("an account with this email already exists")
 
-// OAuth identities are keyed by the provider's stable subject, never by email.
-// An existing account must authenticate before attaching a new identity.
+// Bound identities always resolve by stable provider subject. A new identity
+// may prove ownership of an existing verified email; attachment is deferred
+// until finishOAuthSecurity completes the account's authentication policy.
 func (s *Store) signinOAuth(ctx context.Context, identity oauthIdentity, login oauthLoginState, requireInvite bool, linkGuard func(context.Context, pgx.Tx, string) error) (string, error) {
 	if identity.Subject == "" || (identity.Provider != "google" && identity.Provider != "github") {
 		return "", ErrUnauthorized
@@ -69,52 +70,72 @@ func (s *Store) signinOAuth(ctx context.Context, identity oauthIdentity, login o
 			return "", ErrForbidden
 		}
 	} else {
+		persistIdentity := true
 		if login.LinkAccountID != nil {
 			err = tx.QueryRow(ctx, `SELECT id,disabled_at FROM accounts WHERE id=$1 FOR UPDATE`, *login.LinkAccountID).Scan(&accountID, &disabled)
 			if err != nil || disabled != nil {
 				return "", ErrForbidden
 			}
 		} else {
-			var exists bool
-			if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM accounts WHERE email=$1)`, email).Scan(&exists); err != nil {
+			var verified *time.Time
+			err = tx.QueryRow(ctx, `SELECT id,disabled_at,email_verified_at FROM accounts WHERE email=$1 FOR UPDATE`, email).Scan(&accountID, &disabled, &verified)
+			if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 				return "", err
 			}
-			if exists {
-				return "", errOAuthAccountExists
-			}
-			accountID, err = newID("usr_")
-			if err != nil {
-				return "", err
-			}
-			workspaceID, err := newID("wrk_")
-			if err != nil {
-				return "", err
-			}
-			if requireInvite {
-				result, err := tx.Exec(ctx, `UPDATE beta_invites SET consumed_by=$1,consumed_at=$2 WHERE key_hash=$3 AND consumed_at IS NULL`, accountID, s.now(), login.InviteHash)
+			if err == nil {
+				if disabled != nil {
+					return "", ErrForbidden
+				}
+				if verified == nil {
+					if err = allowLegacyOAuthVerificationTx(ctx, tx, accountID); err != nil {
+						return "", err
+					}
+				}
+				var connected bool
+				if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM oauth_identities WHERE account_id=$1 AND provider=$2)`, accountID, identity.Provider).Scan(&connected); err != nil {
+					return "", err
+				}
+				if connected {
+					return "", ErrConflict
+				}
+				persistIdentity = false
+			} else {
+				accountID, err = newID("usr_")
 				if err != nil {
 					return "", err
 				}
-				if result.RowsAffected() != 1 {
-					return "", ErrForbidden
+				workspaceID, err := newID("wrk_")
+				if err != nil {
+					return "", err
+				}
+				if requireInvite {
+					result, err := tx.Exec(ctx, `UPDATE beta_invites SET consumed_by=$1,consumed_at=$2 WHERE key_hash=$3 AND consumed_at IS NULL`, accountID, s.now(), login.InviteHash)
+					if err != nil {
+						return "", err
+					}
+					if result.RowsAffected() != 1 {
+						return "", ErrForbidden
+					}
+				}
+				// This sentinel cannot pass password verification. No password is generated or exposed.
+				if _, err = tx.Exec(ctx, `INSERT INTO accounts(id,email,password_hash,created_at,email_verified_at) VALUES($1,$2,'!oauth',$3,$3)`, accountID, email, s.now()); err != nil {
+					return "", err
+				}
+				if _, err = tx.Exec(ctx, `INSERT INTO workspaces(id,name,created_at) VALUES($1,'default',$2)`, workspaceID, s.now()); err != nil {
+					return "", err
+				}
+				if _, err = tx.Exec(ctx, `INSERT INTO workspace_usage_caps(workspace_id,limit_cents,created_at,updated_at) VALUES($1,500,$2,$2)`, workspaceID, s.now()); err != nil {
+					return "", err
+				}
+				if _, err = tx.Exec(ctx, `INSERT INTO memberships(account_id,workspace_id,role) VALUES($1,$2,'owner')`, accountID, workspaceID); err != nil {
+					return "", err
 				}
 			}
-			// This sentinel cannot pass password verification. No password is generated or exposed.
-			if _, err = tx.Exec(ctx, `INSERT INTO accounts(id,email,password_hash,created_at,email_verified_at) VALUES($1,$2,'!oauth',$3,$3)`, accountID, email, s.now()); err != nil {
-				return "", err
-			}
-			if _, err = tx.Exec(ctx, `INSERT INTO workspaces(id,name,created_at) VALUES($1,'default',$2)`, workspaceID, s.now()); err != nil {
-				return "", err
-			}
-			if _, err = tx.Exec(ctx, `INSERT INTO workspace_usage_caps(workspace_id,limit_cents,created_at,updated_at) VALUES($1,500,$2,$2)`, workspaceID, s.now()); err != nil {
-				return "", err
-			}
-			if _, err = tx.Exec(ctx, `INSERT INTO memberships(account_id,workspace_id,role) VALUES($1,$2,'owner')`, accountID, workspaceID); err != nil {
-				return "", err
-			}
 		}
-		if _, err = tx.Exec(ctx, `INSERT INTO oauth_identities(provider,subject,account_id,email,created_at) VALUES($1,$2,$3,$4,$5)`, identity.Provider, identity.Subject, accountID, email, s.now()); err != nil {
-			return "", fmt.Errorf("%w: this provider is already connected", ErrConflict)
+		if persistIdentity {
+			if _, err = tx.Exec(ctx, `INSERT INTO oauth_identities(provider,subject,account_id,email,created_at) VALUES($1,$2,$3,$4,$5)`, identity.Provider, identity.Subject, accountID, email, s.now()); err != nil {
+				return "", fmt.Errorf("%w: this provider is already connected", ErrConflict)
+			}
 		}
 	}
 	if login.LinkAccountID != nil && linkGuard != nil {
@@ -138,4 +159,77 @@ func (s *Store) signinOAuth(ctx context.Context, identity oauthIdentity, login o
 		return "", err
 	}
 	return token, nil
+}
+
+// A legacy password-only registration has not yet established email ownership.
+// Existing provider identities and enrolled factors require their normal proof.
+func allowLegacyOAuthVerificationTx(ctx context.Context, tx pgx.Tx, account string) error {
+	var protected bool
+	err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM oauth_identities WHERE account_id=$1) OR EXISTS(SELECT 1 FROM account_totp WHERE account_id=$1 AND enabled_at IS NOT NULL) OR EXISTS(SELECT 1 FROM account_passkeys WHERE account_id=$1)`, account).Scan(&protected)
+	if err != nil {
+		return err
+	}
+	if protected {
+		return errOAuthAccountExists
+	}
+	return nil
+}
+
+func pendingOAuthIdentityTx(ctx context.Context, tx pgx.Tx, account authAccount, identity oauthIdentity) (bool, error) {
+	if identity.Subject == "" || (identity.Provider != "google" && identity.Provider != "github") {
+		return false, ErrUnauthorized
+	}
+	var owner string
+	err := tx.QueryRow(ctx, `SELECT account_id FROM oauth_identities WHERE provider=$1 AND subject=$2`, identity.Provider, identity.Subject).Scan(&owner)
+	if err == nil {
+		if owner != account.ID {
+			return false, ErrForbidden
+		}
+		return false, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return false, err
+	}
+	email, err := normalizeEmail(identity.Email)
+	if err != nil || email != account.Email {
+		return false, ErrUnauthorized
+	}
+	if account.Verified == nil {
+		if err = allowLegacyOAuthVerificationTx(ctx, tx, account.ID); err != nil {
+			return false, err
+		}
+	}
+	var connected bool
+	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM oauth_identities WHERE account_id=$1 AND provider=$2)`, account.ID, identity.Provider).Scan(&connected); err != nil {
+		return false, err
+	}
+	if connected {
+		return false, ErrConflict
+	}
+	return true, nil
+}
+
+func (h *HTTPServer) linkOAuthIdentityTx(ctx context.Context, tx pgx.Tx, account authAccount, identity oauthIdentity) (authAccount, error) {
+	pending, err := pendingOAuthIdentityTx(ctx, tx, account, identity)
+	if err != nil || !pending {
+		return account, err
+	}
+	if account.Verified == nil {
+		// Retire credentials from the unverified registration before granting
+		// access, so a pre-registration password/session cannot survive proof.
+		if err = h.invalidateAuthTx(ctx, tx, account.ID, ""); err != nil {
+			return account, err
+		}
+		now := h.service.Store.now()
+		if err = tx.QueryRow(ctx, `UPDATE accounts SET email_verified_at=$2,password_hash='!oauth' WHERE id=$1 RETURNING auth_version`, account.ID, now).Scan(&account.Version); err != nil {
+			return account, err
+		}
+		account.Verified = &now
+		account.Password = "!oauth"
+	}
+	email, _ := normalizeEmail(identity.Email)
+	if _, err = tx.Exec(ctx, `INSERT INTO oauth_identities(provider,subject,account_id,email,created_at) VALUES($1,$2,$3,$4,$5)`, identity.Provider, identity.Subject, account.ID, email, h.service.Store.now()); err != nil {
+		return account, err
+	}
+	return account, h.securityEventTx(ctx, tx, account, "Connected sign-in account added")
 }

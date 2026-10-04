@@ -42,7 +42,7 @@ func TestOAuthStateBindingExpiryAndReplay(t *testing.T) {
 	}
 }
 
-func TestOAuthAccountsRequireExplicitLinkingAndHonorAccess(t *testing.T) {
+func TestOAuthAccountsReuseVerifiedEmailAndHonorAccess(t *testing.T) {
 	s := integrationStore(t)
 	ctx := context.Background()
 	login := oauthLoginState{InviteHash: secretHash("")}
@@ -92,8 +92,10 @@ func TestOAuthAccountsRequireExplicitLinkingAndHonorAccess(t *testing.T) {
 		t.Fatal(repeatPrincipal, err)
 	}
 	github := oauthIdentity{Provider: "github", Subject: "123", Email: "owner@example.com"}
-	if _, err = s.signinOAuth(ctx, github, login, false, nil); !errors.Is(err, errOAuthAccountExists) {
-		t.Fatal("automatically linked email", err)
+	if linked, err := s.signinOAuth(ctx, github, login, true, nil); err != nil {
+		t.Fatal("verified email could not reuse the account", err)
+	} else if p, err := s.ResolveHuman(ctx, linked); err != nil || p.Actor.ID != principal.Actor.ID {
+		t.Fatal("verified email resolved another account", p, err)
 	}
 	link := login
 	link.LinkAccountID = &principal.Actor.ID

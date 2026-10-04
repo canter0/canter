@@ -350,7 +350,7 @@ func (h *HTTPServer) oauthCallback(w http.ResponseWriter, r *http.Request, name 
 		fail("sign_in_failed")
 		return
 	}
-	if !h.finishOAuthSecurity(w, r, session, login) {
+	if !h.finishOAuthSecurity(w, r, session, login, &identity) {
 		return
 	}
 	w.Header().Del("Content-Type")
