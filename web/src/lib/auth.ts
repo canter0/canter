@@ -18,7 +18,7 @@ export function authError(code: string) {
     access_denied: "Sign-in was cancelled. Please try again when you're ready.",
     sign_in_failed: "We couldn't complete sign-in. Please try again.",
     unverified_email: "Your provider couldn't verify your identity and email address.",
-    account_exists: "An account already uses this email. Log in with your password, then connect Google or GitHub in Account settings.",
+    account_exists: "Verify your email using your existing sign-in method, then try this provider again.",
     access_restricted: "We couldn't grant access. Check your invitation or sign in again.",
   };
   return messages[code] ?? "";

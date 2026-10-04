@@ -1,6 +1,7 @@
 package controlplane
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/url"
@@ -271,6 +272,14 @@ func (h *HTTPServer) finishEmailAuth(w http.ResponseWriter, r *http.Request, in 
 
 // Provisional sessions cannot resolve as humans until email and MFA policy pass.
 func (h *HTTPServer) afterPrimaryLogin(r *http.Request, token string) (stage, next string, err error) {
+	return h.afterPrimaryLoginWithOAuth(r, token, nil)
+}
+
+type oauthLoginProof struct {
+	Identity *oauthIdentity `json:"oauthIdentity,omitempty"`
+}
+
+func (h *HTTPServer) afterPrimaryLoginWithOAuth(r *http.Request, token string, identity *oauthIdentity) (stage, next string, err error) {
 	ctx := r.Context()
 	var account, email string
 	var version int64
@@ -295,6 +304,23 @@ func (h *HTTPServer) afterPrimaryLogin(r *http.Request, token string) (stage, ne
 		return "", "", err
 	}
 	c := authChallenge{AccountID: &a.ID, Email: a.Email, Version: a.Version}
+	if identity != nil {
+		pending, e := pendingOAuthIdentityTx(ctx, tx, a, *identity)
+		if e != nil {
+			return "", "", e
+		}
+		if pending {
+			if a.Verified == nil {
+				a, err = h.linkOAuthIdentityTx(ctx, tx, a, *identity)
+				c.Version = a.Version
+			} else {
+				c.Payload, err = json.Marshal(oauthLoginProof{Identity: identity})
+			}
+			if err != nil {
+				return "", "", err
+			}
+		}
+	}
 	switch {
 	case a.Verified == nil:
 		c.Purpose = "verify"
@@ -306,7 +332,12 @@ func (h *HTTPServer) afterPrimaryLogin(r *http.Request, token string) (stage, ne
 		next, err = newChallengeTx(ctx, tx, c, 5*time.Minute, h.service.Store.now())
 	default:
 		stage = "complete"
-		next, err = h.issueSessionTx(ctx, tx, a, false, r)
+		if identity != nil {
+			a, err = h.linkOAuthIdentityTx(ctx, tx, a, *identity)
+		}
+		if err == nil {
+			next, err = h.issueSessionTx(ctx, tx, a, false, r)
+		}
 	}
 	if err == nil {
 		err = tx.Commit(ctx)
@@ -347,6 +378,17 @@ func (h *HTTPServer) finishMFA(w http.ResponseWriter, r *http.Request, code stri
 		writeError(w, http.StatusBadRequest, errors.New("invalid authenticator or recovery code"))
 		return
 	}
+	var proof oauthLoginProof
+	if err = json.Unmarshal(c.Payload, &proof); err != nil {
+		writeError(w, http.StatusBadRequest, errAuthExpired)
+		return
+	}
+	if proof.Identity != nil {
+		if a, err = h.linkOAuthIdentityTx(r.Context(), tx, a, *proof.Identity); err != nil {
+			writeStoreError(w, err)
+			return
+		}
+	}
 	session, err := h.issueSessionTx(r.Context(), tx, a, true, r)
 	if err == nil {
 		err = consumeChallengeTx(r.Context(), tx, token)
@@ -360,8 +402,8 @@ func (h *HTTPServer) finishMFA(w http.ResponseWriter, r *http.Request, code stri
 	}
 	h.authSuccess(w, r, session)
 }
-func (h *HTTPServer) finishOAuthSecurity(w http.ResponseWriter, r *http.Request, token string, login oauthLoginState) bool {
-	stage, next, err := h.afterPrimaryLogin(r, token)
+func (h *HTTPServer) finishOAuthSecurity(w http.ResponseWriter, r *http.Request, token string, login oauthLoginState, identity *oauthIdentity) bool {
+	stage, next, err := h.afterPrimaryLoginWithOAuth(r, token, identity)
 	if err != nil {
 		h.oauthFailure(w, r, "sign_in_failed", login.Mode, login.Next)
 		return false
