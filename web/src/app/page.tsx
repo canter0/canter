@@ -13,9 +13,9 @@ export default function Home() {
     <div className={styles.landing}>
       <AcquisitionVisit landingPath="/" />
       <div className={styles.frame}>
-        <DitherBackground className={styles.background} />
         <SiteHeader />
         <main className={styles.hero}>
+          <DitherBackground className={styles.background} />
           <h1 className={styles.headline}>
             <span>Infrastructure</span>
             <span className={styles.accent}>you can talk to.</span>
@@ -25,7 +25,12 @@ export default function Home() {
             {" "}<span>Review the plan, approve changes, and see what’s running.</span>
           </p>
           <div className={styles.start}>
-            <Link href="/create-account" className={styles.startButton}>Get started with Canter <span aria-hidden="true">↗</span></Link>
+            <Link href="/create-account" className={styles.startButton}>
+              Get started with Canter
+              <svg className={styles.startArrow} width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M6 18 18 6M6 6h12v12" />
+              </svg>
+            </Link>
           </div>
           <AgentOnboardingPrompt />
         </main>
