@@ -44,6 +44,12 @@
 .getStarted:hover::before { opacity: .14; }
 .getStarted > * { position: relative; z-index: 1; }
 .header a:focus-visible { outline: 2px solid #236513; outline-offset: 6px; }
+.mobileMenu { display: none; }
+.mobileTrigger { display: grid; place-items: center; width: 40px; height: 40px; border: 1px solid #d5d9cf; border-radius: 8px; color: #34422d; cursor: pointer; }
+.mobileTrigger:hover, .mobileTrigger[aria-expanded="true"] { background: #e8ebdf; }
+.mobileLinks { position: absolute; top: calc(100% - 8px); left: 16px; right: 16px; z-index: 30; padding: 5px; border: 1px solid #cdd3c5; border-radius: 12px; background: #f7f7f2; box-shadow: 0 12px 28px #15210b20; }
+.mobileLinks a { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 10px 12px; border-radius: 6px; }
+.mobileLinks a:hover, .mobileLinks a:focus-visible { background: #e8ebdf; outline-offset: -2px; }
 @media (max-width: 760px) {
   .header { height: 80px; padding: 0 24px; gap: 30px; }
   .navigation { gap: 20px; }
@@ -53,6 +59,9 @@
 @media (max-width: 580px) {
   .header { gap: 16px; padding: 0 20px; font-size: 13px; }
   .navigation { display: none; }
+  .mobileMenu { display: block; margin-left: auto; }
+  .actions { margin-left: 0; }
+  .signIn { display: none; }
   .actions { gap: 16px; }
   .getStarted { gap: 10px; padding: 0 13px; min-height: 39px; }
   .wordmark { font-size: 25px; }

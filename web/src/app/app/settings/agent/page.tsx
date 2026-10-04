@@ -64,7 +64,7 @@ export default function AgentSettingsPage() {
   return <SettingsShell active="Agents" title="Agents" description="Set workspace defaults or customize an individual agent’s permissions.">
     <div className={styles.toolbar}><p className={styles.muted}>Agent permissions</p><Link className={styles.button} href="/app/agents">View your agents</Link></div>
     {notice ? <p className={styles.notice} role="status">{notice}</p> : null}
-    {loading ? <p role="status">Loading agents…</p> : error ? <p role="alert" className={`${styles.notice} ${styles.error}`}>Couldn’t load agents.<button onClick={retry}>Try again</button></p> : data ? <>
+    {loading ? <p role="status">Loading agents…</p> : error && !data ? <p role="alert" className={`${styles.notice} ${styles.error}`}>Couldn’t load agents.<button onClick={retry}>Try again</button></p> : data ? <>
       {!editable ? <p className={styles.notice}>Only workspace owners can change agent permissions.</p> : null}
       <WorkspaceDefaults key={`${data.workspace.id}:${JSON.stringify(data.workspace.agentAuthority)}`} workspaceId={data.workspace.id} value={data.workspace.agentAuthority} editable={editable} refresh={retry} onSaved={setNotice} />
       <section className={styles.section}><h2>Individual agents</h2>

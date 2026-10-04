@@ -12,12 +12,12 @@ func TestHTTPHumanOnboardsFreshAgentAndAgentBootstraps(t *testing.T) {
 	store := integrationStore(t)
 	handler := NewHTTPServer(&Service{Store: store}, HTTPConfig{PublicURL: "http://canter.test"})
 
-	signup := requestJSON(t, handler, http.MethodPost, "/v1/auth/signup", map[string]any{"email": "http-owner@example.com", "password": "correct horse battery staple"}, nil)
+	signup := signupHTTP(t, handler, "http-owner@example.com")
 	if signup.Code != http.StatusCreated {
 		t.Fatalf("signup status %d: %s", signup.Code, signup.Body.String())
 	}
 	cookies := signup.Result().Cookies()
-	if len(cookies) != 1 || cookies[0].Name != "canter_session" || !cookies[0].HttpOnly || cookies[0].SameSite != http.SameSiteLaxMode {
+	if len(cookies) != 2 || cookies[0].Name != "canter_session" || !cookies[0].HttpOnly || cookies[0].SameSite != http.SameSiteLaxMode {
 		t.Fatalf("unexpected human session cookie: %#v", cookies)
 	}
 	var signupBody struct {
@@ -74,7 +74,7 @@ func TestHTTPHumanOnboardsFreshAgentAndAgentBootstraps(t *testing.T) {
 func TestHTTPCookieMutationsRequireTheConfiguredOrigin(t *testing.T) {
 	store := integrationStore(t)
 	handler := NewHTTPServer(&Service{Store: store}, HTTPConfig{PublicURL: "https://canter.test"})
-	signup := requestJSON(t, handler, http.MethodPost, "/v1/auth/signup", map[string]any{"email": "csrf-owner@example.com", "password": "correct horse battery staple"}, nil)
+	signup := signupHTTP(t, handler, "csrf-owner@example.com")
 	if signup.Code != http.StatusCreated {
 		t.Fatalf("signup status %d: %s", signup.Code, signup.Body.String())
 	}
@@ -112,12 +112,12 @@ func TestHTTPCookieMutationsRequireTheConfiguredOrigin(t *testing.T) {
 func TestHTTPSUsesHostPrefixedSecureSessionCookie(t *testing.T) {
 	store := integrationStore(t)
 	handler := NewHTTPServer(&Service{Store: store}, HTTPConfig{PublicURL: "https://canter.test", CookieSecure: true})
-	signup := requestJSON(t, handler, http.MethodPost, "/v1/auth/signup", map[string]any{"email": "secure-cookie@example.com", "password": "correct horse battery staple"}, nil)
+	signup := signupHTTP(t, handler, "secure-cookie@example.com")
 	if signup.Code != http.StatusCreated {
 		t.Fatalf("signup status %d: %s", signup.Code, signup.Body.String())
 	}
 	cookies := signup.Result().Cookies()
-	if len(cookies) != 1 || cookies[0].Name != "__Host-canter_session" || !cookies[0].Secure || cookies[0].Path != "/" || cookies[0].Domain != "" {
+	if len(cookies) != 2 || cookies[0].Name != "__Host-canter_session" || !cookies[0].Secure || cookies[0].Path != "/" || cookies[0].Domain != "" {
 		t.Fatalf("unexpected secure human session cookie: %#v", cookies)
 	}
 }

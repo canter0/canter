@@ -26,13 +26,24 @@ func (h *HTTPServer) conversations(w http.ResponseWriter, r *http.Request, p Pri
 			return
 		}
 		var input struct {
-			ID          string               `json:"id"`
-			RequestID   string               `json:"requestId"`
-			Message     string               `json:"message"`
-			Surface     *OperatorSurface     `json:"surface"`
-			Attachments []OperatorAttachment `json:"attachments"`
+			ID           string               `json:"id"`
+			Model        string               `json:"model"`
+			ModelOptions OperatorModelOptions `json:"modelOptions"`
+			RequestID    string               `json:"requestId"`
+			Message      string               `json:"message"`
+			Surface      *OperatorSurface     `json:"surface"`
+			Attachments  []OperatorAttachment `json:"attachments"`
 		}
 		if !decodeLimit(w, r, &input, 8<<20) {
+			return
+		}
+		model, err := selectedOperatorModel(input.Model, h.config.Operator.Model)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		if err := validateOperatorModelOptions(model, input.ModelOptions); err != nil {
+			writeError(w, http.StatusBadRequest, err)
 			return
 		}
 		if err := validateOperatorAttachments(input.Attachments); err != nil {
@@ -44,7 +55,7 @@ func (h *HTTPServer) conversations(w http.ResponseWriter, r *http.Request, p Pri
 			writeStoreError(w, err)
 			return
 		}
-		run, err := h.service.Store.EnqueueOperator(r.Context(), c, input.RequestID, input.Message, h.config.Operator.Model, input.Surface, input.Attachments...)
+		run, err := h.service.Store.EnqueueOperatorWithOptions(r.Context(), c, input.RequestID, input.Message, model, input.ModelOptions, input.Surface, input.Attachments...)
 		if err != nil {
 			writeStoreError(w, err)
 			return
@@ -104,15 +115,26 @@ func (h *HTTPServer) conversations(w http.ResponseWriter, r *http.Request, p Pri
 			return
 		}
 		var input struct {
-			RequestID   string               `json:"requestId"`
-			Message     string               `json:"message"`
-			Surface     *OperatorSurface     `json:"surface"`
-			Attachments []OperatorAttachment `json:"attachments"`
+			RequestID    string               `json:"requestId"`
+			Model        string               `json:"model"`
+			ModelOptions OperatorModelOptions `json:"modelOptions"`
+			Message      string               `json:"message"`
+			Surface      *OperatorSurface     `json:"surface"`
+			Attachments  []OperatorAttachment `json:"attachments"`
 		}
 		if !decodeLimit(w, r, &input, 8<<20) {
 			return
 		}
-		run, err := h.service.Store.EnqueueOperator(r.Context(), c, input.RequestID, input.Message, h.config.Operator.Model, input.Surface, input.Attachments...)
+		model, err := selectedOperatorModel(input.Model, h.config.Operator.Model)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		if err := validateOperatorModelOptions(model, input.ModelOptions); err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		run, err := h.service.Store.EnqueueOperatorWithOptions(r.Context(), c, input.RequestID, input.Message, model, input.ModelOptions, input.Surface, input.Attachments...)
 		if err != nil {
 			writeStoreError(w, err)
 			return

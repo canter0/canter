@@ -1,0 +1,20 @@
+.card { padding: 24px; max-width: 700px; line-height: 1.6; }
+.card header { display: flex; align-items: center; gap: 16px; justify-content: space-between; flex-wrap: wrap; }
+.card h2 { font-size: 1.2rem; margin: 0; }
+.card header span, .muted { color: var(--muted, #969696); font-size: .88rem; }
+.card p { margin: 12px 0; }
+.price { display: flex; align-items: baseline; gap: 10px; margin: 24px 0 8px; flex-wrap: wrap; }
+.price strong { font-size: 1.8rem; }
+.price span { color: var(--muted, #969696); }
+.card dl { display: grid; grid-template-columns: 110px 1fr; gap: 8px 14px; margin: 24px 0; }
+.card dt { color: var(--muted, #969696); }
+.card dd { margin: 0; overflow-wrap: anywhere; }
+.card button { cursor: pointer; font: inherit; border: 1px solid #555; border-radius: 8px; padding: 9px 14px; background: transparent; color: inherit; margin: 4px 8px 4px 0; }
+.card button:disabled { opacity: .5; cursor: wait; }
+.card button:focus-visible, .card summary:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
+.card .primary { background: var(--foreground, #ededed); color: var(--background, #111); border-color: transparent; }
+.key, .command { display: block; overflow-wrap: anywhere; white-space: pre-wrap; font-size: .85rem; padding: 12px; border-radius: 8px; background: #8881; }
+.card summary { cursor: pointer; }
+.error { color: #e5a49a; }
+.delete { border-top: 1px solid #8883; margin-top: 24px; padding-top: 16px; }
+@media (max-width: 500px) { .card { padding: 16px; } .card dl { grid-template-columns: 90px 1fr; } }

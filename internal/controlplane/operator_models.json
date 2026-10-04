@@ -1,0 +1,88 @@
+[
+  {
+    "id": "openai/gpt-6-luna",
+    "name": "GPT-6 Luna",
+    "provider": "OpenAI",
+    "logo": "openai",
+    "contextTokens": 1050000,
+    "reasoningEfforts": [
+      "none",
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max"
+    ],
+    "defaultReasoningEffort": "none"
+  },
+  {
+    "id": "openai/gpt-6.1-sol",
+    "name": "GPT-6.1 Sol",
+    "provider": "OpenAI",
+    "logo": "openai",
+    "contextTokens": 1050000,
+    "reasoningEfforts": [
+      "none",
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max"
+    ],
+    "defaultReasoningEffort": "none"
+  },
+  {
+    "id": "z-ai/glm-5.3-flash",
+    "reasoningRequired": true,
+    "name": "GLM 5.3 Flash",
+    "provider": "Z.ai",
+    "logo": "zai",
+    "contextTokens": 1310720,
+    "reasoningEfforts": [
+      "low",
+      "high",
+      "max"
+    ],
+    "defaultReasoningEffort": "low"
+  },
+  {
+    "id": "deepseek/deepseek-v4.1-flash",
+    "name": "DeepSeek V4.1 Flash",
+    "provider": "DeepSeek",
+    "logo": "deepseek",
+    "contextTokens": 1048576,
+    "reasoningEfforts": [
+      "none",
+      "low",
+      "high",
+      "max"
+    ],
+    "defaultReasoningEffort": "none"
+  },
+  {
+    "id": "qwen/qwen3.8-flash",
+    "name": "Qwen3.8 Flash",
+    "provider": "Alibaba",
+    "logo": "qwen",
+    "contextTokens": 1000000,
+    "reasoningEfforts": [
+      "none",
+      "on"
+    ],
+    "defaultReasoningEffort": "none"
+  },
+  {
+    "id": "google/gemini-3.8-flash",
+    "reasoningRequired": true,
+    "name": "Gemini 3.8 Flash",
+    "provider": "Google",
+    "logo": "gemini",
+    "contextTokens": 1048576,
+    "reasoningEfforts": [
+      "low",
+      "medium",
+      "high"
+    ],
+    "defaultReasoningEffort": "low"
+  }
+]

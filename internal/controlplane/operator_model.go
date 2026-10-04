@@ -56,7 +56,11 @@ type OperatorConfig struct {
 func (c OperatorConfig) Ready() bool { return c.APIKey != "" && c.Model != "" && c.BaseURL != "" }
 
 func (c OperatorConfig) complete(ctx context.Context, messages []modelMessage, tools []mcpTool, onText func(string) error) (modelMessage, error) {
-	return c.completeWithLimit(ctx, messages, tools, 4096, onText)
+	maxTokens := 4096
+	if c.modelReasoningEffort() != "none" {
+		maxTokens = 16384
+	}
+	return c.completeWithLimit(ctx, messages, tools, maxTokens, onText)
 }
 
 func (c OperatorConfig) completeWithLimit(ctx context.Context, messages []modelMessage, tools []mcpTool, maxTokens int, onText func(string) error) (modelMessage, error) {
@@ -68,11 +72,13 @@ func (c OperatorConfig) completeWithLimit(ctx context.Context, messages []modelM
 	for i, message := range messages {
 		payload[i] = operatorModelPayload(message)
 	}
-	effort := c.ReasoningEffort
-	if effort == "" {
-		effort = "none"
+	effort := c.modelReasoningEffort()
+	reasoning := map[string]any{"effort": effort}
+	if effort == "on" {
+		reasoning = map[string]any{"enabled": true}
 	}
-	body, err := json.Marshal(map[string]any{"model": c.Model, "messages": payload, "tools": functions, "stream": true, "max_tokens": maxTokens, "reasoning": map[string]any{"effort": effort}, "provider": map[string]any{"require_parameters": true}})
+	provider := map[string]any{"require_parameters": true}
+	body, err := json.Marshal(map[string]any{"model": c.Model, "messages": payload, "tools": functions, "stream": true, "max_tokens": maxTokens, "reasoning": reasoning, "provider": provider})
 	if err != nil {
 		return modelMessage{}, err
 	}
@@ -96,6 +102,7 @@ func (c OperatorConfig) completeWithLimit(ctx context.Context, messages []modelM
 		return modelMessage{}, fmt.Errorf("model provider returned HTTP %d; check the configured model and provider account", response.StatusCode)
 	}
 	out := modelMessage{Role: "assistant"}
+	var reasoningDetails []json.RawMessage
 	calls := map[int]*modelToolCall{}
 	var order []int
 	scanner := bufio.NewScanner(io.LimitReader(response.Body, 2<<20))
@@ -148,7 +155,13 @@ func (c OperatorConfig) completeWithLimit(ctx context.Context, messages []modelM
 			}
 			out.Content += choice.Delta.Content
 			if len(choice.Delta.ReasoningDetails) > 0 && string(choice.Delta.ReasoningDetails) != "null" {
-				out.ReasoningDetails = choice.Delta.ReasoningDetails
+				var parts []json.RawMessage
+				if err = json.Unmarshal(choice.Delta.ReasoningDetails, &parts); err != nil {
+					return out, fmt.Errorf("invalid model reasoning stream")
+				}
+				// Keep every block in order, including signatures for parallel tool
+				// calls. Replacing this array loses earlier streamed reasoning.
+				reasoningDetails = append(reasoningDetails, parts...)
 			}
 			for _, part := range choice.Delta.ToolCalls {
 				call, ok := calls[part.Index]
@@ -176,6 +189,9 @@ func (c OperatorConfig) completeWithLimit(ctx context.Context, messages []modelM
 	}
 	if !done {
 		return out, fmt.Errorf("model response was incomplete; please retry")
+	}
+	if len(reasoningDetails) > 0 {
+		out.ReasoningDetails, _ = json.Marshal(reasoningDetails)
 	}
 	for _, i := range order {
 		call := calls[i]

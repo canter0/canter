@@ -14,7 +14,7 @@ import styles from "./conversation-list.module.css";
 type Selection = { conversation: Conversation; trigger: HTMLButtonElement };
 
 export function ConversationList({ compact = false }: { compact?: boolean }) {
-  const { data, retry } = useWorkspace();
+  const { data, retry, conversationCache, prefetchConversation } = useWorkspace();
   const pathname = usePathname();
   const router = useRouter();
   const [menu, setMenu] = useState<Selection | null>(null);
@@ -25,15 +25,16 @@ export function ConversationList({ compact = false }: { compact?: boolean }) {
   if (!data?.conversations.length) return <p className={styles.empty} data-compact={compact}>Your conversations will appear here.</p>;
 
   function closeAction() {
+    const trigger = action?.trigger;
     setAction(null);
-    action?.trigger.focus();
+    requestAnimationFrame(() => { if (trigger?.isConnected) trigger.focus(); });
   }
 
   return <>
     {data.conversations.map(conversation => {
       const href = `/app/conversations/${encodeURIComponent(conversation.id)}`;
       return <div key={conversation.id} className={styles.row} data-compact={compact} data-active={pathname === href} data-open={menu?.conversation.id === conversation.id}>
-        <Link className={styles.link} aria-current={pathname === href ? "page" : undefined} href={href} title={conversation.title}>
+        <Link className={styles.link} aria-current={pathname === href ? "page" : undefined} href={href} prefetch={false} onPointerEnter={() => prefetchConversation(conversation.id)} onFocus={() => prefetchConversation(conversation.id)} onTouchStart={() => prefetchConversation(conversation.id)} title={conversation.title}>
           <span>{conversation.title}</span>
           {["queued", "running"].includes(conversation.status) ? <small>Working…</small> : conversation.status === "failed" ? <small>Needs attention</small> : null}
         </Link>
@@ -44,7 +45,9 @@ export function ConversationList({ compact = false }: { compact?: boolean }) {
     })}
     {menu ? <ConversationMenu key={menu.conversation.id} id={menuId} selection={menu} onClose={closeMenu} onSelect={kind => { setAction({ ...menu, kind }); setMenu(null); }} /> : null}
     {action ? <ConversationDialog key={`${action.conversation.id}:${action.kind}`} conversation={action.conversation} kind={action.kind} workspace={data.workspace.id} onClose={closeAction} onSaved={() => {
+      conversationCache.invalidate(action.conversation.id);
       if (action.kind === "delete" && pathname === `/app/conversations/${encodeURIComponent(action.conversation.id)}`) router.replace("/app");
+      router.refresh();
       retry();
       closeAction();
     }} /> : null}

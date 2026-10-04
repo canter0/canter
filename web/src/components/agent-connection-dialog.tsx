@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { canterFetch, type Authority } from "@/lib/canter-api";
 import { AgentPermissions } from "./agent-permissions";
 import { WorkspaceIcon } from "./workspace-icon";
+import { useDialog } from "./use-dialog";
 import styles from "./agent-connection-dialog.module.css";
 
 type Pairing = {
@@ -31,7 +32,7 @@ export function AgentConnectionDialog({ workspaceId, defaultAuthority, onClose, 
   const id = pairing?.id;
   const terminal = pairing && ["connected", "expired", "cancelled", "disconnected"].includes(pairing.status);
 
-  useEffect(() => { dialog.current?.showModal(); }, []);
+  useDialog(dialog);
   useEffect(() => {
     if (!id || terminal) return;
     const controller = new AbortController();

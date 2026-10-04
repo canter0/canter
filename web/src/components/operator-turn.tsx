@@ -13,7 +13,7 @@ import styles from "./operator-workspace.module.css";
 const toolLabels: Record<string, string> = {
   canter_search_web: "Searching the web", canter_open_web: "Opening a web source", canter_read_web: "Reading saved sources",
   canter_bash: "Working with workspace files", canter_save_context: "Saving project context", canter_search_history: "Finding earlier decisions", canter_read_history: "Reading conversation context", canter_read_result: "Reading saved results", canter_create_task: "Queuing agent task", canter_list_tasks: "Reading tasks", canter_inspect_task: "Checking task progress", canter_read_task_context: "Reading task context",
-  canter_show_compute: "Preparing compute plan", canter_estimate_compute_cost: "Calculating Canter compute estimate", canter_show_storage: "Checking storage capabilities",
+  canter_prepare_vps: "Preparing VPS review", canter_list_vps: "Reading your servers", canter_inspect_vps: "Checking VPS status", canter_show_compute: "Preparing compute plan", canter_estimate_compute_cost: "Calculating Canter compute estimate", canter_show_storage: "Checking storage capabilities",
   canter_show_repositories: "Opening GitHub repositories", canter_show_repository_changes: "Reading code changes",
   canter_show_apps: "Reading apps", canter_show_deployments: "Reading deployments", canter_show_billing: "Reading billing", canter_show_activity: "Reading activity", canter_show_agents: "Reading agent access",
   canter_inspect_repository: "Inspecting repository", canter_read_repository_file: "Reading source", canter_prepare_repository_deployment: "Preparing deployment", canter_capabilities: "Checking capabilities",
@@ -67,11 +67,11 @@ export function OperatorTurn({ message, answer, events, running, onSelect, conve
   const surfaces = [...new Map(events.filter(event => event.kind === "surface" && isSurface(event.data) && !["github", "compute", "storage"].includes(String(event.data.kind))).map(event => [surfaceKey(event.data as OperatorSurface), event.data as OperatorSurface])).values()];
   const open = expanded ?? running;
   return <section className={styles.turn} aria-label="Conversation turn">
-    <article className={styles.message} data-role="user"><div className={styles.messageText}>{message.content}</div><OperatorMessageContext surface={message.surface} conversations={conversations} />{message.attachments?.length ? <OperatorAttachments items={message.attachments} /> : null}</article>
+    <article className={styles.message} data-role="user"><span className={styles.speaker}>You</span><div className={styles.messageText}>{message.content}</div><OperatorMessageContext surface={message.surface} conversations={conversations} />{message.attachments?.length ? <OperatorAttachments items={message.attachments} /> : null}</article>
     <div className={styles.agentTurn}>
       <ResponseText streaming={running} text={timeline.preamble?.data.content} />
       {timeline.work.length ? <div className={styles.operations} data-streaming={running}>
-        <button className={styles.workToggle} aria-expanded={open} onClick={() => setExpanded(!open)}><WorkspaceIcon className={styles.workChevron} name="chevron" width="14" height="14" />{running ? "Working" : "Worked"}{elapsed ? ` for ${elapsed}` : ""}</button>
+        <button className={styles.workToggle} aria-expanded={open} onClick={() => setExpanded(!open)}><span>{running ? "Working" : "Worked"}{elapsed ? ` for ${elapsed}` : ""}</span><WorkspaceIcon className={styles.workChevron} name="chevron" width="12" height="12" /></button>
         <div className={styles.workLogReveal} data-open={open} aria-hidden={!open}><div className={styles.workLogClip}><div className={styles.workLog}>{timeline.work.map(event => event.kind === "text" ? <ResponseText streaming={running} key={event.sequence} text={event.data.content} /> : <div key={String(event.data.callId)} className={styles.toolRow}><span className={event.data.status === "running" && running ? styles.pulse : styles.toolIcon}>{event.data.status === "completed" ? <WorkspaceIcon name="check" width="12" height="12" /> : event.data.status === "failed" ? "!" : event.data.status === "running" && !running ? "–" : null}</span><span>{toolLabels[String(event.data.name)] ?? String(event.data.name).replace(/^canter_/, "").replaceAll("_", " ")}{event.data.status === "failed" ? <small> · Failed</small> : null}</span></div>)}</div></div></div>
       </div> : null}
       <ResponseText streaming={running} text={answer?.content ?? timeline.tail?.data.content} />

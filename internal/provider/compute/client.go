@@ -251,6 +251,32 @@ func (c *Client) Probe(ctx context.Context) ProbeResult {
 }
 
 func (c *Client) Resolve(ctx context.Context, class, imageAlias string) (Shape, string, []string, error) {
+	return c.resolveShape(ctx, imageAlias, func(shapes []Shape) (Shape, error) {
+		index, ok := computeclass.Index(strings.ToLower(class))
+		if !ok || index >= len(shapes) {
+			return Shape{}, computeclass.UnsupportedError(class)
+		}
+		return shapes[index], nil
+	})
+}
+
+// ResolveSize reads the live catalog and selects a shape meeting every target.
+// Callers must show and authorize the returned allocation, not the target.
+func (c *Client) ResolveSize(ctx context.Context, vcpus, memoryMiB, diskGiB int, imageAlias string) (Shape, string, []string, error) {
+	if vcpus < 1 || memoryMiB < 1 || diskGiB < 1 {
+		return Shape{}, "", nil, fmt.Errorf("positive compute dimensions are required")
+	}
+	return c.resolveShape(ctx, imageAlias, func(shapes []Shape) (Shape, error) {
+		for _, shape := range shapes {
+			if shape.VCPU >= vcpus && shape.Memory >= memoryMiB && shape.GB >= diskGiB {
+				return shape, nil
+			}
+		}
+		return Shape{}, fmt.Errorf("no available VM meets the requested CPU, memory, and disk targets")
+	})
+}
+
+func (c *Client) resolveShape(ctx context.Context, imageAlias string, selectShape func([]Shape) (Shape, error)) (Shape, string, []string, error) {
 	s, err := c.authenticate(ctx)
 	if err != nil {
 		return Shape{}, "", nil, err
@@ -269,9 +295,9 @@ func (c *Client) Resolve(ctx context.Context, class, imageAlias string) (Shape, 
 		}
 		return shapes[i].GB < shapes[j].GB
 	})
-	index, ok := computeclass.Index(strings.ToLower(class))
-	if !ok || index >= len(shapes) {
-		return Shape{}, "", nil, computeclass.UnsupportedError(class)
+	shape, err := selectShape(shapes)
+	if err != nil {
+		return Shape{}, "", nil, err
 	}
 	var imgs struct {
 		Images []image `json:"images"`
@@ -309,7 +335,7 @@ func (c *Client) Resolve(ctx context.Context, class, imageAlias string) (Shape, 
 	if len(networkIDs) == 0 {
 		return Shape{}, "", nil, fmt.Errorf("no usable compute network")
 	}
-	return shapes[index], imageID, networkIDs, nil
+	return shape, imageID, networkIDs, nil
 }
 
 func normalizeImage(value string) string {

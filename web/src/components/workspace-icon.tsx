@@ -1,6 +1,7 @@
 import type { SVGProps } from "react";
 
 const paths = {
+  home: "m3 10 9-7 9 7v11h-6v-7H9v7H3z",
   more: "M5 12h.01M12 12h.01M19 12h.01",
   edit: "m15 4 5 5M4 20l5-1L21 7l-5-5L4 14z",
   trash: "M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7",

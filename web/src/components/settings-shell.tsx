@@ -8,8 +8,8 @@ import { SettingsNavigation } from "./settings-navigation";
 import styles from "./settings.module.css";
 
 export function SettingsShell({ active, title, description, children }: { active: string; title: string; description?: string; children: ReactNode }) {
-  return <AppShell active={["Usage", "Plans", "Invoices"].includes(active) ? "Billing" : "Account"} settingsNavigation={<SettingsNavigation active={active} />}>
-    <div className={styles.breadcrumb}><Link href="/app/settings">Settings</Link><WorkspaceIcon name="chevron" width="12" height="12" /><span>{title}</span></div>
+  return <AppShell active={["Usage", "Plans", "Invoices"].includes(active) ? "Billing" : "Account"} pageTitle={`${title} settings`} settingsNavigation={<SettingsNavigation active={active} />}>
+    <nav className={styles.breadcrumb} aria-label="Breadcrumb"><Link href="/app/settings">Settings</Link><WorkspaceIcon name="chevron" width="12" height="12" /><span aria-current="page">{title}</span></nav>
     <div className={styles.page}><header className={styles.heading}><h1>{title}</h1>{description ? <p>{description}</p> : null}</header>{children}</div>
   </AppShell>;
 }

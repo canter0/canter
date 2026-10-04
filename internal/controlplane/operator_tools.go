@@ -27,7 +27,7 @@ func validateOperatorSurface(surface *OperatorSurface) error {
 		return nil
 	}
 	switch surface.Kind {
-	case "compute", "storage", "apps", "deployments", "billing", "activity", "agents", "app", "deployment", "change", "repository", "github", "repository-changes", "file", "conversation":
+	case "vps", "compute", "storage", "apps", "deployments", "billing", "activity", "agents", "app", "deployment", "change", "repository", "github", "repository-changes", "file", "conversation":
 	default:
 		return fmt.Errorf("unknown workspace view")
 	}
@@ -68,6 +68,11 @@ func (o *OperatorRuntime) tools() []mcpTool {
 	} {
 		out = append(out, mcpTool{Name: item.name, Description: item.description, InputSchema: object(map[string]any{})})
 	}
+	out = append(out,
+		mcpTool{Name: "canter_prepare_vps", Description: "Prepare a real Canter VPS proposal using current available capacity and open its price/access/expiry review. No VM is created until the human approves in the UI. Gather an SSH public key (never a private key) and allowed IPv4 CIDR in chat; preserve any requested duration. Use forSeconds=3600 for one hour, or 0 only when no automatic expiry is wanted. Never ask the customer to choose an upstream provider. Actual returned dimensions and price supersede preliminary estimates.", InputSchema: object(map[string]any{"name": str, "vcpus": map[string]any{"type": "integer", "minimum": 1, "maximum": 32}, "memoryMiB": map[string]any{"type": "integer", "minimum": 512, "maximum": 131072}, "diskGiB": map[string]any{"type": "integer", "minimum": 10, "maximum": 2048}, "sshPublicKey": str, "sshCidr": str, "forSeconds": map[string]any{"type": "integer", "minimum": 0, "maximum": 604800}}, "name", "vcpus", "memoryMiB", "diskGiB", "sshPublicKey", "sshCidr", "forSeconds")},
+		mcpTool{Name: "canter_list_vps", Description: "List this workspace's Canter VPS proposals and servers, including current phase and expiry.", InputSchema: object(map[string]any{})},
+		mcpTool{Name: "canter_inspect_vps", Description: "Read and open a Canter VPS review/access view. Ready means boot and SSH configuration were verified; deletion is complete only in deleted phase. A human can approve or delete from this view.", InputSchema: object(map[string]any{"id": str}, "id")},
+	)
 	computeMachine := object(map[string]any{"name": str, "vcpus": map[string]any{"type": "integer", "minimum": 1, "maximum": 256}, "memoryMiB": map[string]any{"type": "integer", "minimum": 1, "maximum": 1048576}}, "name", "vcpus", "memoryMiB")
 	out = append(out, mcpTool{
 		Name:        "canter_estimate_compute_cost",
@@ -88,6 +93,38 @@ func (o *OperatorRuntime) localTool(ctx context.Context, r OperatorRun, c Conver
 	}
 	s := o.Server.service.Store
 	switch name {
+	case "canter_prepare_vps":
+		if p.Installation == nil || !p.Installation.Authority.Draft {
+			return nil, true, ErrForbidden
+		}
+		var input sdk.VPSRequest
+		if err := json.Unmarshal(raw, &input); err != nil {
+			return nil, true, err
+		}
+		vm, err := o.Server.service.DraftVPS(ctx, c.WorkspaceID, input, p.Actor)
+		if err == nil {
+			err = o.surface(ctx, r, OperatorSurface{Kind: "vps", ID: vm.ID})
+		}
+		return publicVPS(vm), true, err
+	case "canter_list_vps":
+		vms, err := s.ListVPS(ctx, c.WorkspaceID)
+		out := []map[string]any{}
+		for _, vm := range vms {
+			out = append(out, publicVPS(vm))
+		}
+		return map[string]any{"servers": out}, true, err
+	case "canter_inspect_vps":
+		var input struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal(raw, &input); err != nil {
+			return nil, true, err
+		}
+		vm, err := s.VPS(ctx, c.WorkspaceID, input.ID)
+		if err == nil {
+			err = o.surface(ctx, r, OperatorSurface{Kind: "vps", ID: vm.ID})
+		}
+		return publicVPS(vm), true, err
 	case "canter_show_compute", "canter_show_storage":
 		kind := "compute"
 		if name == "canter_show_storage" {
@@ -96,10 +133,11 @@ func (o *OperatorRuntime) localTool(ctx context.Context, r OperatorRun, c Conver
 		if kind == "compute" {
 			return map[string]any{
 				"resource": kind, "status": "planning_available", "planningAvailable": true,
-				"canterComputeRateAvailable": true, "canterComputeRateCentsPerUnitPer720Hours": pricing.ComputeCentsPerUnitPer720Hours,
+				"standaloneComputeProvisioning": o.vpsAvailable(),
+				"canterComputeRateAvailable":    true, "canterComputeRateCentsPerUnitPer720Hours": pricing.ComputeCentsPerUnitPer720Hours,
 				"computeChargeUnit": "The larger of allocated vCPU count or memory rounded up to whole GiB; local disk and public IPv4 are included.",
 				"planningGuidance":  "Plan one VM or a multi-VM topology in conversation. Respect an explicit VM request. Give human-readable CPU, memory, disk, and OS targets; describe each VM's role and relevant networking, access, and backup choices. Use canter_estimate_compute_cost to include Canter's estimated monthly usage charge. If workload is unknown, offer a labeled general-purpose starter target, then invite one useful refinement. If the user describes an outcome without specifying a control model, compare managed app hosting and VM control only when relevant. Never present internal c1/c2/c3 allocation labels as VM sizes.",
-				"next":              "Lead with the proposed setup and Canter estimate. Continue planning in chat; do not redirect an explicit VM request or open a form.",
+				"next":              "Lead with the proposed setup and Canter estimate. Continue in chat. For creation, gather SSH public key and allowed IPv4 CIDR, then use canter_prepare_vps for the exact allocation, price, expiry, and human review. Do not send customers to an upstream provider or open a setup form.",
 			}, true, nil
 		}
 		return map[string]any{"resource": kind, "status": "planning_only", "standaloneProvisioning": false, "next": "Explain the provisioning limitation briefly and keep helping with a useful plan in chat. Ask only questions that change the plan. No resource or authorization has been created. Do not open a form."}, true, nil
@@ -196,7 +234,7 @@ func (o *OperatorRuntime) localTool(ctx context.Context, r OperatorRun, c Conver
 		}
 		return map[string]any{"installations": agents}, true, err
 	case "canter_capabilities":
-		return map[string]any{"deployment": initialDeploymentCapabilities(c.WorkspaceID), "operator": map[string]any{"publicRepositoryInspection": true, "staticRepositoryDeployment": o.Config.StaticBinary != "", "privateRepositoryConnection": o.Server.githubConnectionDefaults().Enabled, "hostedSourceBuilds": false, "computePlanning": true, "computeUsageEstimate": true, "computeRateCentsPerUnitPer720Hours": pricing.ComputeCentsPerUnitPer720Hours, "computeHostClasses": sdk.SupportedHostClasses(), "computeHostClassSemantics": "internal provider-neutral allocation labels, not provider VM sizes; do not display them as specifications", "standaloneComputeProvisioning": false, "providerComputeInventory": false, "canAuthorizeInfrastructure": false, "workspaceCommands": o.Config.shellReady(), "privateHistorySearch": true, "durableWorkingContext": true, "connectedAgentTasks": true}}, true, nil
+		return map[string]any{"deployment": initialDeploymentCapabilities(c.WorkspaceID), "operator": map[string]any{"publicRepositoryInspection": true, "staticRepositoryDeployment": o.Config.StaticBinary != "", "privateRepositoryConnection": o.Server.githubConnectionDefaults().Enabled, "hostedSourceBuilds": false, "computePlanning": true, "computeUsageEstimate": true, "computeRateCentsPerUnitPer720Hours": pricing.ComputeCentsPerUnitPer720Hours, "computeHostClasses": sdk.SupportedHostClasses(), "computeHostClassSemantics": "internal provider-neutral allocation labels, not provider VM sizes; do not display them as specifications", "standaloneComputeProvisioning": o.vpsAvailable(), "providerComputeInventory": o.vpsAvailable(), "canAuthorizeInfrastructure": false, "workspaceCommands": o.Config.shellReady(), "privateHistorySearch": true, "durableWorkingContext": true, "connectedAgentTasks": true}}, true, nil
 	case "canter_inspect_repository", "canter_read_repository_file", "canter_show_repository_changes", "canter_prepare_repository_deployment":
 		connection, token, err := o.Server.githubAccess(ctx, c.AccountID, c.WorkspaceID)
 		if err != nil {
@@ -261,4 +299,9 @@ func (o *OperatorRuntime) localTool(ctx context.Context, r OperatorRun, c Conver
 		return value, true, err
 	}
 	return nil, false, nil
+}
+
+func (o *OperatorRuntime) vpsAvailable() bool {
+	_, ok := o.Server.service.Engine.(VPSEngine)
+	return ok
 }

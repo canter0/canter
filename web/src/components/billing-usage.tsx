@@ -14,7 +14,7 @@ export type BillingUsage = {
 };
 
 const dayLabel = (value: string) => new Date(value + "T12:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
-const memory = (mib: number) => `${Number((mib / 1024).toFixed(1))} GB`;
+const memory = (mib: number) => `${Number((mib / 1024).toFixed(1))} GiB`;
 const amount = (cents: number) => (cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 export function BillingUsageView({ usage }: { usage: BillingUsage }) {

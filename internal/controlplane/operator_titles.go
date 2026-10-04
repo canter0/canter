@@ -15,6 +15,8 @@ func (c OperatorConfig) conversationTitle(ctx context.Context, prompt, preamble 
 	if c.TitleModel != "" {
 		c.Model = c.TitleModel
 	}
+	// Titles do not inherit a turn’s reasoning setting.
+	c.ReasoningEffort = "none"
 	// Keep the request small: no history, images, tools, or tool results.
 	input, _ := json.Marshal(map[string]string{"request": titleExcerpt(prompt, 6000), "assistant_reply": titleExcerpt(preamble, 1500)})
 	answer, err := c.completeWithLimit(ctx, []modelMessage{{Role: "system", Content: operatorTitleInstructions}, {Role: "user", Content: string(input)}}, nil, 64, func(string) error { return nil })

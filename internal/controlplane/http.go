@@ -15,9 +15,11 @@ import (
 
 	"github.com/canter0/canter/internal/computeclass"
 	"github.com/canter0/canter/sdk"
+	"github.com/go-webauthn/webauthn/webauthn"
 )
 
 type HTTPConfig struct {
+	Auth          AuthConfig
 	Secrets       *SecretVault
 	PublicURL     string
 	CookieSecure  bool
@@ -31,14 +33,16 @@ type HTTPConfig struct {
 }
 
 type HTTPServer struct {
-	service *Service
-	config  HTTPConfig
-	limits  *requestLimiter
-	oauth   map[string]*oauthProvider
+	passkeys *webauthn.WebAuthn
+	service  *Service
+	config   HTTPConfig
+	limits   *requestLimiter
+	oauth    map[string]*oauthProvider
 }
 
 func NewHTTPServer(service *Service, config HTTPConfig) http.Handler {
-	return &HTTPServer{service: service, config: config, limits: newRequestLimiter(), oauth: newOAuthProviders(config)}
+	passkeys, _ := newPasskeys(config.PublicURL)
+	return &HTTPServer{passkeys: passkeys, service: service, config: config, limits: newRequestLimiter(), oauth: newOAuthProviders(config)}
 }
 
 func (h *HTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -240,6 +244,9 @@ func nodeRequestIsHTTPS(r *http.Request) bool {
 }
 
 func (h *HTTPServer) auth(w http.ResponseWriter, r *http.Request, parts []string) {
+	if h.securityAuth(w, r, parts) {
+		return
+	}
 	if len(parts) > 0 && parts[0] == "oauth" {
 		h.oauthAuth(w, r, parts[1:])
 		return
@@ -251,46 +258,6 @@ func (h *HTTPServer) auth(w http.ResponseWriter, r *http.Request, parts []string
 	switch parts[0] {
 	case "providers":
 		h.oauthProviders(w, r)
-	case "signup":
-		if r.Method != http.MethodPost {
-			methodNotAllowed(w)
-			return
-		}
-		var in struct {
-			Email     string `json:"email"`
-			Password  string `json:"password"`
-			InviteKey string `json:"inviteKey"`
-		}
-		if !decode(w, r, &in) {
-			return
-		}
-		account, workspace, token, err := h.service.Store.Signup(r.Context(), in.Email, in.Password, in.InviteKey, h.config.RequireInvite)
-		if err != nil {
-			writeStoreError(w, err)
-			return
-		}
-		h.setHumanCookie(w, token, 7*24*time.Hour)
-		h.claimAcquisition(r, token)
-		writeJSON(w, http.StatusCreated, map[string]any{"account": account, "workspace": workspace})
-	case "signin":
-		if r.Method != http.MethodPost {
-			methodNotAllowed(w)
-			return
-		}
-		var in struct {
-			Email    string `json:"email"`
-			Password string `json:"password"`
-		}
-		if !decode(w, r, &in) {
-			return
-		}
-		account, workspaces, token, err := h.service.Store.Signin(r.Context(), in.Email, in.Password)
-		if err != nil {
-			writeStoreError(w, err)
-			return
-		}
-		h.setHumanCookie(w, token, 7*24*time.Hour)
-		writeJSON(w, http.StatusOK, map[string]any{"account": account, "workspaces": workspaces})
 	case "signout":
 		if r.Method != http.MethodPost {
 			methodNotAllowed(w)
@@ -390,6 +357,9 @@ func (h *HTTPServer) device(w http.ResponseWriter, r *http.Request, parts []stri
 			return
 		}
 		if len(parts) == 3 && parts[2] == "approve" && r.Method == http.MethodPost {
+			if !h.requireRecent(w, r, p) {
+				return
+			}
 			var in struct {
 				WorkspaceID string `json:"workspaceId"`
 			}
@@ -515,6 +485,9 @@ func (h *HTTPServer) installations(w http.ResponseWriter, r *http.Request, parts
 		}
 		if err := validateAgentAuthority(in.Authority); !in.UseWorkspaceAuthority && err != nil {
 			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		if !h.requireRecent(w, r, p) {
 			return
 		}
 		installation, err := h.service.Store.UpdateAgentAuthority(r.Context(), p.Account.ID, workspaceID, parts[0], in.Authority, in.UseWorkspaceAuthority)
@@ -703,6 +676,10 @@ func (h *HTTPServer) workspaces(w http.ResponseWriter, r *http.Request, parts []
 			return
 		}
 		writeJSON(w, http.StatusCreated, artifact)
+		return
+	}
+	if parts[1] == "vps" {
+		h.workspaceVPS(w, r, p, workspaceID, parts[2:])
 		return
 	}
 	if parts[1] == "initial-deployments" {

@@ -5,7 +5,8 @@ set -eu
 cd "$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 web_port=${CANTER_DEV_WEB_PORT:-3006}
 api_port=${CANTER_DEV_API_PORT:-8086}
-public_url="http://127.0.0.1:$web_port"
+# WebAuthn requires a domain RP ID; localhost supports local passkey testing.
+public_url="${CANTER_DEV_PUBLIC_URL:-http://localhost:$web_port}"
 api_url="http://127.0.0.1:$api_port"
 
 for port in "$web_port" "$api_port"; do

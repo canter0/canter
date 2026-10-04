@@ -44,6 +44,7 @@
 .headline span { display: block; }
 .accent { color: #386e23; }
 .description {
+  max-width: 570px;
   margin: 30px 0 0;
   color: #61685b;
   font-family: Arial, Helvetica, sans-serif;
@@ -51,6 +52,7 @@
   line-height: 1.65;
   letter-spacing: -.025em;
 }
+.description span { display: block; }
 .start { margin-top: 32px; font-family: Arial, Helvetica, sans-serif; }
 .startButton {
   display: inline-flex;

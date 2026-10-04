@@ -1,0 +1,42 @@
+.rowActions { display: flex; align-items: center; gap: 12px; }
+.availability { padding: 16px 0; color: #aaa; font-size: 12px; line-height: 1.6; }
+.passkeyRow { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 52px; padding: 6px 0; border-bottom: 1px solid #323232; }
+.passkeyRow:last-child { border-bottom: 0; }
+.passkeyName { display: flex; align-items: center; gap: 10px; min-width: 0; font-size: 13px; }
+.passkeyName svg { color: #a0a0a0; flex: none; }
+.passkeyName span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.iconButton { display: inline-grid; place-items: center; flex: none; width: 34px; height: 34px; border: 1px solid transparent; border-radius: 8px; color: #aaa; cursor: pointer; }
+.iconButton:hover, .iconButton[aria-expanded="true"] { background: #303030; color: #eee; }
+.iconButton:disabled { opacity: .5; cursor: default; }
+.iconButton:focus-visible, .menu button:focus-visible { outline: 2px solid #aaa; outline-offset: 2px; }
+.menuAnchor { position: relative; flex: none; }
+.menu { position: absolute; z-index: 20; right: 0; top: calc(100% + 4px); min-width: 150px; padding: 5px; border: 1px solid #414141; border-radius: 10px; background: #242424; box-shadow: 0 8px 28px #0005; }
+.menu button { display: flex; align-items: center; gap: 9px; width: 100%; min-height: 36px; padding: 8px 10px; border-radius: 6px; color: #ddd; font-size: 12px; text-align: left; cursor: pointer; }
+.menu button:hover, .menu button:focus { background: #343434; }
+.menu button.danger { color: #e3aba4; }
+.dialog { position: fixed; margin: auto; width: min(440px, calc(100vw - 32px)); max-height: calc(100dvh - 40px); padding: 24px; overflow-y: auto; color: #e6e6e6; background: #1c1c1c; border: 1px solid #3d3d3d; border-radius: 16px; box-shadow: 0 24px 90px #0008; font-size: 13px; }
+.dialog::backdrop { background: #0009; backdrop-filter: blur(3px); }
+.dialog[open] { animation: appear 160ms ease-out; }
+.dialog header { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 20px; }
+.dialog h2 { margin: 0; font-size: 17px; font-weight: 500; letter-spacing: -.02em; outline: none; }
+.description { margin: 0 0 20px; color: #aaa; font-size: 13px; line-height: 1.65; }
+.fields { display: grid; gap: 18px; min-width: 0; border: 0; padding: 0; margin: 0; }
+.fields:disabled { opacity: .65; }
+.alternatives { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; border-top: 1px solid #333; padding-top: 18px; margin-top: 18px; }
+.alternatives a { font-size: 12px; text-decoration: underline; text-underline-offset: 3px; color: #bcbcbc; }
+.setup { display: grid; justify-items: center; gap: 16px; margin-bottom: 22px; }
+.qr { display: block; max-width: 100%; border-radius: 10px; }
+.manualKey { width: 100%; color: #aaa; font-size: 12px; line-height: 1.7; }
+.manualKey summary { width: fit-content; margin: auto; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.manualKey p { margin: 12px 0 6px; }
+.manualKey code { display: block; padding: 10px 12px; border: 1px solid #333; border-radius: 8px; background: #151515; color: #ddd; overflow-wrap: anywhere; user-select: all; }
+.preparing { display: grid; gap: 16px; color: #aaa; }
+.confirmActions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 24px; }
+.codes { display: grid; gap: 4px; padding: 14px; margin: 0 0 20px; list-style: none; border: 1px solid #353535; border-radius: 10px; background: #141414; font-family: ui-monospace, monospace; font-size: 12px; line-height: 1.7; text-align: center; user-select: all; }
+.codes li { overflow-wrap: anywhere; }
+.recoveryActions { display: grid; gap: 10px; }
+.dialogError { margin: 18px 0 0; }
+@keyframes appear { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+@media(max-width: 480px) { .dialog { padding: 20px; } .codes { gap: 8px; padding: 12px; font-size: 11px; } }
+@media(pointer: coarse) { .iconButton { width: 44px; height: 44px; } .menu button { min-height: 44px; } }
+@media(prefers-reduced-motion: reduce) { .dialog[open] { animation: none; } }
