@@ -43,6 +43,10 @@ func (h *HTTPServer) securityAuth(w http.ResponseWriter, r *http.Request, parts 
 	switch route {
 	case "signup", "signup/start", "signup/finish", "signin", "verify/finish", "mfa/finish", "password/reset/start", "password/reset/finish":
 	default:
+		if route == "account/delete" || strings.HasPrefix(route, "account/delete/") {
+			h.accountDeletion(w, r, strings.TrimPrefix(route, "account/delete"))
+			return true
+		}
 		if strings.HasPrefix(route, "security") {
 			h.accountSecurity(w, r, parts[1:])
 			return true

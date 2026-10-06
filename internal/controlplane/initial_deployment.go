@@ -66,11 +66,48 @@ func (s *Service) UploadDeploymentArtifact(ctx context.Context, workspaceID stri
 	if !ok {
 		return DeploymentArtifact{}, fmt.Errorf("initial deployment engine is unavailable")
 	}
+	tx, err := s.Store.pool.Begin(ctx)
+	if err != nil {
+		return DeploymentArtifact{}, err
+	}
+	defer tx.Rollback(ctx)
+	// Follow account -> workspace -> object lock order used by deletion. Holding
+	// the digest lock across staging and recording also fences remote erasure.
+	if actor.Kind == "human" {
+		if _, err = tx.Exec(ctx, `SELECT id FROM accounts WHERE id=$1 FOR SHARE`, actor.ID); err != nil {
+			return DeploymentArtifact{}, err
+		}
+	}
+	var workspaceExists string
+	if err = tx.QueryRow(ctx, `SELECT id FROM workspaces WHERE id=$1 FOR UPDATE`, workspaceID).Scan(&workspaceExists); err != nil {
+		return DeploymentArtifact{}, ErrNotFound
+	}
+	if actor.Kind == "human" && actor.SessionID != "" {
+		var current bool
+		err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM human_sessions hs JOIN accounts a ON a.id=hs.account_id JOIN memberships m ON m.account_id=a.id WHERE hs.id=$1 AND a.id=$2 AND m.workspace_id=$3 AND m.role<>'viewer' AND a.disabled_at IS NULL AND hs.revoked_at IS NULL AND hs.expires_at>$4 AND hs.auth_version=a.auth_version)`, actor.SessionID, actor.ID, workspaceID, s.Store.now()).Scan(&current)
+		if err != nil || !current {
+			return DeploymentArtifact{}, ErrUnauthorized
+		}
+	}
+	sum := sha256.Sum256(data)
+	key, err := sdk.ControlPlaneArtifactKey(hex.EncodeToString(sum[:]))
+	if err != nil {
+		return DeploymentArtifact{}, err
+	}
+	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,929))`, key); err != nil {
+		return DeploymentArtifact{}, err
+	}
 	staged, err := engine.StageControlPlaneArtifact(ctx, data, filename, contentType)
 	if err != nil {
 		return DeploymentArtifact{}, err
 	}
-	record, err := s.Store.RecordDeploymentArtifact(ctx, workspaceID, staged, entries, actor)
+	if staged.Key != key {
+		return DeploymentArtifact{}, fmt.Errorf("artifact staging returned an unexpected digest key")
+	}
+	record, err := s.Store.recordDeploymentArtifactTx(ctx, tx, workspaceID, staged, entries, actor)
+	if err == nil {
+		err = tx.Commit(ctx)
+	}
 	if err != nil {
 		return DeploymentArtifact{}, fmt.Errorf("artifact staged but durable ownership record failed: %w", err)
 	}

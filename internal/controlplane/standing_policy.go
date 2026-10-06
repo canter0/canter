@@ -185,7 +185,7 @@ func scanStandingPolicy(row pgx.Row) (StandingPolicy, error) {
 	return policy, nil
 }
 
-const standingPolicyColumns = `id,workspace_id,system_name,name,description,digest,envelope,workspace_revision,system_revision,created_by_account,created_at,expires_at,revoked_at,COALESCE(revoked_by_account,'')`
+const standingPolicyColumns = `id,workspace_id,system_name,name,description,digest,envelope,workspace_revision,system_revision,COALESCE(created_by_account,''),created_at,expires_at,revoked_at,COALESCE(revoked_by_account,'')`
 
 func (s *Store) StandingPolicy(ctx context.Context, workspaceID, systemName, policyID string) (StandingPolicy, error) {
 	return scanStandingPolicy(s.pool.QueryRow(ctx, `SELECT `+standingPolicyColumns+` FROM standing_policies WHERE workspace_id=$1 AND system_name=$2 AND id=$3`, workspaceID, systemName, policyID))

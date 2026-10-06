@@ -6,8 +6,8 @@ import { redirectAuthenticated } from "@/lib/server-auth";
 
 export const metadata: Metadata = { title: "Sign in" };
 
-export default async function SignInPage({ searchParams }: { searchParams: Promise<{ next?: string; error?: string }> }) {
-  const { next = "", error = "" } = await searchParams;
+export default async function SignInPage({ searchParams }: { searchParams: Promise<{ next?: string; error?: string; deleted?: string }> }) {
+  const { next = "", error = "", deleted = "" } = await searchParams;
   await redirectAuthenticated(authDestination(next));
-  return <LoginShell><AuthForm mode="sign-in" next={next} initialError={error} /></LoginShell>;
+  return <LoginShell><AuthForm mode="sign-in" next={next} initialError={error} accountDeleted={deleted === "1"} /></LoginShell>;
 }

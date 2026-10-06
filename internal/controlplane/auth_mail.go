@@ -79,7 +79,7 @@ func (h *HTTPServer) queueEmailTx(ctx context.Context, tx pgx.Tx, account *strin
 	if err != nil {
 		return err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO auth_email_outbox(id,key_id,ciphertext,account_id,expires_at) VALUES($1,$2,$3,$4,$5)`, id, key, sealed, account, h.service.Store.now().Add(ttl))
+	_, err = tx.Exec(ctx, `INSERT INTO auth_email_outbox(id,key_id,ciphertext,account_id,expires_at,recipient_hash) VALUES($1,$2,$3,$4,$5,$6)`, id, key, sealed, account, h.service.Store.now().Add(ttl), secretHash(strings.ToLower(to)))
 	return err
 }
 func (h *HTTPServer) securityEventTx(ctx context.Context, tx pgx.Tx, a authAccount, action string) error {
@@ -154,6 +154,12 @@ func (h *HTTPServer) RunAuthMaintenance(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:
+			for i := 0; i < 10; i++ {
+				ok, err := h.eraseDeletedAccountArtifact(ctx)
+				if err != nil || !ok {
+					break
+				}
+			}
 			if h.emailReady() {
 				for i := 0; i < 10; i++ {
 					ok, err := h.deliverAuthEmail(ctx)

@@ -12,6 +12,22 @@ import (
 )
 
 func (s *Store) RecordDeploymentArtifact(ctx context.Context, workspaceID string, staged sdk.StagedArtifact, entries []DeploymentArtifactEntry, actor sdk.ActorRef) (DeploymentArtifact, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return DeploymentArtifact{}, err
+	}
+	defer tx.Rollback(ctx)
+	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,929))`, staged.Key); err != nil {
+		return DeploymentArtifact{}, err
+	}
+	record, err := s.recordDeploymentArtifactTx(ctx, tx, workspaceID, staged, entries, actor)
+	if err == nil {
+		err = tx.Commit(ctx)
+	}
+	return record, err
+}
+
+func (s *Store) recordDeploymentArtifactTx(ctx context.Context, tx pgx.Tx, workspaceID string, staged sdk.StagedArtifact, entries []DeploymentArtifactEntry, actor sdk.ActorRef) (DeploymentArtifact, error) {
 	now := s.now()
 	var record DeploymentArtifact
 	expectedKey, err := sdk.ControlPlaneArtifactKey(staged.SHA256)
@@ -23,7 +39,7 @@ func (s *Store) RecordDeploymentArtifact(ctx context.Context, workspaceID string
 		return record, err
 	}
 	var storedEntries []byte
-	err = s.pool.QueryRow(ctx, `INSERT INTO deployment_artifacts(workspace_id,sha256,storage_key,size_bytes,content_type,filename,entries,uploaded_by_kind,uploaded_by_id,uploaded_session_id,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT(workspace_id,sha256) DO UPDATE SET sha256=EXCLUDED.sha256 RETURNING workspace_id,sha256,size_bytes,content_type,filename,entries,uploaded_by_kind,uploaded_by_id,uploaded_session_id,created_at`, workspaceID, staged.SHA256, staged.Key, staged.Size, staged.ContentType, staged.Filename, rawEntries, actor.Kind, actor.ID, actor.SessionID, now).Scan(&record.WorkspaceID, &record.SHA256, &record.Size, &record.ContentType, &record.Filename, &storedEntries, &record.UploadedBy.Kind, &record.UploadedBy.ID, &record.UploadedBy.SessionID, &record.CreatedAt)
+	err = tx.QueryRow(ctx, `INSERT INTO deployment_artifacts(workspace_id,sha256,storage_key,size_bytes,content_type,filename,entries,uploaded_by_kind,uploaded_by_id,uploaded_session_id,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT(workspace_id,sha256) DO UPDATE SET sha256=EXCLUDED.sha256 RETURNING workspace_id,sha256,size_bytes,content_type,filename,entries,uploaded_by_kind,uploaded_by_id,uploaded_session_id,created_at`, workspaceID, staged.SHA256, staged.Key, staged.Size, staged.ContentType, staged.Filename, rawEntries, actor.Kind, actor.ID, actor.SessionID, now).Scan(&record.WorkspaceID, &record.SHA256, &record.Size, &record.ContentType, &record.Filename, &storedEntries, &record.UploadedBy.Kind, &record.UploadedBy.ID, &record.UploadedBy.SessionID, &record.CreatedAt)
 	if err == nil {
 		err = json.Unmarshal(storedEntries, &record.Entries)
 	}

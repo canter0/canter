@@ -54,7 +54,7 @@ type TaskInput struct {
 	Context              []TaskContext `json:"context"`
 }
 
-const taskColumns = `id,workspace_id,prompt,status,requested_by,COALESCE(target_installation_id,''),COALESCE(claimed_by,''),result,model,reasoning,created_at,updated_at`
+const taskColumns = `id,workspace_id,prompt,status,COALESCE(requested_by,''),COALESCE(target_installation_id,''),COALESCE(claimed_by,''),result,model,reasoning,created_at,updated_at`
 
 func scanTask(row pgx.Row) (WorkspaceTask, error) {
 	var task WorkspaceTask

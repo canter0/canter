@@ -101,6 +101,9 @@ var accountSecurityMigration string
 //go:embed migrations/028_vps.sql
 var vpsMigration string
 
+//go:embed migrations/029_account_deletion.sql
+var accountDeletionMigration string
+
 var (
 	ErrNotFound      = errors.New("not found")
 	ErrUnauthorized  = errors.New("unauthorized")
@@ -319,6 +322,12 @@ func (s *Store) Migrate(ctx context.Context) error {
 		return fmt.Errorf("apply VPS migration: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('028_vps') ON CONFLICT DO NOTHING`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, accountDeletionMigration); err != nil {
+		return fmt.Errorf("apply account deletion migration: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('029_account_deletion') ON CONFLICT DO NOTHING`); err != nil {
 		return err
 	}
 
@@ -652,7 +661,7 @@ type querier interface {
 
 func installationByID(ctx context.Context, q querier, id string) (Installation, error) {
 	var i Installation
-	err := q.QueryRow(ctx, `SELECT id,workspace_id,name,harness,inspect_allowed,draft_allowed,apply_mode,created_by,created_at,last_seen_at,revoked_at,expires_at,use_workspace_authority FROM agent_installations WHERE id=$1`, id).Scan(&i.ID, &i.WorkspaceID, &i.Name, &i.Harness, &i.Authority.Inspect, &i.Authority.Draft, &i.Authority.ApplyMode, &i.CreatedBy, &i.CreatedAt, &i.LastSeenAt, &i.RevokedAt, &i.ExpiresAt, &i.UseWorkspaceAuthority)
+	err := q.QueryRow(ctx, `SELECT id,workspace_id,name,harness,inspect_allowed,draft_allowed,apply_mode,COALESCE(created_by,''),created_at,last_seen_at,revoked_at,expires_at,use_workspace_authority FROM agent_installations WHERE id=$1`, id).Scan(&i.ID, &i.WorkspaceID, &i.Name, &i.Harness, &i.Authority.Inspect, &i.Authority.Draft, &i.Authority.ApplyMode, &i.CreatedBy, &i.CreatedAt, &i.LastSeenAt, &i.RevokedAt, &i.ExpiresAt, &i.UseWorkspaceAuthority)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return i, ErrNotFound
 	}
@@ -779,7 +788,7 @@ func (s *Store) refreshAgentOnce(ctx context.Context, refreshToken, clientInstan
 func (s *Store) ResolveAgent(ctx context.Context, accessToken string) (Principal, error) {
 	var installation Installation
 	var session AgentSession
-	err := s.pool.QueryRow(ctx, `SELECT i.id,i.workspace_id,i.name,i.harness,i.inspect_allowed,i.draft_allowed,i.apply_mode,i.created_by,i.created_at,i.last_seen_at,i.revoked_at,i.expires_at,i.use_workspace_authority,s.id,s.client_instance,s.created_at,s.last_seen_at,s.expires_at,s.ended_at,COALESCE(s.parent_session_id,''),s.worker_name,s.worker_draft FROM agent_sessions s JOIN agent_installations i ON i.id=s.installation_id WHERE s.access_hash=$1 AND s.ended_at IS NULL AND s.expires_at>$2 AND i.revoked_at IS NULL AND (i.expires_at IS NULL OR i.expires_at>$2) AND (s.parent_session_id IS NULL OR EXISTS (SELECT 1 FROM agent_sessions parent WHERE parent.id=s.parent_session_id AND parent.ended_at IS NULL AND parent.expires_at>$2))`, secretHash(accessToken), s.now()).Scan(&installation.ID, &installation.WorkspaceID, &installation.Name, &installation.Harness, &installation.Authority.Inspect, &installation.Authority.Draft, &installation.Authority.ApplyMode, &installation.CreatedBy, &installation.CreatedAt, &installation.LastSeenAt, &installation.RevokedAt, &installation.ExpiresAt, &installation.UseWorkspaceAuthority, &session.ID, &session.ClientInstance, &session.CreatedAt, &session.LastSeenAt, &session.ExpiresAt, &session.EndedAt, &session.ParentSessionID, &session.WorkerName, &session.WorkerDraft)
+	err := s.pool.QueryRow(ctx, `SELECT i.id,i.workspace_id,i.name,i.harness,i.inspect_allowed,i.draft_allowed,i.apply_mode,COALESCE(i.created_by,''),i.created_at,i.last_seen_at,i.revoked_at,i.expires_at,i.use_workspace_authority,s.id,s.client_instance,s.created_at,s.last_seen_at,s.expires_at,s.ended_at,COALESCE(s.parent_session_id,''),s.worker_name,s.worker_draft FROM agent_sessions s JOIN agent_installations i ON i.id=s.installation_id WHERE s.access_hash=$1 AND s.ended_at IS NULL AND s.expires_at>$2 AND i.revoked_at IS NULL AND (i.expires_at IS NULL OR i.expires_at>$2) AND (s.parent_session_id IS NULL OR EXISTS (SELECT 1 FROM agent_sessions parent WHERE parent.id=s.parent_session_id AND parent.ended_at IS NULL AND parent.expires_at>$2))`, secretHash(accessToken), s.now()).Scan(&installation.ID, &installation.WorkspaceID, &installation.Name, &installation.Harness, &installation.Authority.Inspect, &installation.Authority.Draft, &installation.Authority.ApplyMode, &installation.CreatedBy, &installation.CreatedAt, &installation.LastSeenAt, &installation.RevokedAt, &installation.ExpiresAt, &installation.UseWorkspaceAuthority, &session.ID, &session.ClientInstance, &session.CreatedAt, &session.LastSeenAt, &session.ExpiresAt, &session.EndedAt, &session.ParentSessionID, &session.WorkerName, &session.WorkerDraft)
 	if err != nil {
 		return Principal{}, ErrUnauthorized
 	}
@@ -803,7 +812,7 @@ func (s *Store) ResolveAgent(ctx context.Context, accessToken string) (Principal
 }
 
 func (s *Store) ListInstallations(ctx context.Context, workspaceID string) ([]Installation, error) {
-	rows, err := s.pool.Query(ctx, `SELECT id,workspace_id,name,harness,inspect_allowed,draft_allowed,apply_mode,created_by,created_at,last_seen_at,revoked_at,expires_at,use_workspace_authority,(SELECT count(*) FROM agent_sessions sess WHERE sess.installation_id=agent_installations.id AND sess.ended_at IS NULL AND sess.expires_at>$2 AND agent_installations.revoked_at IS NULL AND (agent_installations.expires_at IS NULL OR agent_installations.expires_at>$2) AND (sess.parent_session_id IS NULL OR EXISTS(SELECT 1 FROM agent_sessions parent WHERE parent.id=sess.parent_session_id AND parent.ended_at IS NULL AND parent.expires_at>$2))) FROM agent_installations WHERE workspace_id=$1 ORDER BY created_at`, workspaceID, s.now())
+	rows, err := s.pool.Query(ctx, `SELECT id,workspace_id,name,harness,inspect_allowed,draft_allowed,apply_mode,COALESCE(created_by,''),created_at,last_seen_at,revoked_at,expires_at,use_workspace_authority,(SELECT count(*) FROM agent_sessions sess WHERE sess.installation_id=agent_installations.id AND sess.ended_at IS NULL AND sess.expires_at>$2 AND agent_installations.revoked_at IS NULL AND (agent_installations.expires_at IS NULL OR agent_installations.expires_at>$2) AND (sess.parent_session_id IS NULL OR EXISTS(SELECT 1 FROM agent_sessions parent WHERE parent.id=sess.parent_session_id AND parent.ended_at IS NULL AND parent.expires_at>$2))) FROM agent_installations WHERE workspace_id=$1 ORDER BY created_at`, workspaceID, s.now())
 	if err != nil {
 		return nil, err
 	}
