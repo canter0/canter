@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { SettingsShell, SettingRow } from "@/components/settings-shell";
 import { CopyValue } from "@/components/copy-value";
+import { AccountDeletion } from "@/components/account-deletion";
 import { useWorkspace } from "@/components/workspace-context";
 import { canterFetch } from "@/lib/canter-api";
 import styles from "@/components/settings.module.css";
@@ -29,6 +30,7 @@ export default function AccountPage() {
     <section className={styles.section}><h2>Account security</h2><div className={styles.card}><SettingRow title="Sign-in and recovery" description="Passkeys, authenticator apps, recovery codes, and sessions."><Link className={styles.button} href="/app/account/security">Manage security</Link></SettingRow></div></section>
     <section className={styles.section}><h2>Session</h2><div className={styles.card}>
       <SettingRow title="Sign out" description="End this browser’s Canter session."><button className={styles.button} disabled={busy} onClick={() => void signOut()}>{busy ? "Signing out…" : "Sign out"}</button></SettingRow>
+      <SettingRow title="Delete account" description="Permanently remove your account and private data."><AccountDeletion disabled={busy || !data?.account.id} /></SettingRow>
     </div></section>
   </SettingsShell>;
 }

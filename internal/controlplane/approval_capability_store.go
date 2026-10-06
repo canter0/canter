@@ -119,7 +119,7 @@ func (s *Store) readChangeApprovalCapability(ctx context.Context, q approvalCapa
 	var currentPhase, currentDigest, role string
 	var revokedAt *time.Time
 	query := `SELECT c.id,c.workspace_id,c.system_name,c.change_id,c.digest,c.action,c.created_at,c.expires_at,c.consumed_at,COALESCE(c.consumed_by,''),COALESCE(c.execution_id,''),c.revoked_at,
-		i.id,i.workspace_id,i.name,i.harness,i.inspect_allowed,i.draft_allowed,i.apply_mode,i.created_by,i.created_at,i.last_seen_at,i.revoked_at,
+		i.id,i.workspace_id,i.name,i.harness,i.inspect_allowed,i.draft_allowed,i.apply_mode,COALESCE(i.created_by,''),i.created_at,i.last_seen_at,i.revoked_at,
 		cr.phase,cr.digest,cr.document,m.role
 		FROM change_approval_capabilities c
 		JOIN agent_installations i ON i.id=c.requested_by_installation

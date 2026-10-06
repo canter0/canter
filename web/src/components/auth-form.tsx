@@ -25,10 +25,12 @@ export function AuthForm({
   mode,
   next = "",
   initialError = "",
+  accountDeleted = false,
 }: {
   mode: "sign-in" | "create-account" | "reset-password";
   next?: string;
   initialError?: string;
+  accountDeleted?: boolean;
 }) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
@@ -470,6 +472,7 @@ export function AuthForm({
             attempt={botAttempt}
           />
         ) : null}
+        {accountDeleted ? <p role="status" className="py-2 leading-5 text-[#b8c9bd]">Your account has been deleted and all sessions have been signed out.</p> : null}
         {error ? (
           <p role="alert" className="py-2 leading-5 text-[#f2a5a5]">
             {error}

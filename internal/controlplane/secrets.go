@@ -109,7 +109,7 @@ func (h *HTTPServer) workspaceSecrets(w http.ResponseWriter, r *http.Request, p 
 		owner = err == nil && role == "owner"
 	}
 	if len(parts) == 0 && r.Method == http.MethodGet {
-		rows, err := h.service.Store.pool.Query(r.Context(), `SELECT id,name,purpose,note,version,updated_by,created_at,updated_at,last_used_at FROM workspace_secrets WHERE workspace_id=$1 AND revoked_at IS NULL ORDER BY updated_at DESC`, workspace)
+		rows, err := h.service.Store.pool.Query(r.Context(), `SELECT id,name,purpose,note,version,COALESCE(updated_by,''),created_at,updated_at,last_used_at FROM workspace_secrets WHERE workspace_id=$1 AND revoked_at IS NULL ORDER BY updated_at DESC`, workspace)
 		if err != nil {
 			writeStoreError(w, err)
 			return

@@ -117,6 +117,23 @@ func ControlPlaneArtifactKey(digest string) (string, error) {
 	return "control-plane/artifacts/sha256/" + digest + ".tar.gz", nil
 }
 
+// DeleteControlPlaneArtifact erases only a canonical staged application object.
+// The control plane must fence uploads and check all workspace references first.
+func (c *Client) DeleteControlPlaneArtifact(ctx context.Context, key string) error {
+	digest := strings.TrimSuffix(strings.TrimPrefix(key, "control-plane/artifacts/sha256/"), ".tar.gz")
+	expected, err := ControlPlaneArtifactKey(digest)
+	if err != nil || key != expected {
+		return fmt.Errorf("artifact erasure requires a canonical staged object key")
+	}
+	store, ok := c.m1.(interface {
+		Delete(context.Context, string) error
+	})
+	if !ok {
+		return fmt.Errorf("artifact erasure is unavailable")
+	}
+	return store.Delete(ctx, key)
+}
+
 // StageControlPlaneArtifact uploads bytes to m1 under their content digest.
 // The caller remains responsible for recording workspace ownership and actor
 // attribution in its durable control-plane store.

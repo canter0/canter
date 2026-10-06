@@ -70,6 +70,11 @@ func (c *Client) Put(ctx context.Context, key string, data []byte, contentType s
 	return err
 }
 
+func (c *Client) Delete(ctx context.Context, key string) error {
+	_, err := c.s3.DeleteObject(ctx, &s3.DeleteObjectInput{Bucket: &c.bucket, Key: &key})
+	return err
+}
+
 func (c *Client) PutJSON(ctx context.Context, key string, value any) error {
 	b, err := json.MarshalIndent(value, "", "  ")
 	if err != nil {

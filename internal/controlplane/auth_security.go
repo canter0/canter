@@ -177,9 +177,13 @@ func (h *HTTPServer) emailReady() bool { return h.config.Auth.Mailer != nil && h
 // Persistent budgets are shared by all control-plane instances. The original
 // in-process limiter remains an inexpensive first layer. Never store raw emails.
 func (h *HTTPServer) authBudget(ctx context.Context, bucket, key string, limit int, window time.Duration) bool {
+	return h.authBudgetQuery(ctx, h.service.Store.pool, bucket, key, limit, window)
+}
+
+func (h *HTTPServer) authBudgetQuery(ctx context.Context, q querier, bucket, key string, limit int, window time.Duration) bool {
 	now := h.service.Store.now()
 	var n int
-	err := h.service.Store.pool.QueryRow(ctx, `INSERT INTO auth_rate_windows(bucket_hash,count,expires_at) VALUES($1,1,$2) ON CONFLICT(bucket_hash) DO UPDATE SET count=CASE WHEN auth_rate_windows.expires_at<=$3 THEN 1 ELSE auth_rate_windows.count+1 END,expires_at=CASE WHEN auth_rate_windows.expires_at<=$3 THEN $2 ELSE auth_rate_windows.expires_at END RETURNING count`, secretHash(bucket+"\x00"+key), now.Add(window), now).Scan(&n)
+	err := q.QueryRow(ctx, `INSERT INTO auth_rate_windows(bucket_hash,count,expires_at) VALUES($1,1,$2) ON CONFLICT(bucket_hash) DO UPDATE SET count=CASE WHEN auth_rate_windows.expires_at<=$3 THEN 1 ELSE auth_rate_windows.count+1 END,expires_at=CASE WHEN auth_rate_windows.expires_at<=$3 THEN $2 ELSE auth_rate_windows.expires_at END RETURNING count`, secretHash(bucket+"\x00"+key), now.Add(window), now).Scan(&n)
 	return err == nil && n <= limit
 }
 func (h *HTTPServer) allowAuthBudget(w http.ResponseWriter, r *http.Request, bucket, key string, limit int, window time.Duration) bool {
@@ -236,7 +240,13 @@ func (h *HTTPServer) queueCodeTx(ctx context.Context, tx pgx.Tx, c authChallenge
 	if err != nil {
 		return "", err
 	}
-	err = h.queueEmailTx(ctx, tx, c.AccountID, c.Email, "Your Canter verification code", "Your Canter code is "+code+". It expires in 10 minutes. Enter it only on Canter. If you did not request this, ignore this email.", 10*time.Minute)
+	subject := "Your Canter verification code"
+	body := "Your Canter code is " + code + ". It expires in 10 minutes. Enter it only on Canter. If you did not request this, ignore this email."
+	if c.Purpose == accountDeletionPurpose {
+		subject = "Confirm deletion of your Canter account"
+		body = "Your Canter account deletion code is " + code + ". It expires in 10 minutes. Entering this code and confirming on Canter permanently deletes your account. If you did not request deletion, do not share this code and review your account security."
+	}
+	err = h.queueEmailTx(ctx, tx, c.AccountID, c.Email, subject, body, 10*time.Minute)
 	return token, err
 }
 func validEmailCode(c authChallenge, token, code string) bool {

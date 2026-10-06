@@ -1,0 +1,9 @@
+.danger { color: #e3aba4; border-color: #62413e; }
+.danger:hover { color: #f0c0b9; border-color: #88615b; }
+.dialog { text-align: left; }
+.confirm { min-height: 34px; padding: 8px 14px; border: 1px solid #aa6660; border-radius: 8px; background: #9a4540; color: #fff; font-size: 12px; cursor: pointer; }
+.confirm:hover { background: #aa514b; }
+.confirm:disabled { opacity: .55; cursor: default; }
+.confirm:focus-visible { outline: 2px solid #edb4ad; outline-offset: 2px; }
+.restart { width: fit-content; justify-self: start; padding: 4px 0; color: #aaa; font-size: 12px; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+@media(pointer: coarse) { .confirm, .restart { min-height: 44px; } }
