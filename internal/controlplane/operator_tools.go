@@ -20,6 +20,7 @@ type OperatorSurface struct {
 	Repository string `json:"repository,omitempty"`
 	Base       string `json:"base,omitempty"`
 	Path       string `json:"path,omitempty"`
+	Attention  string `json:"attention,omitempty"`
 }
 
 func validateOperatorSurface(surface *OperatorSurface) error {
@@ -63,7 +64,7 @@ func (o *OperatorRuntime) tools() []mcpTool {
 		{"canter_show_billing", "Read recorded spending, daily usage, resource capacity, trends and forecasts, and open Billing. A null forecast means there is not enough recorded history; do not invent predictions. Capacity is configured allocation, not measured CPU utilization. not_started means no billing period has begun; do not call its calculated zeros an invoice. Payments require the human's UI."},
 		{"canter_show_activity", "Read audited workspace actions and open Activity."},
 		{"canter_show_agents", "Read agent installations and their grants and open Access. Revocation requires the human's UI."},
-		{"canter_show_repositories", "Open GitHub connection and repository picker in the conversation. Use this first when the user wants to deploy but has not chosen a repository, wants to connect GitHub, or supplies an ambiguous @name. Shows Connect GitHub if disconnected, otherwise lists their accessible repositories. The user selects a repository in the UI to continue."},
+		{"canter_show_repositories", "Open GitHub connection and repository picker in the conversation only when the next action requires the user to choose a missing or ambiguous repository, explicitly browse repositories, or connect GitHub. Check the current request, attached repository, and conversation context first; reuse an already identified repository. Cost estimates and hosting advice do not require repository selection. Shows Connect GitHub if disconnected, otherwise lists their accessible repositories."},
 		{"canter_capabilities", "Read actual supported deployment and operation capabilities."},
 	} {
 		out = append(out, mcpTool{Name: item.name, Description: item.description, InputSchema: object(map[string]any{})})
@@ -103,7 +104,7 @@ func (o *OperatorRuntime) localTool(ctx context.Context, r OperatorRun, c Conver
 		}
 		vm, err := o.Server.service.DraftVPS(ctx, c.WorkspaceID, input, p.Actor)
 		if err == nil {
-			err = o.surface(ctx, r, OperatorSurface{Kind: "vps", ID: vm.ID})
+			err = o.surface(ctx, r, OperatorSurface{Kind: "vps", ID: vm.ID, Attention: "review"})
 		}
 		return publicVPS(vm), true, err
 	case "canter_list_vps":
@@ -194,7 +195,7 @@ func (o *OperatorRuntime) localTool(ctx context.Context, r OperatorRun, c Conver
 				err = nil
 			}
 		}
-		if surfaceErr := o.surface(ctx, r, OperatorSurface{Kind: "github"}); surfaceErr != nil {
+		if surfaceErr := o.surface(ctx, r, OperatorSurface{Kind: "github", Attention: "input"}); surfaceErr != nil {
 			return nil, true, surfaceErr
 		}
 		return map[string]any{"connection": state, "repositories": repos, "next": "The user can connect GitHub or select a repository in the open view. Public repository URLs work without a connection."}, true, err
@@ -241,7 +242,7 @@ func (o *OperatorRuntime) localTool(ctx context.Context, r OperatorRun, c Conver
 			return nil, true, err
 		}
 		if connection.Reconnect {
-			_ = o.surface(ctx, r, OperatorSurface{Kind: "github"})
+			_ = o.surface(ctx, r, OperatorSurface{Kind: "github", Attention: "input"})
 			return nil, true, errGitHubReconnect
 		}
 		ctx = context.WithValue(ctx, githubTokenKey{}, token)
@@ -294,7 +295,7 @@ func (o *OperatorRuntime) localTool(ctx context.Context, r OperatorRun, c Conver
 		}
 		value, err := o.prepareRepository(ctx, c, p, repo, args.Commit, args.Directory, args.Name)
 		if err == nil {
-			err = o.surface(ctx, r, OperatorSurface{Kind: "deployment", ID: value.ID})
+			err = o.surface(ctx, r, OperatorSurface{Kind: "deployment", ID: value.ID, Attention: "review"})
 		}
 		return value, true, err
 	}
