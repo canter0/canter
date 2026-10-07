@@ -20,6 +20,7 @@ import { WorkspaceIcon } from "./workspace-icon";
 import { OperatorSurfaceView } from "./operator-surface";
 import { canterFetch, CanterAPIError } from "@/lib/canter-api";
 import { conversationBase, isSurface, surfaceKey, surfaceLabels, type ConversationDetail, type OperatorEvent, type OperatorRun, type OperatorSurface } from "@/lib/operator-api";
+import { pendingRepositoryPicker, takeReviewSurface } from "@/lib/operator-surface-events";
 import styles from "./operator-workspace.module.css";
 
 const subscribeDraft = (onChange: () => void) => { window.addEventListener("canter-draft", onChange); return () => window.removeEventListener("canter-draft", onChange); };
@@ -46,13 +47,14 @@ export function OperatorWorkspace({ id, githubResult, focusComposer, initialDeta
   const [viewMenu, setViewMenu] = useState(false);
   const [showScroll, setShowScroll] = useState(false);
   const [hasEarlierMessages, setHasEarlierMessages] = useState(false);
-  const [panelOpen, setPanelOpen] = useState<boolean | null>(null);
+  const [panelOpen, setPanelOpen] = useState(false);
   const panelId = useId();
   const [submittedPrompt, setSubmittedPrompt] = useState("");
   const [submittedSurface, setSubmittedSurface] = useState<OperatorSurface | null>(null);
   const composerArea = useRef<HTMLDivElement>(null);
   const composerOrigin = useRef<DOMRect | null>(null);
   const [inlineGitHub, setInlineGitHub] = useState(!!githubResult);
+  const [dismissedGitHubSequence, setDismissedGitHubSequence] = useState(0);
   const [fallbackDraft, setFallbackDraft] = useState("");
   const [error, setError] = useState("");
   const [connectionError, setConnectionError] = useState("");
@@ -93,7 +95,7 @@ export function OperatorWorkspace({ id, githubResult, focusComposer, initialDeta
   const selectedModelOptions = operatorModelOptions(selectedModel, selectedModel ? modelPreferences[selectedModel] : undefined);
   const running = activeRun(detail?.run);
   const attachmentDraft = useOperatorAttachmentDraft(storageKey);
-  const showPanel = panelOpen ?? !!selected;
+  const showPanel = panelOpen;
   useFocusContainment(overlayPanel && showPanel, surfacePanel, closePanel, panelTrigger);
   usePopover(viewMenu, viewMenuAnchor, closeViewMenu);
   useEffect(() => {
@@ -116,6 +118,8 @@ export function OperatorWorkspace({ id, githubResult, focusComposer, initialDeta
     const controller = new AbortController();
     let cursor = latestEvents.current.at(-1)?.sequence ?? 0;
     let restoring = cursor === 0;
+    const seenReviews = new Set<string>();
+    takeReviewSurface(latestEvents.current, seenReviews);
     async function sync(refresh = false) {
       const value = await conversationCache.load(id!, refresh);
       if (!controller.signal.aborted) { setDetail(value); setDeliveryNotice(""); }
@@ -132,15 +136,14 @@ export function OperatorWorkspace({ id, githubResult, focusComposer, initialDeta
             cursor = batch[batch.length - 1].sequence;
             setEvents(current => [...current.filter(event => !batch.some(next => next.sequence === event.sequence)), ...batch].sort((a, b) => a.sequence - b.sequence));
             const surfaces = batch.filter(event => event.kind === "surface" && isSurface(event.data) && !["github", "compute", "storage"].includes(String(event.data.kind)));
-            const last = surfaces[surfaces.length - 1];
-            // A newly requested view can open immediately, while a form the user
-            // is editing stays in place. Every view also remains in the transcript.
-            const editing = document.activeElement?.closest("[data-workspace-surface] input, [data-workspace-surface] select, [data-workspace-surface] textarea");
-            if (last && !editing) {
-              const surface = last.data as OperatorSurface;
+            if (surfaces.length) {
               setOpened(current => [...new Map([...current, ...surfaces.map(event => event.data as OperatorSurface)].map(item => [surfaceKey(item), item])).values()]);
-              if (restoring) setSelected(current => current ?? surface); else { setSelected(surface); setPanelOpen(true); }
             }
+            // Preserve the user's focus and chosen tab during background work.
+            // Replayed or dismissed reviews never reopen the panel.
+            const review = takeReviewSurface(batch, seenReviews);
+            const editing = document.activeElement?.closest('input, select, textarea, [contenteditable="true"]');
+            if (review && !restoring && !editing) { setSelected(review); setPanelOpen(true); }
             if (batch.some(event => event.kind === "queued" || event.kind === "finished" || event.kind === "title")) { await sync(true); refreshWorkspace(); }
             else if (batch.some(event => event.kind === "working")) setDetail(current => current?.run ? { ...current, run: { ...current.run, status: "running" } } : current);
           }
@@ -176,7 +179,7 @@ export function OperatorWorkspace({ id, githubResult, focusComposer, initialDeta
   }, []);
 
   useEffect(() => {
-    if (selected && (panelOpen ?? true)) {
+    if (selected && panelOpen) {
       const index = opened.findIndex(item => surfaceKey(item) === surfaceKey(selected));
       const tab = document.getElementById(`${panelId}-tab-${index}`);
       const reveal = () => tab?.scrollIntoView({ block: "nearest", inline: "nearest" });
@@ -243,6 +246,7 @@ export function OperatorWorkspace({ id, githubResult, focusComposer, initialDeta
     try {
       const base = conversationBase(workspace);
       await canterFetch(id ? `${base}/${encodeURIComponent(id)}/messages` : base, { method: "POST", body: JSON.stringify(id ? { requestId: request.requestId, message, attachments, surface: requestSurface, model: selectedModel, modelOptions: selectedModelOptions } : { ...request, surface: requestSurface }) });
+      if (chosenRepository) { setInlineGitHub(false); setDismissedGitHubSequence(events.at(-1)?.sequence ?? 0); }
       if (!chosenRepository) { editDraft(""); attachmentDraft.update([]); }
       else if (!id) {
         if (draft) { try { sessionStorage.setItem(`canter:conversation-draft:${workspace}:${request.id}`, draft); } catch { /* Nonessential storage. */ } }
@@ -295,11 +299,17 @@ export function OperatorWorkspace({ id, githubResult, focusComposer, initialDeta
     });
   }
   const tabLabel = (surface: OperatorSurface) => surface.path?.split("/").at(-1) ?? (surface.kind === "repository" ? surface.repository?.split("/").at(-1) : undefined) ?? surface.system ?? surfaceLabels[surface.kind];
-  const githubRun = events.findLast(event => event.kind === "surface" && event.data.kind === "github")?.runId;
+  const githubRequest = pendingRepositoryPicker(events);
+  const githubRun = githubRequest && githubRequest.sequence > dismissedGitHubSequence ? githubRequest.runId : undefined;
   const hasMessages = !!detail?.messages.length;
   const github = workspace ? <GitHubRepositories inline workspaceId={workspace} conversationId={id} result={githubResult} busy={sending || !data?.agent.available} onDeploy={async repository => { await send(undefined, repository); }} /> : null;
   function focusPanel() {
     requestAnimationFrame(() => (surfacePanel.current?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]') ?? surfacePanel.current)?.focus());
+  }
+  function openPanel() {
+    setSelected(current => current ?? opened.at(-1) ?? null);
+    setPanelOpen(true);
+    focusPanel();
   }
   function selectTab(index: number) {
     const surface = opened[index];
@@ -310,7 +320,7 @@ export function OperatorWorkspace({ id, githubResult, focusComposer, initialDeta
   }
   const workspaceCommands: SpotlightCommand[] = [
     { id: "right-panel", title: !showPanel ? "Open right sidebar" : wide || overlayPanel ? "Close right sidebar" : "Expand right sidebar fully", key: "e", icon: "panel", run: () => {
-      if (!showPanel) { setWide(false); setPanelOpen(true); focusPanel(); }
+      if (!showPanel) { setWide(false); openPanel(); }
       else if (!wide && !overlayPanel) { setWide(true); focusPanel(); }
       else { setPanelOpen(false); setWide(false); requestAnimationFrame(() => panelTrigger.current?.focus()); }
     } },
@@ -361,7 +371,7 @@ export function OperatorWorkspace({ id, githubResult, focusComposer, initialDeta
           </div>
         </div>
         <div className={styles.surfaceContent}>
-          {opened.length && workspace ? opened.map((surface, index) => <div key={surfaceKey(surface)} role="tabpanel" id={`${panelId}-view-${index}`} aria-labelledby={`${panelId}-tab-${index}`} hidden={!selected || surfaceKey(selected) !== surfaceKey(surface)}><OperatorSurfaceView surface={surface} workspaceId={workspace} onSelect={openSurface} conversationId={id} githubResult={githubResult} busy={sending || !data?.agent.available} onDeploy={async repository => { await send(undefined, repository); }} /></div>) : <div className={styles.surfacePlaceholder}>
+          {opened.length && workspace ? opened.map((surface, index) => <div key={surfaceKey(surface)} role="tabpanel" id={`${panelId}-view-${index}`} aria-labelledby={`${panelId}-tab-${index}`} hidden={!selected || surfaceKey(selected) !== surfaceKey(surface)}>{showPanel && selected && surfaceKey(selected) === surfaceKey(surface) ? <OperatorSurfaceView surface={surface} workspaceId={workspace} onSelect={openSurface} conversationId={id} githubResult={githubResult} busy={sending || !data?.agent.available} onDeploy={async repository => { await send(undefined, repository); }} /> : null}</div>) : <div className={styles.surfacePlaceholder}>
             <div className={styles.surfaceHints}>
               <div><WorkspaceIcon name="apps" /><p>Apps<span>Apps your agent opens</span></p></div>
               <div><WorkspaceIcon name="file" /><p>Files<span>Code and files it works with</span></p></div>
@@ -371,7 +381,7 @@ export function OperatorWorkspace({ id, githubResult, focusComposer, initialDeta
           </div>}
         </div>
       </aside>
-      <button ref={panelTrigger} type="button" className={styles.panelToggle} hidden={showPanel} title="Open workspace panel · A + E" aria-label="Show workspace panel" aria-expanded={showPanel} aria-controls={panelId} onClick={() => setPanelOpen(!showPanel)}><WorkspaceIcon name="panel" /></button>
+      <button ref={panelTrigger} type="button" className={styles.panelToggle} hidden={showPanel} title="Open workspace panel · A + E" aria-label="Show workspace panel" aria-expanded={showPanel} aria-controls={panelId} onClick={openPanel}><WorkspaceIcon name="panel" /></button>
     </div>
   </AppShell>;
 }
