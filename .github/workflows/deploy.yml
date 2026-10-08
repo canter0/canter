@@ -61,7 +61,7 @@ jobs:
           cd web
           pnpm install --frozen-lockfile
           printf '{"commit":"%s"}\n' "$RELEASE_SHA" > public/release.json
-          pnpm build
+          NEXT_PUBLIC_CANTER_RELEASE="$RELEASE_SHA" pnpm build
           cp -a .next/standalone/. ../release/web/
           # Next's tracing root is the repository, so server.js lives under web/.
           if [ -f ../release/web/web/server.js ]; then

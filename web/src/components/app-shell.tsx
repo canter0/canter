@@ -21,6 +21,7 @@ import { WorkspaceIcon, type WorkspaceIconName } from "./workspace-icon";
 import { WorkspaceLoading } from "./workspace-loading";
 import { ConversationList } from "./conversation-list";
 import { ConversationSearch } from "./conversation-search";
+import { ReleaseUpdateNotice } from "./release-update-notice";
 import styles from "./workspace.module.css";
 
 function subscribeToPageFocus(onChange: () => void) {
@@ -49,7 +50,7 @@ const navigation: Array<{ label: string; active: NavItem; href: string; icon: Wo
 ];
 
 export function AppShell({ active, context, children, onNewInstruction, agentView, settingsNavigation, pageTitle, workspaceCommands = [] }: { active: NavItem; context?: string; children: ReactNode; onNewInstruction?: () => void; agentView?: boolean; settingsNavigation?: ReactNode; pageTitle?: string; workspaceCommands?: SpotlightCommand[] }) {
-  const { data, loading, unavailable, error, retry, collapsed, setCollapsed, setPageTitle } = useWorkspace();
+  const { data, loading, unavailable, error, retry, collapsed, setCollapsed, setPageTitle, releaseUpdate } = useWorkspace();
   const embedded = useSurfaceWorkspace();
   const pageFocused = useSyncExternalStore(subscribeToPageFocus, pageIsFocused, serverPageIsFocused);
   const router = useRouter();
@@ -140,9 +141,10 @@ export function AppShell({ active, context, children, onNewInstruction, agentVie
           <Link role="menuitem" tabIndex={-1} prefetch={true} href="/app/billing" onNavigate={closeAccount}><WorkspaceIcon name="file" />Billing</Link>
         </div> : null}</div>
       </nav>
-      <header className={styles.topBar} data-conversation={agentView || undefined} inert={navigationModal}>
+      <header className={styles.topBar} data-conversation={agentView || undefined} data-update-available={!!releaseUpdate.available || undefined} inert={navigationModal}>
         <button ref={navigationTrigger} className={`${styles.iconButton} ${styles.mobileMenu}`} aria-label="Open navigation" aria-expanded={navigationModal} aria-controls={sidebarId} onClick={() => { setAccountOpen(false); setMobileOpen(true); }}><WorkspaceIcon name="panel" /></button>
         {agentView ? <h1 className={styles.topBarTitle} title={title}>{title}</h1> : <Link className={`wordmark ${styles.mobileWordmark}`} prefetch={true} href="/app">canter</Link>}
+        <ReleaseUpdateNotice update={releaseUpdate} />
       </header>
       {navigationModal ? <div className={styles.sidebarBackdrop} aria-hidden="true" onClick={closeNavigation} /> : null}
       <ViewTransition name={sidebarSettings ? "settings-sidebar" : "dashboard-sidebar"} default="none" enter="sidebar-fade" exit="sidebar-fade">

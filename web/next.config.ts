@@ -22,6 +22,7 @@ const nextConfig: NextConfig = {
   },
   async headers() {
     return [
+      { source: "/release.json", headers: [{ key: "Cache-Control", value: "no-store" }] },
       {
         source: "/:path*",
         headers: [
