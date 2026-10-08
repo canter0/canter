@@ -8,8 +8,9 @@ import { useWorkspaceOverview } from "@/lib/workspace-overview";
 import type { WorkspaceBootstrap } from "@/lib/workspace-data";
 import { createConversationCache, type ConversationCache } from "@/lib/conversation-cache";
 import { conversationDetail } from "@/lib/operator-api";
+import { useReleaseUpdate } from "./use-release-update";
 
-const WorkspaceContext = createContext<(ReturnType<typeof useWorkspaceOverview> & { conversationCache: ConversationCache; prefetchConversation: (id: string) => void; collapsed: boolean; setCollapsed: (value: boolean) => void; setPageTitle: (value: string) => void; connectAgent: () => void }) | null>(null);
+const WorkspaceContext = createContext<(ReturnType<typeof useWorkspaceOverview> & { releaseUpdate: ReturnType<typeof useReleaseUpdate>; conversationCache: ConversationCache; prefetchConversation: (id: string) => void; collapsed: boolean; setCollapsed: (value: boolean) => void; setPageTitle: (value: string) => void; connectAgent: () => void }) | null>(null);
 const sidebarKey = "canter:sidebar-collapsed";
 const subscribeSidebar = (onChange: () => void) => {
   window.addEventListener("storage", onChange);
@@ -19,6 +20,7 @@ const subscribeSidebar = (onChange: () => void) => {
 
 export function WorkspaceProvider({ children, initial }: { children: ReactNode; initial: WorkspaceBootstrap }) {
   const overview = useWorkspaceOverview(initial);
+  const releaseUpdate = useReleaseUpdate();
   const router = useRouter();
   const [conversationCache] = useState(() => createConversationCache(initial.data.workspace.id, id => conversationDetail(initial.data.workspace.id, id)));
   const prefetched = useRef(new Set<string>());
@@ -66,7 +68,7 @@ export function WorkspaceProvider({ children, initial }: { children: ReactNode; 
     try { localStorage.setItem(sidebarKey, String(value)); window.dispatchEvent(new Event("canter-sidebar")); } catch { /* The sidebar remains usable without storage. */ }
   }
   const [connectionOpen, setConnectionOpen] = useState(false);
-  return <WorkspaceContext.Provider value={{ ...overview, conversationCache, prefetchConversation, collapsed, setCollapsed, setPageTitle, connectAgent: () => setConnectionOpen(true) }}><title>{`${pageTitle} — Canter`}</title>{children}{connectionOpen && overview.data ? <AgentConnectionDialog workspaceId={overview.data.workspace.id} defaultAuthority={overview.data.workspace.agentAuthority} onClose={() => setConnectionOpen(false)} onConnected={overview.retry} /> : null}</WorkspaceContext.Provider>;
+  return <WorkspaceContext.Provider value={{ ...overview, releaseUpdate, conversationCache, prefetchConversation, collapsed, setCollapsed, setPageTitle, connectAgent: () => setConnectionOpen(true) }}><title>{`${pageTitle} — Canter`}</title>{children}{connectionOpen && overview.data ? <AgentConnectionDialog workspaceId={overview.data.workspace.id} defaultAuthority={overview.data.workspace.agentAuthority} onClose={() => setConnectionOpen(false)} onConnected={overview.retry} /> : null}</WorkspaceContext.Provider>;
 }
 
 export function useWorkspace() {

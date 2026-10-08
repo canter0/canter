@@ -1,0 +1,8 @@
+.notice { grid-column: 3; grid-row: 1; display: flex; align-items: center; gap: 8px; justify-self: end; margin-left: auto; padding: 3px 5px 3px 10px; border: 1px solid #3b493f; border-radius: 8px; background: #1b261f; color: #c0cfc4; font-size: 12px; white-space: nowrap; }
+.refresh { min-height: 28px; padding: 0 7px; border-radius: 5px; background: #35483b; color: #e3eee6; }
+.refresh:hover { background: #405846; }
+.dismiss { display: grid; place-items: center; width: 28px; min-height: 28px; border-radius: 5px; color: #9cac9f; }
+.dismiss:hover { background: #2b3a30; color: #e3eee6; }
+.notice button:focus-visible { outline: 2px solid #b4cbb8; outline-offset: 2px; }
+@media (max-width: 600px) { .notice { gap: 4px; padding-left: 7px; font-size: 11px; } }
+@media (pointer: coarse) { .notice { padding-block: 0; } .notice button { min-height: 44px; } .dismiss { width: 32px; } }

@@ -108,6 +108,7 @@
 .mobileClose, .sidebarBackdrop, .mobileMenu, .mobileWordmark { display: none; }
 .topBar { grid-column: 3; grid-row: 1; display: flex; align-items: center; gap: 12px; min-width: 0; padding: 0 23px 0 12px; background: var(--rail-surface); }
 .topBar[data-conversation="true"] { display: grid; grid-template-columns: 32px minmax(0, 1fr) 32px; padding-inline: 12px; margin-right: 8px; }
+.topBar[data-conversation="true"][data-update-available="true"] { grid-template-columns: 32px minmax(0, 1fr) auto; }
 .topBar[data-conversation="true"] .mobileMenu { grid-column: 1; grid-row: 1; }
 .topBarTitle { grid-column: 2; grid-row: 1; min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; color: #ddd; font-size: 14px; font-weight: 500; }
 @media (min-width: 1024px) { .shell[data-settings="true"][data-collapsed="true"] .sidebar > nav { display: none; } }
