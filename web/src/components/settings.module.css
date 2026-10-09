@@ -1,4 +1,4 @@
-.navigation { flex: 1 1 auto; min-height: 0; margin-top: 24px; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: #3a3a3a transparent; }
+.navigation { --motion-nav-surface: #292929; flex: 1 1 auto; min-height: 0; margin-top: 24px; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: #3a3a3a transparent; }
 .back { display: flex; align-items: center; min-height: 32px; margin: 0 10px 16px; color: #aaa; font-size: 12px; }
 .back:hover { color: #eee; }
 .search { display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 5px 9px; margin-bottom: 24px; border: 1px solid #3c3c3c; border-radius: var(--radius-control); color: #aaa; background: #1a1a1a; }

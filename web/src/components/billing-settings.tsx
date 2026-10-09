@@ -3,7 +3,10 @@
 import Link from "next/link";
 import { BillingUsageView, type BillingUsage } from "./billing-usage";
 import { useSurfaceWorkspace } from "./embedded-app-surface";
-import { useEffect, useId, useState } from "react";
+import { startTransition, useEffect, useId, useState } from "react";
+import { MotionNav } from "./motion-nav";
+import { ContentTransition } from "./site-motion";
+import { MorphLabel } from "./conversation-motion";
 import { SettingsShell } from "@/components/settings-shell";
 import settings from "@/components/settings.module.css";
 import { useWorkspace } from "@/components/workspace-context";
@@ -77,15 +80,15 @@ export function BillingSettings({ initialPlan, checkoutReturned, showPlan = fals
   const money = (cents: number) => (cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const title = view === "plans" ? "Plans" : view === "invoices" ? "Invoices" : "Usage";
   return <SettingsShell active={title} title={title} description={view === "plans" ? "Manage usage billing and your saved payment method." : view === "invoices" ? "Finalized invoices and payment details for your workspace." : "Your current plan, usage credit, and spending history."}><div className={styles.page}>
-    {view === "usage" ? <div className={styles.tabs} role="tablist" aria-label="Usage views">{(["overview", "history"] as const).map(tab => <button key={tab} id={`${viewID}-${tab}-tab`} role="tab" aria-selected={usageTab === tab} aria-controls={`${viewID}-${tab}`} tabIndex={usageTab === tab ? 0 : -1} onClick={() => setUsageTab(tab)} onKeyDown={event => {
+    {view === "usage" ? <MotionNav name="billing-usage" className={styles.tabs} role="tablist" label="Usage views">{(["overview", "history"] as const).map(tab => <button key={tab} id={`${viewID}-${tab}-tab`} role="tab" aria-selected={usageTab === tab} aria-controls={`${viewID}-${tab}`} tabIndex={usageTab === tab ? 0 : -1} onClick={() => startTransition(() => setUsageTab(tab))} onKeyDown={event => {
       if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
       event.preventDefault();
       const next = event.key === "Home" ? "overview" : event.key === "End" ? "history" : tab === "overview" ? "history" : "overview";
-      setUsageTab(next); document.getElementById(`${viewID}-${next}-tab`)?.focus();
-    }}>{tab === "overview" ? "Overview" : "Usage history"}</button>)}</div> : null}
+      startTransition(() => setUsageTab(next)); document.getElementById(`${viewID}-${next}-tab`)?.focus();
+    }}>{tab === "overview" ? "Overview" : "Usage history"}</button>)}</MotionNav> : null}
     {error ? <div className={styles.notice} role="alert">{error} <button onClick={() => setReload((value) => value + 1)}>Retry</button></div> : null}
-    {!state && !error ? <p className={styles.loading} role="status">Loading billing…</p> : null}
-    {view === "usage" && state ? <>
+    {!state && !error ? <p className={styles.loading} role="status"><MorphLabel text="Loading billing…" shimmer /></p> : null}
+    {view === "usage" && state ? <ContentTransition name="canter-billing-content">
       <div id={`${viewID}-overview`} role="tabpanel" aria-labelledby={`${viewID}-overview-tab`} hidden={usageTab !== "overview"}>
         <section className={styles.current} aria-label="Current plan"><div><span className={styles.badge}>Current plan</span><h2>{planName}</h2><p>{started ? `${state.planId === "pro" ? "$20/month" : "Usage-based billing"}${state.periodEnd ? ` · ${state.cancelAtPeriodEnd ? "Ends" : "Renews"} ${new Date(state.periodEnd).toLocaleDateString()}` : ""}` : "$0/month + resource usage. Add a payment method before deploying apps."}</p><div className={styles.planActions}><Link className={settings.primary} href="/app/billing?view=plans">{started ? "View billing" : "Add payment method"}</Link>{state.hasBillingAccount ? <button className={settings.button} disabled={busy || !state.checkoutEnabled || !canManage} onClick={() => openPayment("portal")}>Manage billing</button> : null}</div></div></section>
         {started && state.planId === "pro" ? <section className={styles.creditCard} aria-label="Included usage credit"><h2>Your included usage</h2><div><span>Monthly usage credit</span><strong>${money(state.bill.creditAppliedCents)} / $20.00</strong></div><progress aria-label="Monthly usage credit used" max={2000} value={state.bill.creditAppliedCents} /><p>${money(state.bill.creditRemainingCents)} remaining{state.periodEnd ? ` · Resets ${new Date(state.periodEnd).toLocaleDateString()}` : ""}</p></section> : null}
@@ -96,7 +99,7 @@ export function BillingSettings({ initialPlan, checkoutReturned, showPlan = fals
         {!state.usage?.eventCount ? <div className={styles.historyEmpty}><h2>No recorded usage yet</h2><p>Spending will appear here as resource usage is recorded.</p></div> : null}
         {state.usage ? <BillingUsageView usage={state.usage} /> : null}
       </div>
-    </> : null}
+    </ContentTransition> : null}
     {state?.paymentMethod ? <p className={styles.small}>{state.paymentMethod.brand.toUpperCase()} •••• {state.paymentMethod.last4}{state.paymentReady ? " · Ready for usage billing" : " · Payment setup needs attention"}</p> : null}
     {view === "invoices" && state ? <section className={styles.creditCard}><h2>{state.hasBillingAccount ? "Workspace invoices" : "No invoices yet"}</h2><p>{state.hasBillingAccount ? "View and download finalized invoices, receipts, and payment methods in the secure billing portal." : "Invoices will be available after you set up billing. Your usage estimate is not an invoice."}</p>{state.hasBillingAccount ? <button className={settings.primary} disabled={busy || !state.checkoutEnabled || !canManage} onClick={() => openPayment("portal")}>{busy ? "Opening…" : "Open invoices"}</button> : <Link className={settings.button} href="/app/billing?view=plans">View plans</Link>}{!canManage ? <p>Only a workspace owner can open billing documents.</p> : null}</section> : null}
     {view === "plans" ? <div>

@@ -1,6 +1,6 @@
 import type { OperatorEvent } from "./operator-api";
 
-type WebSource = { sourceId: string; url: string; title: string; retrievedAt: string };
+export type WebSource = { sourceId: string; url: string; title: string; retrievedAt: string };
 
 // Only source records from successful retrievals, never URLs scraped from
 // generated prose or untrusted page text. Search previews are not read pages.

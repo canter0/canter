@@ -18,6 +18,7 @@ const paths = {
   arrow: "M12 19V5M5 12l7-7 7 7",
   right: "M5 12h14M13 6l6 6-6 6",
   external: "M7 17 17 7M7 7h10v10",
+  globe: "M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0M3 12h18M12 3c4 5 4 13 0 18-4-5-4-13 0-18",
   copy: "M8 8h12v12H8zM16 8V4H4v12h4",
   check: "m5 12 4 4L19 6",
   close: "m6 6 12 12M6 18 18 6",

@@ -8,6 +8,8 @@ import { canterFetch, CanterAPIError } from "@/lib/canter-api";
 import { registerPasskey, authenticatePasskey } from "@/lib/passkeys";
 import styles from "./settings.module.css";
 import security from "./account-security.module.css";
+import { useDialog } from "./use-dialog";
+import { MotionPresence } from "./motion-presence";
 
 type Passkey = { id: string; name: string; createdAt: string; lastUsedAt: string | null };
 type Security = {
@@ -276,19 +278,16 @@ export function AccountSecurity() {
 function SecurityDialog({ title, children, busy, dismissible, focusKey, onClose }: { title: string; children: ReactNode; busy: boolean; dismissible: boolean; focusKey: string; onClose: () => void }) {
   const ref = useRef<HTMLDialogElement>(null);
   const id = useId();
-  useEffect(() => {
-    const element = ref.current;
-    element?.showModal();
-    return () => element?.close();
-  }, []);
+  const dismiss = useDialog(ref);
+  const close = () => dismiss(onClose);
   useEffect(() => {
     if (busy) return;
     const element = ref.current;
     const target = Array.from(element?.querySelectorAll<HTMLElement>("[data-initial-focus]") ?? []).find(item => !item.closest("[hidden]"));
     (target ?? element?.querySelector<HTMLElement>("h2"))?.focus();
   }, [focusKey, busy]);
-  return <dialog ref={ref} className={security.dialog} aria-labelledby={id} aria-busy={busy} onCancel={event => { event.preventDefault(); if (!busy && dismissible) onClose(); }}>
-    <header><h2 id={id} tabIndex={-1}>{title}</h2>{dismissible ? <button type="button" disabled={busy} className={security.iconButton} aria-label="Close dialog" onClick={onClose}><WorkspaceIcon name="close" /></button> : null}</header>
+  return <dialog ref={ref} className={security.dialog} aria-labelledby={id} aria-busy={busy} onCancel={event => { event.preventDefault(); if (!busy && dismissible) close(); }}>
+    <header><h2 id={id} tabIndex={-1}>{title}</h2>{dismissible ? <button type="button" disabled={busy} className={security.iconButton} aria-label="Close dialog" onClick={close}><WorkspaceIcon name="close" /></button> : null}</header>
     {children}
   </dialog>;
 }
@@ -319,7 +318,7 @@ function PasskeyRow({ passkey, disabled, onRename, onRemove }: { passkey: Passke
       }
     }}>
       <button ref={trigger} type="button" disabled={disabled} className={security.iconButton} aria-label={`Options for ${passkey.name}`} aria-haspopup="menu" aria-expanded={open} aria-controls={open ? id : undefined} onClick={() => setOpen(value => !value)}><WorkspaceIcon name="more" /></button>
-      {open ? <div id={id} className={security.menu} role="menu" aria-label={`Passkey options for ${passkey.name}`}><button role="menuitem" onClick={() => select(onRename)}><WorkspaceIcon name="edit" width="15" height="15" />Rename</button><button role="menuitem" className={security.danger} onClick={() => select(onRemove)}><WorkspaceIcon name="trash" width="15" height="15" />Remove</button></div> : null}
+      <MotionPresence open={open}><div id={id} className={security.menu} role="menu" aria-label={`Passkey options for ${passkey.name}`}><button role="menuitem" onClick={() => select(onRename)}><WorkspaceIcon name="edit" width="15" height="15" />Rename</button><button role="menuitem" className={security.danger} onClick={() => select(onRemove)}><WorkspaceIcon name="trash" width="15" height="15" />Remove</button></div></MotionPresence>
     </div>
   </div>;
 }

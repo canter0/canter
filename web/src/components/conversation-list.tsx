@@ -9,6 +9,8 @@ import { conversationBase, type Conversation } from "@/lib/operator-api";
 import { clearOperatorAttachmentDraft } from "@/lib/operator-attachment-draft";
 import { useWorkspace } from "./workspace-context";
 import { WorkspaceIcon } from "./workspace-icon";
+import { useDialog } from "./use-dialog";
+import { MorphLabel } from "./conversation-motion";
 import styles from "./conversation-list.module.css";
 
 type Selection = { conversation: Conversation; trigger: HTMLButtonElement };
@@ -96,11 +98,10 @@ function ConversationDialog({ conversation, kind, workspace, onClose, onSaved }:
   const [title, setTitle] = useState(conversation.title);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const dismiss = useDialog(dialog);
+  const close = () => dismiss(onClose);
   useEffect(() => {
-    const element = dialog.current;
-    element?.showModal();
     input.current?.select();
-    return () => element?.close();
   }, []);
 
   async function submit(event: FormEvent) {
@@ -122,14 +123,14 @@ function ConversationDialog({ conversation, kind, workspace, onClose, onSaved }:
     }
   }
 
-  return createPortal(<dialog ref={dialog} className={styles.dialog} aria-labelledby={titleId} aria-describedby={kind === "delete" ? descriptionId : undefined} onCancel={event => { event.preventDefault(); if (!busy) onClose(); }}>
+  return createPortal(<dialog ref={dialog} className={styles.dialog} aria-labelledby={titleId} aria-describedby={kind === "delete" ? descriptionId : undefined} onCancel={event => { event.preventDefault(); if (!busy) close(); }}>
     <form onSubmit={submit}>
       <h2 id={titleId}>{kind === "rename" ? "Rename conversation" : "Delete conversation?"}</h2>
       {kind === "rename" ? <label className={styles.field}>Title<input ref={input} value={title} maxLength={100} required disabled={busy} onChange={event => setTitle(event.target.value)} /></label> : <p id={descriptionId}>This will permanently delete “{conversation.title}” and its messages. Already submitted operations will continue.</p>}
       {error ? <p className={styles.error} role="alert">{error}</p> : null}
       <div className={styles.actions}>
-        <button type="button" disabled={busy} onClick={onClose} autoFocus={kind === "delete"}>Cancel</button>
-        <button type="submit" className={kind === "delete" ? styles.deleteButton : styles.saveButton} disabled={busy || (kind === "rename" && !title.trim())}>{busy ? kind === "rename" ? "Saving…" : "Deleting…" : kind === "rename" ? "Save" : "Delete"}</button>
+        <button type="button" disabled={busy} onClick={close} autoFocus={kind === "delete"}>Cancel</button>
+        <button type="submit" className={kind === "delete" ? styles.deleteButton : styles.saveButton} disabled={busy || (kind === "rename" && !title.trim())}><MorphLabel text={busy ? kind === "rename" ? "Saving…" : "Deleting…" : kind === "rename" ? "Save" : "Delete"} shimmer={busy} /></button>
       </div>
     </form>
   </dialog>, document.body);

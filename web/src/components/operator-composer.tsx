@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useId, useRef, useState, useSyncExternalStore, type RefObject } from "react";
+import { useCallback, useEffect, useLayoutEffect, useId, useRef, useState, useSyncExternalStore, type RefObject } from "react";
 import { usePopover } from "./use-popover";
 import { moveMenuFocus } from "@/lib/interaction";
 import { type OperatorAttachment, type OperatorSurface, surfaceLabels } from "@/lib/operator-api";
@@ -11,6 +11,7 @@ import { useWorkspace } from "./workspace-context";
 import { contextMention } from "@/lib/github-mention";
 import { GitHubMentionPicker } from "./github-mention-picker";
 import { WorkspaceIcon } from "./workspace-icon";
+import { MotionPresence } from "./motion-presence";
 import shared from "./workspace.module.css";
 import styles from "./operator-workspace.module.css";
 
@@ -70,6 +71,7 @@ export function OperatorComposer({ draft, onChange, onSend, onStop, running, sto
   const fileInput = useRef<HTMLInputElement>(null);
   const addButton = useRef<HTMLButtonElement>(null);
   const readLock = useRef(false);
+  const resizeAnimation = useRef<Animation | null>(null);
   const queuedFiles = useRef<File[]>([]);
   const attachmentsRef = useRef(attachments);
   useEffect(() => { attachmentsRef.current = attachments; }, [attachments]);
@@ -80,10 +82,26 @@ export function OperatorComposer({ draft, onChange, onSend, onStop, running, sto
     window.addEventListener("drop", preventFileNavigation);
     return () => { window.removeEventListener("dragover", preventFileNavigation); window.removeEventListener("drop", preventFileNavigation); };
   }, []);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const input = inputRef.current;
-    if (input) { input.style.height = "0px"; input.style.height = `${Math.min(220, Math.max(64, input.scrollHeight))}px`; }
+    if (!input) return;
+    const measure = () => {
+      const previous = input.getBoundingClientRect().height;
+      resizeAnimation.current?.cancel();
+      input.style.height = "0px";
+      const height = Math.min(220, Math.max(28, input.scrollHeight));
+      input.style.height = `${height}px`;
+      if (Math.abs(height - previous) > 1 && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+        resizeAnimation.current = input.animate([{ height: `${previous}px` }, { height: `${height}px` }], { duration: 240, easing: "cubic-bezier(0.22, 1, 0.36, 1)" });
+      }
+    };
+    measure();
+    let width = input.clientWidth;
+    const observer = new ResizeObserver(() => { if (width !== input.clientWidth) { width = input.clientWidth; measure(); } });
+    observer.observe(input);
+    return () => observer.disconnect();
   }, [draft, inputRef]);
+  useEffect(() => () => resizeAnimation.current?.cancel(), []);
   async function attach(files: File[]) {
     if (!files.length || sending) return;
     queuedFiles.current.push(...files);
@@ -102,30 +120,39 @@ export function OperatorComposer({ draft, onChange, onSend, onStop, running, sto
     } finally { readLock.current = false; setReading(false); }
   }
   const canSend = !disabled && !reading && (!!draft.trim() || attachments.length > 0);
+  const showStop = running && !canSend;
   const statusHint = sending ? "Sending…" : stopping ? "Requesting stop…" : running && (draft || attachments.length) ? "Send to guide Canter’s next step." : "";
   const showHint = !!statusHint || (!hintDismissed && !draft);
-  return <div className={styles.promptCard} data-dragging={dragging} data-sending={sending} data-running={running} onDragOver={event => { if (event.dataTransfer.types.includes("Files")) { event.preventDefault(); setDragging(true); } }} onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false); }} onDrop={event => { if (transferredFiles(event.dataTransfer).length) { event.preventDefault(); setDragging(false); void attach(transferredFiles(event.dataTransfer)); } }}>
+  return <div className={styles.promptCard} data-operator-composer data-dragging={dragging} data-sending={sending} data-running={running} onDragOver={event => { if (event.dataTransfer.types.includes("Files")) { event.preventDefault(); setDragging(true); } }} onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false); }} onDrop={event => { if (transferredFiles(event.dataTransfer).length) { event.preventDefault(); setDragging(false); void attach(transferredFiles(event.dataTransfer)); } }}>
     {mention ? <GitHubMentionPicker workspaceId={data?.workspace.id} query={mention.query} category={mention.category} systems={(data?.systems ?? []).map(item => item.contract.metadata.name)} deployments={data?.initialDeployments ?? []} conversations={data?.conversations ?? []} inputRef={inputRef} onPick={pickMention} onClose={() => setMentionDismissed(true)} /> : null}
     <form className={styles.promptForm} aria-busy={sending || reading} onSubmit={event => { event.preventDefault(); if (canSend) onSend(); }}>
+      <div className={styles.composerInput}>
       {attachments.length ? <OperatorAttachments items={attachments} disabled={sending || reading} onRemove={id => onAttachments(attachments.filter(item => item.id !== id))} /> : null}
-      <textarea ref={inputRef} aria-label="Message Canter" aria-controls={mention ? "context-mention-picker" : undefined} aria-haspopup="dialog" placeholder={running ? "Guide Canter’s next step…" : "Ask Canter to build, deploy, or explore your code…"} aria-describedby={showHint ? hintId : undefined} rows={2} value={draft} readOnly={sending} maxLength={20000} onChange={event => { onChange(event.target.value); setCaret(event.target.selectionStart); setMentionDismissed(false); }} onSelect={event => setCaret(event.currentTarget.selectionStart)} onPaste={event => { const files = transferredFiles(event.clipboardData); if (files.length) { event.preventDefault(); void attach(files); } }} onKeyDown={event => { if (event.defaultPrevented) return; if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); if (!event.repeat && canSend) onSend(); } }} />
+      <textarea ref={inputRef} aria-label="Message Canter" aria-controls={mention ? "context-mention-picker" : undefined} aria-haspopup="dialog" placeholder="Ask Canter anything…" aria-describedby={showHint ? hintId : undefined} rows={1} value={draft} readOnly={sending} maxLength={20000} onChange={event => { onChange(event.target.value); setCaret(event.target.selectionStart); setMentionDismissed(false); }} onSelect={event => setCaret(event.currentTarget.selectionStart)} onPaste={event => { const files = transferredFiles(event.clipboardData); if (files.length) { event.preventDefault(); void attach(files); } }} onKeyDown={event => { if (event.defaultPrevented) return; if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); if (!event.repeat && canSend) onSend(); } }} />
       {context ? <button className={styles.contextPill} type="button" aria-label="Remove context" title="Remove context" onClick={onClearContext}><WorkspaceIcon name={context.kind === "conversation" ? "message" : "file"} width="13" height="13" />{context.kind === "conversation" ? data?.conversations.find(item => item.id === context.id)?.title ?? "Conversation" : context.path?.split("/").at(-1) ?? context.repository ?? context.system ?? surfaceLabels[context.kind]}<WorkspaceIcon name="close" width="12" height="12" /></button> : null}
+      </div>
       <div className={styles.promptToolbar}><div className={styles.promptControls}>
         <div ref={contextMenu} className={styles.menuAnchor}><button ref={addButton} type="button" className={shared.iconButton} aria-label="Attach files or add context" title="Attach files or add context" aria-haspopup="menu" aria-expanded={menu === "context"} disabled={sending} onClick={() => setMenu(menu === "context" ? null : "context")}><WorkspaceIcon name="plus" /></button>
-          {menu === "context" ? <div className={`${shared.contextMenu} ${styles.composerMenu} ${styles.contextPicker}`} role="menu" aria-label="Attach files or add context" onKeyDown={moveMenuFocus}>
+          <MotionPresence open={menu === "context"}><div className={`${shared.contextMenu} ${styles.composerMenu} ${styles.contextPicker}`} role="menu" aria-label="Attach files or add context" onKeyDown={moveMenuFocus}>
             <button type="button" role="menuitem" tabIndex={-1} onClick={() => { setMenu(null); fileInput.current?.click(); requestAnimationFrame(() => addButton.current?.focus()); }}><WorkspaceIcon name="attachment" />Upload images or files</button><p className={styles.uploadHint}>Up to 4 files · 2 MB each · 5 MB total</p><div className={styles.menuDivider} />
             {(["github", "apps", "deployments", "billing", "conversations"] as const).map(kind => <button key={kind} type="button" role="menuitem" tabIndex={-1} onClick={() => insertContext(kind)}><WorkspaceIcon name={kind === "github" ? "folder" : kind === "apps" ? "apps" : kind === "conversations" ? "message" : kind === "billing" ? "file" : "activity"} />{kind === "github" ? "GitHub repositories" : kind === "conversations" ? "Conversations" : surfaceLabels[kind]}</button>)}
 
-          </div> : null}
+          </div></MotionPresence>
         </div>
       </div><div className={styles.promptControls}>
-        <OperatorModelPicker model={model} onChange={onModelChange} options={modelOptions} onOptionsChange={onModelOptionsChange} open={menu === "model"} onOpenChange={changeModelMenu} disabled={sending} />
-        {running ? <button type="button" className={styles.stopCircle} aria-label={stopping ? "Stopping response" : "Stop response"} title="Stop response · Completed operations remain saved" disabled={stopping} onClick={onStop}><span /></button> : null}{!running || canSend ? <button type="submit" className={shared.submitInstruction} aria-label={sending ? "Sending message" : "Send message"} title="Send message · Enter" disabled={!canSend}><WorkspaceIcon name="arrow" width="18" height="18" /></button> : null}</div></div>
+        {running && canSend ? <button type="button" className={styles.stopCircle} aria-label={stopping ? "Stopping response" : "Stop response"} title="Stop response · Completed operations remain saved" disabled={stopping} onClick={onStop}><span /></button> : null}
+        <button type={showStop ? "button" : "submit"} className={styles.primaryAction} data-stop={showStop} aria-label={showStop ? stopping ? "Stopping response" : "Stop response" : sending ? "Sending message" : "Send message"} title={showStop ? "Stop response · Completed operations remain saved" : "Send message · Enter"} disabled={showStop ? stopping : !canSend} onClick={showStop ? onStop : undefined}>
+          <span className={styles.actionGlyph} data-visible={!showStop}><WorkspaceIcon name="arrow" width="18" height="18" /></span>
+          <span className={styles.actionGlyph} data-visible={showStop}><span className={styles.stopSquare} /></span>
+        </button></div></div>
       <input ref={fileInput} type="file" accept={attachmentAccept} multiple hidden onChange={event => { void attach(Array.from(event.target.files ?? [])); event.target.value = ""; }} />
+    </form>
+    <div className={styles.composerMeta}>
+      <OperatorModelPicker model={model} onChange={onModelChange} options={modelOptions} onOptionsChange={onModelOptionsChange} open={menu === "model"} onOpenChange={changeModelMenu} disabled={sending} />
+      <div className={styles.composerHintReveal} data-visible={showHint} aria-hidden={!showHint}><div><p id={hintId} className={styles.composerHint} role="status">{statusHint || <><span>Enter to send · Shift + Enter for a new line</span><span>@ to add context</span></>}</p></div></div>
+    </div>
       {reading ? <p className={styles.draftHint} role="status">Preparing attachments… You can keep typing.</p> : null}
       {error ? <p className={styles.attachmentError} role="alert">{error}</p> : null}
-      <div className={styles.composerHintReveal} data-visible={showHint} aria-hidden={!showHint}><div><p id={hintId} className={styles.composerHint} role="status">{statusHint || <><span>Enter to send · Shift + Enter for a new line</span><span>@ to add context</span></>}</p></div></div>
-    </form>
     {dragging ? <div className={styles.dropOverlay}><WorkspaceIcon name="attachment" /><span>Drop images or files</span></div> : null}
   </div>;
 }

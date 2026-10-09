@@ -90,7 +90,7 @@ export function ConversationSearch({ conversations, commands, shortcutsEnabled, 
     requestAnimationFrame(() => { input.current?.setSelectionRange(selected.title.length, selected.title.length); });
   }
 
-  return createPortal(<dialog ref={dialog} className={styles.dialog} data-closing={closing} aria-label="Spotlight" onCancel={event => { event.preventDefault(); close(); }} onClick={event => { if (event.target === event.currentTarget) close(); }}>
+  return createPortal(<dialog ref={dialog} className={styles.dialog} data-motion-handled data-closing={closing} aria-label="Spotlight" onCancel={event => { event.preventDefault(); close(); }} onClick={event => { if (event.target === event.currentTarget) close(); }}>
     <div className={styles.panel}>
       <div className={styles.searchBar}>
         <WorkspaceIcon name="search" width="22" height="22" />

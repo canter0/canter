@@ -29,19 +29,19 @@ export default function PricingPage() {
     <AcquisitionVisit landingPath="/pricing" />
     <SiteHeader />
     <main className={styles.main}>
-      <section className={styles.hero} aria-labelledby="pricing-title">
+      <section className={styles.hero} aria-labelledby="pricing-title" data-motion="reveal">
         <span className={styles.eyebrow}><span /> Pricing</span>
         <h1 id="pricing-title">A little to start.<br /><span>Room to keep going.</span></h1>
         <p>Pay for what you run. Or choose $20/month Pro with $20 of usage included.<br className={styles.desktopBreak} /> Your agent handles the setup. You stay in control.</p>
       </section>
       <PricingPlans />
-      <section className={styles.faq} aria-labelledby="questions-title">
+      <section className={styles.faq} aria-labelledby="questions-title" data-motion="fade">
         <h2 id="questions-title">Questions<br /> about pricing</h2>
         <div className={styles.questions}>{questions.map((item, index) => <details key={item.question} open={index === 0}>
           <summary>{item.question}<span aria-hidden="true" /></summary><p>{item.answer}</p>
         </details>)}</div>
       </section>
-      <section id="compare" className={styles.compare} aria-labelledby="compare-title">
+      <section id="compare" className={styles.compare} aria-labelledby="compare-title" data-motion="fade">
         <span className={styles.eyebrow}><span /> Cost comparison</span>
         <h2 id="compare-title">Compare hosting costs.</h2>
         <p className={styles.sectionIntro}>Compute from $3/month. Object storage at $0.014/GB. Free reads, writes and downloads.</p>
@@ -57,7 +57,7 @@ export default function PricingPage() {
           <div className={styles.sources}><span>Comparison sources</span><a href="https://docs.railway.com/pricing/plans" target="_blank" rel="noreferrer">Railway compute ↗</a><a href="https://docs.railway.com/storage-buckets/billing" target="_blank" rel="noreferrer">Railway Buckets ↗</a><a href="https://aws.amazon.com/ec2/instance-types/t3/" target="_blank" rel="noreferrer">EC2 ↗</a><a href="https://aws.amazon.com/s3/pricing/" target="_blank" rel="noreferrer">S3 ↗</a><a href="https://aws.amazon.com/ebs/pricing/" target="_blank" rel="noreferrer">EC2 boot disk ↗</a><a href="https://aws.amazon.com/vpc/pricing/" target="_blank" rel="noreferrer">IPv4 ↗</a></div>
         </div>
       </section>
-      <section className={styles.bottomCTA}><div><span className={styles.eyebrow}><span /> Bring your agent</span><h2>Your next app starts here.</h2><p>Connect your agent. Review the plan. Let Canter run it.</p></div><Link href="/create-account">Get started <span aria-hidden="true">↗</span></Link></section>
+      <section className={styles.bottomCTA} data-motion="fade"><div><span className={styles.eyebrow}><span /> Bring your agent</span><h2>Your next app starts here.</h2><p>Connect your agent. Review the plan. Let Canter run it.</p></div><Link href="/create-account">Get started <span aria-hidden="true">↗</span></Link></section>
     </main>
     <footer className={styles.footer}><Link href="/" className="wordmark">canter</Link><span>Infrastructure you can talk to.</span><nav aria-label="Footer"><a href="https://github.com/canter0/canter#how-it-works">Docs</a><a href="https://github.com/canter0/canter">GitHub</a><Link href="/sign-in">Sign in</Link></nav></footer>
   </div></div>;

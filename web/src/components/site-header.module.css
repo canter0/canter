@@ -14,7 +14,7 @@
 .actions { margin-left: auto; }
 .secondaryLink, .signIn { color: #5d6258; transition: color 160ms; }
 .secondaryLink { display: inline-flex; align-items: center; gap: 5px; }
-.arrow { display: block; flex: none; width: 16px; height: 16px; }
+.arrow { display: block; flex: none; width: 22px; height: 22px; }
 .secondaryLink:hover, .signIn:hover { color: #11180e; }
 .getStarted {
   display: flex;
@@ -23,10 +23,11 @@
   gap: 10px;
   min-height: 42px;
   padding: 0 20px;
-  border-radius: 7px;
-  background: linear-gradient(180deg, #20391b 0%, #315726 100%);
+  border: 1px solid #315726;
+  border-radius: 9px;
+  background: linear-gradient(180deg, #315726 0%, #4f8735 100%);
   color: #fff;
-  box-shadow: 0 1px 3px #16211226, inset 0 1px 0 #ffffff24;
+  box-shadow: 0 2px 5px #20391b26, inset 0 1px 0 #ffffff36;
   position: relative;
   overflow: hidden;
   isolation: isolate;

@@ -16,7 +16,7 @@ export function AuthShell({ children }: { children: ReactNode }) {
 
 export function AuthTitle({ eyebrow, title, description }: { eyebrow?: string; title: string; description?: string }) {
   return (
-    <div>
+    <div data-motion="reveal">
       <span className="signal mb-7" />
       {eyebrow ? <div className="meta mb-3">{eyebrow}</div> : null}
       <h1 className="display text-[42px] leading-none tracking-[-0.035em]">{title}</h1>

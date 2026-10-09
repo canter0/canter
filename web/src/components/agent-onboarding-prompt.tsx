@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
+import { MorphLabel } from "./conversation-motion";
 import styles from "@/app/home.module.css";
 
 const onboardingPrompt = "Read https://canter.dev/llms.txt and help me connect you to Canter. Show me the authorization link and wait for my approval.";
@@ -29,18 +30,18 @@ export function AgentOnboardingPrompt() {
   }
 
   return (
-    <div className={styles.onboarding}>
+    <div className={styles.onboarding} data-motion="fade" data-motion-delay="200">
       <div className={styles.promptField}>
         <textarea id="agent-onboarding-prompt" ref={promptRef} className={styles.prompt} readOnly rows={2} value={onboardingPrompt} spellCheck={false} aria-label="Prompt to connect your agent" aria-describedby="agent-prompt-hint" />
       </div>
       <button type="button" className={styles.copyButton} onClick={copyPrompt}>
-        {status === "copied" ? "Prompt copied" : "Copy prompt to onboard your agent"}
+        <MorphLabel text={status === "copied" ? "Prompt copied" : "Copy prompt to onboard your agent"} />
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           {status === "copied" ? <path d="m5 12 4 4L19 6" /> : <><rect x="8" y="8" width="12" height="13" rx="2" /><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3" /></>}
         </svg>
       </button>
       <p id="agent-prompt-hint" className={styles.promptHint} role="status" aria-live="polite">
-        {status === "manual" ? "Prompt selected. Press ⌘C or Ctrl+C, then paste it into your agent." : status === "copied" ? "Paste it into your agent to get connected." : "Paste into Claude Code, Codex, Cursor, or your agent of choice."}
+        <span key={status} data-motion="fade">{status === "manual" ? "Prompt selected. Press ⌘C or Ctrl+C, then paste it into your agent." : status === "copied" ? "Paste it into your agent to get connected." : "Paste into Claude Code, Codex, Cursor, or your agent of choice."}</span>
       </p>
       <Link href="/onboarding/agent" className={styles.connectionLink}>Already have a connection code? <span aria-hidden="true">↗</span></Link>
     </div>

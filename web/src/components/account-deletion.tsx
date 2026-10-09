@@ -38,7 +38,7 @@ function DeletionDialog({ onClose }: { onClose: () => void }) {
   const [phase, setPhase] = useState<"password" | "verify">("password");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  useDialog(ref);
+  const dismiss = useDialog(ref);
   useEffect(() => {
     const controller = new AbortController();
     canterFetch<DeletionOptions>("/auth/account/delete", { signal: controller.signal })
@@ -54,7 +54,7 @@ function DeletionDialog({ onClose }: { onClose: () => void }) {
   function close() {
     if (busyRef.current) return;
     void canterFetch("/auth/account/delete", { method: "DELETE" }).catch(() => { /* An unused proof also expires automatically. */ });
-    onClose();
+    dismiss(onClose);
   }
   async function run(action: () => Promise<void>) {
     if (busyRef.current) return;

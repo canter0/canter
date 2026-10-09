@@ -9,6 +9,8 @@ import { ProviderIcon } from "./provider-icon";
 import { finishAcquisition } from "@/lib/acquisition";
 import { authenticatePasskey } from "@/lib/passkeys";
 import { AuthBotCheck } from "./auth-bot-check";
+import { MorphLabel } from "./conversation-motion";
+import { MotionHeight } from "./motion-height";
 
 const inputClass =
   "h-11 w-full rounded-lg border border-[#444] bg-[#202020] px-3 text-[16px] outline-none transition-colors placeholder:text-[#999] focus:border-[#bacbc0] focus:ring-1 focus:ring-[#bacbc0]";
@@ -54,7 +56,7 @@ export function AuthForm({
   const busy = useRef(false);
   const create = mode === "create-account",
     reset = mode === "reset-password";
-  const destination = authDestination(next, "/app");
+  const destination = authDestination(next, create ? "/app?welcome=1" : "/app");
   useEffect(() => {
     let cancelled = false;
     Promise.all([
@@ -276,7 +278,7 @@ export function AuthForm({
       </div>
     );
   return (
-    <div className="text-[14px]">
+    <MotionHeight className="text-[14px]">
       {!reset && entry ? (
         <>
           <div className="grid gap-2">
@@ -397,6 +399,7 @@ export function AuthForm({
               required
               readOnly={pending}
               className={inputClass}
+              data-motion="fade"
             />
           </>
         ) : null}
@@ -405,7 +408,7 @@ export function AuthForm({
             <label htmlFor={passwordId}>
               {newPassword ? "New password" : "Password"}
             </label>
-            <div className="relative">
+            <div className="relative" data-motion="fade">
               <input
                 id={passwordId}
                 name="password"
@@ -423,7 +426,7 @@ export function AuthForm({
                 aria-pressed={showPassword}
                 onClick={() => setShowPassword(!showPassword)}
               >
-                {showPassword ? "Hide" : "Show"}
+                <MorphLabel text={showPassword ? "Hide" : "Show"} />
               </button>
             </div>
             {newPassword ? (
@@ -488,7 +491,7 @@ export function AuthForm({
           style={{ color: "#111" }}
           className="h-11 rounded-lg border border-[#d1d1d1] bg-[#e5e5e5] hover:bg-white focus-visible:outline-2 focus-visible:outline-[#4aaaf0] disabled:opacity-60"
         >
-          {pending
+          <MorphLabel shimmer={pending} text={pending
             ? "Please wait…"
             : stage === "start"
               ? reset || create
@@ -500,7 +503,7 @@ export function AuthForm({
                   ? "Reset password"
                   : stage === "mfa" || stage === "verify"
                     ? "Verify and continue"
-                    : "Log in"}
+                    : "Log in"} />
         </button>
       </form>
       {emailCode ? (
@@ -544,6 +547,6 @@ export function AuthForm({
           {create || reset || !entry ? "Back to sign in" : "Sign up"}
         </Link>
       </p>
-    </div>
+    </MotionHeight>
   );
 }

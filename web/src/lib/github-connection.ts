@@ -3,3 +3,6 @@ export type GitHubConnection = { enabled: boolean; connected: boolean; reconnect
 export function githubConnectURL(connection: GitHubConnection | undefined | null, workspace: string, next: string) {
   return `/api/canter/auth/oauth/${connection?.appEnabled ? "github-app" : "github"}?${new URLSearchParams({ mode: "repository", workspace, next })}`;
 }
+
+export type GitHubRepositorySummary = { full_name: string; description: string; private: boolean; default_branch: string };
+export type GitHubRepositoryResult = { connection: GitHubConnection; repositories: GitHubRepositorySummary[]; page: number; hasMore: boolean };

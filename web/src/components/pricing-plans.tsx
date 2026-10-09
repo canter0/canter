@@ -7,7 +7,7 @@ export function PricingPlans() {
     <div className={styles.planGrid}>{pricingCatalog.plans.map((plan) => {
       const id = plan.id as PlanID;
       const isPro = id === "pro";
-      return <article key={id} className={isPro ? styles.proCard : styles.planCard} aria-labelledby={id + "-title"}>
+      return <article key={id} className={isPro ? styles.proCard : styles.planCard} aria-labelledby={id + "-title"} data-motion="fade" data-motion-delay={isPro ? "80" : "0"} data-motion-card>
         <div className={styles.planName}><h2 id={id + "-title"}>{plan.name}</h2>{isPro ? <span>Usage included</span> : null}</div>
         <div className={styles.planPrice}>{dollars(plan.monthlyCents)}<span>/ month</span></div>
         <p className={styles.planDescription}>{isPro ? "Includes $20 of usage each month. Only pay extra for usage above $20." : "No monthly subscription fee. Just pay for what your apps use."}</p>
