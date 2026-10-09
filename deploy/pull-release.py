@@ -376,6 +376,62 @@ def activate(release, sha):
         # Additive migrations remain; restoring a live DB would discard new writes.
         raise
 
+
+def prune_releases(sha):
+    """Retain three release snapshots and their runtimes; never remove database dumps."""
+    try:
+        releases = ROOT / 'releases'
+        runtime_releases = HARNESS / 'releases'
+        if (releases.is_symlink() or runtime_releases.is_symlink()
+                or (STATE / 'current').read_text().strip() != sha
+                or (HARNESS / 'current').resolve(strict=True) != runtime_releases.resolve(strict=True) / sha):
+            raise ValueError('Active release and runtime do not agree')
+        retained = set()
+        runtimes = {sha}
+        cursor = sha
+        for _ in range(3):
+            if not isinstance(cursor, str) or not re.fullmatch(r'[0-9a-f]{40}', cursor) or cursor in retained:
+                raise ValueError('Invalid rollback chain')
+            path = releases / ('actions-' + cursor)
+            previous_web = path / 'previous-web'
+            manifest = previous_web / 'public/release.json'
+            if path.is_symlink() or previous_web.is_symlink() or manifest.is_symlink():
+                raise ValueError('Rollback metadata must not be a symlink')
+            retained.add(cursor)
+            cursor = json.loads(manifest.read_text())['commit']
+            if not isinstance(cursor, str) or not re.fullmatch(r'[0-9a-f]{40}', cursor):
+                raise ValueError('Invalid rollback identity')
+            runtimes.add(cursor)
+        failed = (STATE / 'failed').read_text().strip() if (STATE / 'failed').exists() else None
+        artifacts = ('web', 'harness', 'deploy', 'canter-controlplane', 'canter-static-linux',
+                     'previous-controlplane', 'previous-static', 'previous-web')
+        removed = 0
+        for path in releases.iterdir():
+            match = re.fullmatch(r'actions-([0-9a-f]{40})', path.name)
+            if (not match or match[1] in retained or match[1] == failed or path.is_symlink()
+                    or not path.is_dir() or (path / 'failed-web').exists()
+                    or (path / 'previous-web').is_symlink() or not (path / 'previous-web').is_dir()):
+                continue
+            for name in artifacts:
+                artifact = path / name
+                if artifact.is_symlink() or artifact.is_file():
+                    artifact.unlink()
+                    removed += 1
+                elif artifact.is_dir():
+                    shutil.rmtree(artifact)
+                    removed += 1
+        for path in runtime_releases.iterdir():
+            if (re.fullmatch(r'[0-9a-f]{40}', path.name) and path.name not in runtimes
+                    and path.name != failed and path.is_dir() and not path.is_symlink()):
+                shutil.rmtree(path)
+                removed += 1
+        if removed:
+            print('Pruned', removed, 'old release artifacts; database backups retained', flush=True)
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        # Housekeeping must never roll back a healthy application release.
+        print('Release cleanup skipped:', error, flush=True)
+
+
 def main():
     STATE.mkdir(mode=0o700, exist_ok=True)
     with (STATE / 'lock').open('w') as lock:
@@ -388,7 +444,11 @@ def main():
         if not match or release['draft'] or release['prerelease']:
             raise RuntimeError('Latest release is not a production release')
         sha = match[1]
-        if any(p.exists() and p.read_text().strip() == sha for p in [STATE / 'current', STATE / 'failed']):
+        if (STATE / 'current').exists() and (STATE / 'current').read_text().strip() == sha:
+            if healthy(sha):
+                prune_releases(sha)
+            return
+        if (STATE / 'failed').exists() and (STATE / 'failed').read_text().strip() == sha:
             return
         assets = {a['name']: a['browser_download_url'] for a in release['assets']}
         base = f'https://github.com/{REPO}/releases/download/{release["tag_name"]}/'
@@ -416,6 +476,7 @@ def main():
         if json.loads((path / 'web/public/release.json').read_text())['commit'] != sha:
             raise RuntimeError('Artifact commit does not match tag')
         activate(path, sha)
+        prune_releases(sha)
 
 if __name__ == '__main__':
     main()
