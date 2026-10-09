@@ -1,0 +1,13 @@
+.label { display: inline-flex; min-width: 0; max-width: 100%; vertical-align: baseline; }
+.label > span { max-width: 100%; }
+.label[data-shimmer="true"] :global([torph-item]) {
+  color: transparent;
+  background-image: linear-gradient(100deg, var(--muted) 0%, var(--muted) 36%, var(--ink) 48%, var(--muted) 60%, var(--muted) 100%);
+  background-repeat: no-repeat;
+  background-clip: text;
+  -webkit-background-clip: text;
+}
+.word { display: inline-block; max-width: 100%; overflow-wrap: anywhere; }
+@media (prefers-reduced-motion: reduce) {
+  .label[data-shimmer="true"] :global([torph-item]) { color: inherit; background: none; }
+}

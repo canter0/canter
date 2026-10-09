@@ -5,12 +5,13 @@ import { type ReactNode } from "react";
 import { AppShell } from "./app-shell";
 import { WorkspaceIcon } from "./workspace-icon";
 import { SettingsNavigation } from "./settings-navigation";
+import { MorphLabel } from "./conversation-motion";
 import styles from "./settings.module.css";
 
 export function SettingsShell({ active, title, description, children }: { active: string; title: string; description?: string; children: ReactNode }) {
   return <AppShell active={["Usage", "Plans", "Invoices"].includes(active) ? "Billing" : "Account"} pageTitle={`${title} settings`} settingsNavigation={<SettingsNavigation active={active} />}>
     <nav className={styles.breadcrumb} aria-label="Breadcrumb"><Link href="/app/settings">Settings</Link><WorkspaceIcon name="chevron" width="12" height="12" /><span aria-current="page">{title}</span></nav>
-    <div className={styles.page}><header className={styles.heading}><h1>{title}</h1>{description ? <p>{description}</p> : null}</header>{children}</div>
+    <div className={styles.page}><header className={styles.heading} data-motion="reveal"><h1><MorphLabel text={title} /></h1>{description ? <p>{description}</p> : null}</header>{children}</div>
   </AppShell>;
 }
 

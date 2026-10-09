@@ -32,6 +32,10 @@
   --rule: #d8dcd2;
   --rule-strong: var(--ink);
   --signal: #65ff00;
+  --motion-fast: 120ms;
+  --motion-enter: 280ms;
+  --motion-layout: 320ms;
+  --ease-out: cubic-bezier(.22,1,.36,1);
 }
 
 .dashboard-theme {
@@ -51,10 +55,6 @@
   --radius-menu: 12px;
   --menu-inset: 5px;
   --radius-menu-item: calc(var(--radius-menu) - var(--menu-inset) - 1px);
-  --motion-fast: 120ms;
-  --motion-enter: 180ms;
-  --motion-layout: 240ms;
-  --ease-out: cubic-bezier(.2,.8,.2,1);
   color-scheme: dark;
   font-family: var(--font-app);
   background: var(--paper);
@@ -126,4 +126,55 @@ button:disabled { cursor: default; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; transition-delay: 0ms !important; }
   ::view-transition-group(.sidebar-fade), ::view-transition-old(.sidebar-fade), ::view-transition-new(.sidebar-fade) { animation: none !important; }
+}
+
+/* Shared motion: content resolves, controls press, and navigation stays anchored.
+   View-transition filters apply to snapshots, never to the live shell. */
+::view-transition { pointer-events: none; }
+::view-transition-old(root) { display: none; }
+::view-transition-new(root) { animation: none; }
+::view-transition-group(.canter-page) { animation-duration: 360ms; animation-timing-function: var(--ease-out); }
+::view-transition-old(.canter-page) { animation: canter-page-out 160ms var(--ease-out) both; }
+::view-transition-new(.canter-page) { animation: canter-page-in 360ms var(--ease-out) both; }
+::view-transition-group(.canter-anchor) { animation: none; z-index: 10; }
+::view-transition-old(.canter-anchor) { display: none; }
+::view-transition-new(.canter-anchor) { animation: none; }
+@keyframes canter-page-in { from { opacity: 0; filter: blur(5px); transform: translateY(7px); } to { opacity: 1; filter: none; transform: none; } }
+@keyframes canter-page-out { to { opacity: 0; filter: blur(3px); transform: translateY(-3px); } }
+
+.motion-presence { display: contents; }
+.motion-presence > * { animation: none !important; }
+[data-motion-nav] { position: relative; isolation: isolate; }
+[data-motion-nav] a, [data-motion-nav] button, [data-motion-nav] h2 { position: relative; z-index: 1; }
+.motion-nav-indicator { position: absolute; pointer-events: none; border-radius: 7px; background: var(--motion-nav-surface, #303030); box-shadow: inset 0 0 0 1px #ffffff06; }
+.motion-nav-indicator[hidden] { display: none; }
+[data-motion-nav-ready] [aria-current="page"]:not([data-motion-nav-skip]),
+[data-motion-nav-ready] [aria-pressed="true"],
+[data-motion-nav-ready] [aria-selected="true"] { background: transparent !important; box-shadow: none !important; }
+:where(button, summary, a[class], input, textarea, select) { transition: background-color var(--motion-fast) ease-out, color var(--motion-fast) ease-out, border-color var(--motion-fast) ease-out, box-shadow var(--motion-enter) var(--ease-out); }
+[data-motion-card] { transition: translate var(--motion-layout) var(--ease-out), background-color var(--motion-fast), border-color var(--motion-fast), box-shadow var(--motion-layout) var(--ease-out); }
+@media (hover: hover) { [data-motion-card]:hover { translate: 0 -2px; } }
+
+dialog[open]:not([data-motion-handled]) { animation: canter-panel-in var(--motion-enter) var(--ease-out) both; }
+dialog[open]:not([data-motion-handled])::backdrop { animation: canter-backdrop-in var(--motion-enter) ease-out both; }
+dialog[data-motion-closing] { pointer-events: none; }
+dialog[open][data-motion-closing]::backdrop { animation: canter-backdrop-in 140ms ease-out reverse both; }
+@keyframes canter-panel-in { from { opacity: 0; filter: blur(4px); transform: translateY(8px) scale(.985); } to { opacity: 1; filter: none; transform: none; } }
+@keyframes canter-backdrop-in { from { opacity: 0; } to { opacity: 1; } }
+:is([role="menu"], [role="dialog"]):not(aside) { animation: canter-panel-in var(--motion-enter) var(--ease-out) both; }
+[role="alert"]:not(:empty) { animation: canter-feedback-in var(--motion-enter) var(--ease-out) both; }
+@keyframes canter-feedback-in { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+
+/* Native disclosure remains operable without JavaScript; supporting browsers
+   interpolate its content height on both open and close. */
+@supports (interpolate-size: allow-keywords) {
+  :root { interpolate-size: allow-keywords; }
+  details::details-content { height: 0; opacity: 0; overflow: clip; transition: height var(--motion-layout) var(--ease-out), opacity var(--motion-enter), content-visibility var(--motion-layout) allow-discrete; }
+  details[open]::details-content { height: auto; opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation-duration: 0s !important; animation-delay: 0s !important; }
+  [data-motion-card]:hover { translate: none; }
+  dialog[open], dialog[open]::backdrop, [role="alert"] { animation: none !important; }
+  details::details-content { transition: none !important; }
 }

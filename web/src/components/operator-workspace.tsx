@@ -7,10 +7,15 @@ import { useFocusContainment } from "./use-focus-containment";
 import { moveMenuFocus } from "@/lib/interaction";
 import { useRouter } from "next/navigation";
 import { useOperatorAttachmentDraft } from "@/lib/operator-attachment-draft";
-import { OperatorMessageContext, OperatorTurn } from "./operator-turn";
+import { OperatorMessageContext, OperatorTurn, ResponseText } from "./operator-turn";
+import { MorphLabel } from "./conversation-motion";
+import { MotionPresence } from "./motion-presence";
 import { WorkspaceLoading } from "./workspace-loading";
 import { operatorModelOptions, parseModelPreferences, type OperatorModelOptions } from "@/lib/operator-models";
 import { OperatorComposer } from "./operator-composer";
+import { githubConnectURL, type GitHubRepositoryResult } from "@/lib/github-connection";
+import { ProviderIcon } from "./provider-icon";
+import { OnboardingPrism } from "./onboarding-prism";
 import { GitHubRepositories } from "./github-repositories";
 import { AppShell } from "./app-shell";
 import type { SpotlightCommand } from "@/lib/spotlight";
@@ -25,12 +30,32 @@ import { mergeConversationHistory, mergeEarlierConversationPage } from "@/lib/co
 import { pendingRepositoryPicker, takeReviewSurface } from "@/lib/operator-surface-events";
 import styles from "./operator-workspace.module.css";
 
+const welcomeFallback = "Welcome to Canter. A place to think through projects with AI and bring your apps online, with you in control of important changes.\n\nLet’s get to know what you’re working on through GitHub.";
+function projectWelcomeFallback(value: GitHubRepositoryResult) {
+  const names = value.repositories.slice(0, 2).map(repo => repo.full_name);
+  return names.length ? `GitHub is connected. I can see ${names.join(" and ")} in your shared repositories. Which project would you like to work on, or is there something new you have in mind?` : "GitHub is connected. No repositories are shared with Canter yet, but we can start with an idea. What would you like to make?";
+}
+
 const subscribeDraft = (onChange: () => void) => { window.addEventListener("canter-draft", onChange); return () => window.removeEventListener("canter-draft", onChange); };
 const subscribeModel = (onChange: () => void) => { window.addEventListener("canter-model", onChange); return () => window.removeEventListener("canter-model", onChange); };
 const activeRun = (run?: OperatorRun | null) => !!run && ["queued", "running"].includes(run.status);
 const restoredSurfaces = (events: OperatorEvent[]) => [...new Map(events.filter(event => event.kind === "surface" && isSurface(event.data) && !["github", "compute", "storage"].includes(String(event.data.kind))).map(event => [surfaceKey(event.data as OperatorSurface), event.data as OperatorSurface])).values()];
-export function OperatorWorkspace({ id, githubResult, focusComposer, initialDetail = null, initialLoadedAt }: { id?: string; githubResult?: string; focusComposer?: boolean; initialDetail?: ConversationDetail | null; initialLoadedAt?: number }) {
+
+export function OperatorWorkspace({ id: initialId, githubResult, focusComposer, initialDetail = null, initialLoadedAt, welcome = false }: { id?: string; githubResult?: string; focusComposer?: boolean; initialDetail?: ConversationDetail | null; initialLoadedAt?: number; welcome?: boolean }) {
   const router = useRouter();
+  const previewGitHubReturn = process.env.NODE_ENV === "development" && githubResult === "preview";
+  const [id, setId] = useState(initialId);
+  const [welcomeStage, setWelcomeStage] = useState<"arrival" | "welcome" | "leaving" | "done">(welcome && !initialId ? "arrival" : "done");
+  const onboarding = welcomeStage === "arrival" || welcomeStage === "welcome";
+  const intro = useRef<HTMLDivElement>(null);
+  const [introPosition, setIntroPosition] = useState<{ left: number; top: number; width: number } | null>(null);
+  const [introText, setIntroText] = useState("");
+  const [projectWelcome, setProjectWelcome] = useState("");
+  const [welcomeGitHub, setWelcomeGitHub] = useState<GitHubRepositoryResult | null>(null);
+  const [welcomeGitHubChecked, setWelcomeGitHubChecked] = useState(false);
+  const [welcomeReady, setWelcomeReady] = useState(false);
+  const welcomeController = useRef<AbortController | null>(null);
+  const onboardingMotion = useRef(false);
   const { data, conversationCache, retry: refreshWorkspace } = useWorkspace();
   const workspace = data?.workspace.id;
   const [snapshot] = useState(() => id ? conversationCache.peek(id) : undefined);
@@ -64,7 +89,7 @@ export function OperatorWorkspace({ id, githubResult, focusComposer, initialDeta
   const [submittedSurface, setSubmittedSurface] = useState<OperatorSurface | null>(null);
   const composerArea = useRef<HTMLDivElement>(null);
   const composerOrigin = useRef<DOMRect | null>(null);
-  const [inlineGitHub, setInlineGitHub] = useState(!!githubResult);
+  const [inlineGitHub, setInlineGitHub] = useState(!!githubResult && !welcome);
   const [dismissedGitHubSequence, setDismissedGitHubSequence] = useState(0);
   const [fallbackDraft, setFallbackDraft] = useState("");
   const [error, setError] = useState("");
@@ -75,6 +100,44 @@ export function OperatorWorkspace({ id, githubResult, focusComposer, initialDeta
   const sendLock = useRef(false);
   const stopLock = useRef(false);
   const reducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
+  useEffect(() => {
+    if (welcomeStage !== "leaving") return;
+    const timer = window.setTimeout(() => { setWelcomeStage("done"); setIntroText(""); setProjectWelcome(""); }, reducedMotion ? 0 : 1000);
+    return () => window.clearTimeout(timer);
+  }, [welcomeStage, reducedMotion]);
+  useEffect(() => {
+    if (!welcome || !onboarding || initialId || !workspace) return;
+    const controller = new AbortController();
+    welcomeController.current = controller;
+    const base = `/workspaces/${encodeURIComponent(workspace)}`;
+    async function introduce() {
+      const [greeting, github] = await Promise.allSettled([
+        canterFetch<{ text: string }>(`${base}/welcome`, { method: "POST", signal: controller.signal }),
+        canterFetch<GitHubRepositoryResult>(`${base}/github/repositories`, { signal: controller.signal }),
+      ]);
+      if (controller.signal.aborted) return;
+      setIntroText(greeting.status === "fulfilled" ? greeting.value.text.trim() || welcomeFallback : welcomeFallback);
+      const connected = github.status === "fulfilled" ? github.value : null;
+      setWelcomeGitHub(connected);
+      setWelcomeGitHubChecked(true);
+      if (previewGitHubReturn && !connected?.connection.connected) {
+        setProjectWelcome("We can start with a project you already have, or make room for a new idea. What would you like to work on?");
+        setWelcomeReady(true);
+        return;
+      }
+      if (!connected?.connection.connected) return;
+      try {
+        const response = await canterFetch<{ text: string }>(`${base}/welcome?stage=projects`, { method: "POST", signal: controller.signal });
+        if (!controller.signal.aborted) setProjectWelcome(response.text.trim() || projectWelcomeFallback(connected));
+      } catch {
+        if (!controller.signal.aborted) setProjectWelcome(projectWelcomeFallback(connected));
+      }
+      if (!controller.signal.aborted) setWelcomeReady(true);
+    }
+    // Strict Mode's setup/cleanup probe must not consume a generation budget.
+    const timer = window.setTimeout(() => void introduce(), 0);
+    return () => { window.clearTimeout(timer); controller.abort(); };
+  }, [welcome, onboarding, initialId, workspace, previewGitHubReturn]);
   const overlayPanel = useMediaQuery("(max-width: 1100px)");
   const surfacePanel = useRef<HTMLElement>(null);
   const panelTrigger = useRef<HTMLButtonElement>(null);
@@ -179,15 +242,47 @@ export function OperatorWorkspace({ id, githubResult, focusComposer, initialDeta
   }, [connectionError, attempt]);
 
   useEffect(() => {
-    if (followScroll.current && transcript.current) transcript.current.scrollTop = transcript.current.scrollHeight;
-  }, [events, detail, selected, panelOpen]);
-
-  useEffect(() => {
-    const observer = new ResizeObserver(() => { if (followScroll.current && transcript.current) transcript.current.scrollTop = transcript.current.scrollHeight; });
-    if (transcript.current) observer.observe(transcript.current);
-    if (transcriptContent.current) observer.observe(transcriptContent.current);
-    return () => observer.disconnect();
-  }, []);
+    const element = transcript.current;
+    const content = transcriptContent.current;
+    if (!element || !content) return;
+    let frame = 0;
+    let previous = 0;
+    let initialized = false;
+    const tick = (time: number) => {
+      frame = 0;
+      if (!followScroll.current) return;
+      const target = Math.max(0, element.scrollHeight - element.clientHeight);
+      const gap = target - element.scrollTop;
+      if (reducedMotion || Math.abs(gap) < 1) { element.scrollTop = target; return; }
+      const elapsed = previous ? Math.min(64, time - previous) : 16;
+      previous = time;
+      // Follow a moving destination instead of restarting native smooth scroll
+      // for every token. User scrolling immediately stops the glide.
+      element.scrollTop += gap * (1 - Math.exp(-elapsed / 70));
+      frame = requestAnimationFrame(tick);
+    };
+    const schedule = () => {
+      if (!followScroll.current || !content.childElementCount) return;
+      if (!initialized) {
+        element.scrollTop = element.scrollHeight;
+        initialized = true;
+        return;
+      }
+      if (!frame) { previous = 0; frame = requestAnimationFrame(tick); }
+    };
+    const observer = new ResizeObserver(schedule);
+    observer.observe(element);
+    observer.observe(content);
+    element.addEventListener("canter-follow-latest", schedule);
+    document.addEventListener("visibilitychange", schedule);
+    schedule();
+    return () => {
+      observer.disconnect();
+      cancelAnimationFrame(frame);
+      element.removeEventListener("canter-follow-latest", schedule);
+      document.removeEventListener("visibilitychange", schedule);
+    };
+  }, [reducedMotion]);
 
   useEffect(() => {
     if (selected && panelOpen) {
@@ -204,14 +299,32 @@ export function OperatorWorkspace({ id, githubResult, focusComposer, initialDeta
 
   useLayoutEffect(() => {
     const origin = composerOrigin.current;
-    const element = composerArea.current;
+    const morphing = onboardingMotion.current;
+    const element = morphing ? composer.current?.closest<HTMLElement>("[data-operator-composer]") : composerArea.current;
     if (!origin || !element) return;
     composerOrigin.current = null;
+    onboardingMotion.current = false;
     if (reducedMotion) return;
     const destination = element.getBoundingClientRect();
-    const animation = element.animate([{ transform: `translateY(${origin.top - destination.top}px)` }, { transform: "translateY(0)" }], { duration: 240, easing: "cubic-bezier(.2,.8,.2,1)" });
+    const animation = element.animate(morphing ? [
+      { transform: `translate(${origin.left - destination.left}px, ${origin.top - destination.top}px)`, width: `${origin.width}px` },
+      { transform: "translate(0,0)", width: `${destination.width}px` },
+    ] : [{ transform: `translateY(${origin.top - destination.top}px)` }, { transform: "translateY(0)" }], { duration: morphing ? 820 : 240, easing: "cubic-bezier(.22,.8,.18,1)" });
     return () => animation.cancel();
-  }, [submittedPrompt, reducedMotion]);
+  }, [submittedPrompt, reducedMotion, welcomeStage]);
+
+  function enterWorkspace() {
+    if (!onboarding) return;
+    const position = intro.current?.getBoundingClientRect();
+    if (position) setIntroPosition({ left: position.left, top: position.top, width: position.width });
+    welcomeController.current?.abort();
+    window.history.replaceState(null, "", "/app?compose=1");
+    const composerBox = composer.current?.closest<HTMLElement>("[data-operator-composer]")?.getBoundingClientRect();
+    composerOrigin.current = composerBox?.width ? composerBox : null;
+    onboardingMotion.current = true;
+    setWelcomeStage("leaving");
+    requestAnimationFrame(() => composer.current?.focus({ preventScroll: true }));
+  }
 
   function suggestPrompt(kind: "compute" | "storage" | "github") {
     const prompts = {
@@ -225,6 +338,7 @@ export function OperatorWorkspace({ id, githubResult, focusComposer, initialDeta
   }
 
   function editDraft(value: string) {
+    if (onboarding && value.trim()) enterWorkspace();
     setFallbackDraft(value);
     if (storageKey) { try { sessionStorage.setItem(storageKey, value); window.dispatchEvent(new Event("canter-draft")); } catch { /* Nonessential storage. */ } }
   }
@@ -247,7 +361,8 @@ export function OperatorWorkspace({ id, githubResult, focusComposer, initialDeta
     const signature = JSON.stringify({ message, attachments, surface: requestSurface, model: selectedModel, modelOptions: selectedModelOptions });
     if (!workspace || !message || sendLock.current || !data?.agent.available) return false;
     sendLock.current = true;
-    composerOrigin.current = composerArea.current?.getBoundingClientRect() ?? null;
+    if (onboarding) enterWorkspace();
+    else composerOrigin.current = composerArea.current?.getBoundingClientRect() ?? null;
     setSubmittedPrompt(message);
     setSubmittedSurface(requestSurface);
     setSending(true); setError(""); followScroll.current = true;
@@ -269,8 +384,17 @@ export function OperatorWorkspace({ id, githubResult, focusComposer, initialDeta
       if (!id) {
         if (selectedModel) { try { sessionStorage.setItem(`canter:conversation-model:${data.account.id}:${workspace}:${request.id}`, selectedModel); sessionStorage.setItem(`canter:conversation-model:${data.account.id}:${workspace}:${request.id}:options`, JSON.stringify(modelPreferences)); } catch { /* The persisted run also carries the model. */ } }
         const destination = `/app/conversations/${encodeURIComponent(request.id)}`;
-        router.prefetch(destination);
-        router.push(destination);
+        if (welcome) {
+          // Keep this composer mounted as the first-run conversation becomes the
+          // normal dashboard. The canonical URL still supports reload and sharing.
+          try { setDetail(await conversationCache.load(request.id, true)); }
+          catch { setDeliveryNotice("Message sent. Reconnecting for updates."); }
+          setId(request.id);
+          window.history.replaceState(null, "", destination);
+        } else {
+          router.prefetch(destination);
+          router.push(destination);
+        }
       }
       else {
         // The message is already accepted. A failed refresh must not invite a duplicate send.
@@ -334,7 +458,10 @@ export function OperatorWorkspace({ id, githubResult, focusComposer, initialDeta
   const tabLabel = (surface: OperatorSurface) => surface.path?.split("/").at(-1) ?? (surface.kind === "repository" ? surface.repository?.split("/").at(-1) : undefined) ?? surface.system ?? surfaceLabels[surface.kind];
   const githubRequest = pendingRepositoryPicker(events);
   const githubRun = githubRequest && githubRequest.sequence > dismissedGitHubSequence ? githubRequest.runId : undefined;
+  const welcomeText = introText || (data && !data.agent.available ? welcomeFallback : "");
+  const introPending = !welcomeText || (!!welcomeGitHub?.connection.connected && !welcomeReady);
   const hasMessages = !!detail?.messages.length;
+  const showConversationWelcome = welcomeStage === "done" && !id && !hasMessages && !inlineGitHub && !submittedPrompt;
   const github = workspace ? <GitHubRepositories inline workspaceId={workspace} conversationId={id} result={githubResult} busy={sending || !data?.agent.available} onDeploy={async repository => { await send(undefined, repository); }} /> : null;
   function focusPanel() {
     requestAnimationFrame(() => (surfacePanel.current?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]') ?? surfacePanel.current)?.focus());
@@ -364,30 +491,47 @@ export function OperatorWorkspace({ id, githubResult, focusComposer, initialDeta
     ] satisfies SpotlightCommand[]) : []),
   ];
 
-  return <AppShell active="Home" agentView pageTitle={detail?.conversation.title} workspaceCommands={workspaceCommands} onNewInstruction={() => { if (id) router.push("/app?compose=1"); else { setInlineGitHub(false); setPanelOpen(false); requestAnimationFrame(() => composer.current?.focus()); } }}>
-    <div className={styles.workspace} data-has-surface={showPanel} data-working={running} data-wide={wide && showPanel} data-empty={!id && !hasMessages && !inlineGitHub && !submittedPrompt}>
+  return <AppShell active="Home" agentView onboarding={onboarding} onboardingTransition={welcomeStage === "leaving"} pageTitle={detail?.conversation.title} workspaceCommands={workspaceCommands} onNewInstruction={() => { if (id) router.push("/app?compose=1"); else { setInlineGitHub(false); setPanelOpen(false); requestAnimationFrame(() => composer.current?.focus()); } }}>
+    <div className={styles.workspace} data-onboarding={onboarding || undefined} data-welcome-stage={onboarding && welcomeText ? "welcome" : welcomeStage} data-has-surface={showPanel} data-working={running} data-wide={wide && showPanel} data-empty={!id && !hasMessages && !inlineGitHub && !submittedPrompt}>
+      {welcomeStage !== "done" ? <OnboardingPrism leaving={welcomeStage === "leaving"} reducedMotion={reducedMotion} /> : null}
+      {onboarding ? <button type="button" className={styles.onboardingSkip} onClick={enterWorkspace}>Skip</button> : null}
       <div className={styles.conversationPane} inert={(wide || overlayPanel) && showPanel}>
         <section className={styles.conversation} aria-label="Canter conversation" data-scrolled={hasEarlierMessages}>
-          <div className={styles.transcript} ref={transcript} tabIndex={0} role="region" aria-label="Conversation messages" onWheel={event => { if (event.deltaY < 0) followScroll.current = false; }} onTouchMove={() => { followScroll.current = false; }} onKeyDown={event => { if (["ArrowUp", "PageUp", "Home"].includes(event.key)) followScroll.current = false; }} onScroll={() => { const element = transcript.current; if (element) { const away = element.scrollHeight - element.scrollTop - element.clientHeight >= 80; setShowScroll(away); setHasEarlierMessages(element.scrollTop > 1); if (!away) followScroll.current = true; } }}>
+          <div className={styles.conversationWelcome} data-visible={showConversationWelcome} aria-hidden={!showConversationWelcome} inert={!showConversationWelcome}>
+            <div className={styles.startBrand}><span className="wordmark">canter</span></div>
+            <p>What can I help with?</p>
+            <div className={styles.starters} aria-label="Try a workspace action"><button onClick={() => suggestPrompt("compute")}>Plan a VPS</button><button onClick={() => suggestPrompt("storage")}>Create a bucket</button><button onClick={() => suggestPrompt("github")}>Connect GitHub</button></div>
+          </div>
+          <div className={styles.transcript} ref={transcript} tabIndex={0} role="region" aria-label="Conversation messages" onWheel={event => { if (event.deltaY < 0) followScroll.current = false; }} onTouchMove={() => { followScroll.current = false; }} onKeyDown={event => { if (["ArrowUp", "PageUp", "Home"].includes(event.key)) followScroll.current = false; }} onScroll={() => { const element = transcript.current; if (element) { const gap = element.scrollHeight - element.scrollTop - element.clientHeight; setShowScroll(!followScroll.current && gap >= 80); setHasEarlierMessages(element.scrollTop > 1); if (gap <= 4) followScroll.current = true; } }}>
             <div ref={transcriptContent}>
-            {id && !detail && !connectionError ? <WorkspaceLoading variant="conversation" /> : null}
+            {!welcome && id && !detail && !connectionError && !submittedPrompt ? <WorkspaceLoading variant="conversation" /> : null}
             {detail?.hasMore ? <div className={styles.earlierMessages}><button type="button" onClick={() => void loadEarlierMessages()} disabled={loadingEarlier}>{loadingEarlier ? "Loading earlier messages…" : "Load earlier messages"}</button>{historyError ? <p className={styles.error} role="alert">{historyError}</p> : null}</div> : null}
+            {welcomeStage !== "done" ? <div ref={intro} className={styles.onboardingIntro} data-stage={welcomeStage === "leaving" ? "leaving" : introPending ? "arrival" : "welcome"} aria-hidden={welcomeStage === "leaving" || undefined} style={welcomeStage === "leaving" && introPosition ? { position: "fixed", ...introPosition } : undefined}>
+              <div className={styles.onboardingIdentity}><span className={`wordmark ${styles.onboardingWordmark}`}>canter</span>{introPending ? <span className={styles.onboardingThinking} role="status">Thinking</span> : null}</div>
+              {welcomeText ? <div className={styles.onboardingGreeting}><ResponseText text={welcomeText} /></div> : null}
+              {welcomeText && welcomeGitHubChecked && !welcomeReady && !welcomeGitHub?.connection.connected ? <div className={styles.onboardingGitHub}>
+                {(process.env.NODE_ENV === "development" || welcomeGitHub?.connection.enabled) && workspace ? <a className={styles.onboardingConnect} href={process.env.NODE_ENV === "development" ? "/app?welcome=1&github=preview" : githubConnectURL(welcomeGitHub?.connection, workspace, "/app?welcome=1")}><ProviderIcon provider="github" />{welcomeGitHub?.connection.reconnect ? "Reconnect GitHub" : "Connect GitHub"}<WorkspaceIcon name="external" width="14" height="14" /></a> : <button className={styles.onboardingConnect} disabled><ProviderIcon provider="github" />Connect GitHub</button>}
+                <p>{process.env.NODE_ENV === "development" ? "Continue to the next step." : welcomeGitHub?.connection.enabled ? welcomeGitHub.connection.appEnabled ? "Choose which repositories to share with Canter. Access is read-only." : "GitHub requests repository access, including write permission. Canter uses this connection to read source." : "GitHub connection isn’t available in this environment yet. You can skip and start with an idea."}</p>
+                {githubResult && githubResult !== "connected" && !previewGitHubReturn ? <p>You can try connecting again, or skip for now.</p> : null}
+              </div> : null}
+              {projectWelcome ? <div className={`${styles.onboardingGreeting} ${styles.onboardingProjects}`}><ResponseText text={projectWelcome} /></div> : null}
+            </div> : null}
             {detail?.messages.filter(message => message.role === "user").map(message => <OperatorTurn key={message.id} message={message} answer={detail.messages.find(answer => answer.role === "assistant" && answer.runId === message.runId)} events={events.filter(event => event.runId === message.runId)} running={running && message.runId === detail.run?.id} onSelect={openSurface} conversations={data?.conversations ?? []} inline={<>{!inlineGitHub && githubRun === message.runId ? github : null}</>} />)}
             {inlineGitHub ? github : null}
-            {submittedPrompt && !hasMessages ? <section className={styles.turn}><article className={styles.message} data-role="user"><div className={styles.messageText}>{submittedPrompt}</div><OperatorMessageContext surface={submittedSurface} conversations={data?.conversations ?? []} /></article><div className={styles.progress} role="status"><span className={styles.pulse} />Starting your conversation…</div></section> : null}
+            {submittedPrompt && !hasMessages ? <section className={styles.turn}><article className={styles.message} data-role="user" data-arriving="true"><div className={styles.messageText}>{submittedPrompt}</div><OperatorMessageContext surface={submittedSurface} conversations={data?.conversations ?? []} /></article><div className={styles.activityLine} role="status"><MorphLabel text="Thinking" shimmer /></div></section> : null}
             {detail?.run?.status === "failed" ? <p className={styles.error} role="alert">{detail.run.failure || "The response failed."} You can continue below.</p> : null}
             {detail?.run?.status === "cancelled" ? <p className={styles.note}>Stopped. Completed operations remain saved.</p> : null}
             </div>
           </div>
           <div className={styles.composerArea} ref={composerArea}>
-            {showScroll ? <button type="button" className={styles.scrollLatest} aria-label="Scroll to latest message" onClick={() => { followScroll.current = true; transcript.current?.scrollTo({ top: transcript.current.scrollHeight, behavior: reducedMotion ? "instant" : "smooth" }); }}><WorkspaceIcon name="down" width="16" height="16" /></button> : null}
-            {!id && !hasMessages && !submittedPrompt ? <div className={styles.startBrand}><span className="wordmark">canter</span></div> : null}
+            {showScroll ? <button type="button" className={styles.scrollLatest} aria-label="Scroll to latest message" onClick={() => { followScroll.current = true; setShowScroll(false); transcript.current?.dispatchEvent(new Event("canter-follow-latest")); }}><WorkspaceIcon name="down" width="16" height="16" /></button> : null}
             {error ? <p className={styles.error} role="alert">{error}</p> : null}
             {connectionError ? <p className={styles.error} role="status">{deliveryNotice || connectionError} <button onClick={() => setAttempt(value => value + 1)}>Reconnect</button></p> : null}
-            {data && !data.agent.available ? <p className={styles.error} role="alert">The workspace agent is unavailable. Ask your administrator to configure its model connection.</p> : null}
+            {!onboarding && data && !data.agent.available ? <p className={styles.error} role="alert">The workspace agent is unavailable. Ask your administrator to configure its model connection.</p> : null}
             {attachmentDraft.error ? <p className={styles.error} role="status">{attachmentDraft.error}</p> : null}
+            <div className={styles.onboardingComposerReveal} hidden={onboarding && !welcomeReady}>
             <OperatorComposer attachments={attachmentDraft.items} onAttachments={attachmentDraft.update} sending={sending} context={(attachedContext === undefined ? selected : attachedContext)} onClearContext={() => setAttachedContext(null)} draft={draft} onChange={editDraft} onSend={() => void send()} onStop={() => void stop()} stopping={stopping} running={running} disabled={sending || !data?.agent.available || !attachmentDraft.loaded} inputRef={composer} model={selectedModel} onModelChange={selectModel} modelOptions={modelPreferences} onModelOptionsChange={selectModelOptions} onSelect={surface => { setAttachedContext(surface); if (surface.kind === "github") openSurface(surface); }} />
-            {!id && !hasMessages && !submittedPrompt ? <div className={styles.starters} aria-label="Try a workspace action"><button onClick={() => suggestPrompt("compute")}>Plan a VPS</button><button onClick={() => suggestPrompt("storage")}>Create a bucket</button><button onClick={() => suggestPrompt("github")}>Connect GitHub</button></div> : null}
+            </div>
 
           </div>
         </section>
@@ -400,7 +544,7 @@ export function OperatorWorkspace({ id, githubResult, focusComposer, initialDeta
             <button type="button" className={styles.closeTab} aria-label={`Close ${tabLabel(surface)} tab`} onClick={() => closeSurface(surface)}><WorkspaceIcon name="close" width="12" height="12" /></button>
           </div>)}</div>
           <div className={styles.surfaceTools}>
-            <div ref={viewMenuAnchor} className={styles.menuAnchor}><button type="button" className={styles.surfaceTool} aria-label="Open workspace view" aria-haspopup="menu" aria-expanded={viewMenu} onClick={() => setViewMenu(!viewMenu)}><WorkspaceIcon name="plus" width="17" height="17" /></button>{viewMenu ? <div className={styles.viewMenu} role="menu" aria-label="Workspace views" onKeyDown={moveMenuFocus}>{(["compute", "storage", "github", "apps", "deployments", "activity"] as const).map(kind => <button type="button" role="menuitem" tabIndex={-1} key={kind} onClick={() => { openSurface({kind}); setViewMenu(false); }}>{kind === "github" ? "GitHub repositories" : surfaceLabels[kind]}</button>)}</div> : null}</div>
+            <div ref={viewMenuAnchor} className={styles.menuAnchor}><button type="button" className={styles.surfaceTool} aria-label="Open workspace view" aria-haspopup="menu" aria-expanded={viewMenu} onClick={() => setViewMenu(!viewMenu)}><WorkspaceIcon name="plus" width="17" height="17" /></button><MotionPresence open={viewMenu}><div className={styles.viewMenu} role="menu" aria-label="Workspace views" onKeyDown={moveMenuFocus}>{(["compute", "storage", "github", "apps", "deployments", "activity"] as const).map(kind => <button type="button" role="menuitem" tabIndex={-1} key={kind} onClick={() => { openSurface({kind}); setViewMenu(false); }}>{kind === "github" ? "GitHub repositories" : surfaceLabels[kind]}</button>)}</div></MotionPresence></div>
             <button type="button" className={styles.surfaceTool} hidden={overlayPanel} aria-label={wide ? "Restore split view" : "Expand workspace view"} aria-pressed={wide} onClick={() => setWide(!wide)}><WorkspaceIcon name={wide ? "collapse" : "expand"} width="17" height="17" /></button>
           </div>
         </div>
@@ -415,7 +559,7 @@ export function OperatorWorkspace({ id, githubResult, focusComposer, initialDeta
           </div>}
         </div>
       </aside>
-      <button ref={panelTrigger} type="button" className={styles.panelToggle} hidden={showPanel} title="Open workspace panel · A + E" aria-label="Show workspace panel" aria-expanded={showPanel} aria-controls={panelId} onClick={openPanel}><WorkspaceIcon name="panel" /></button>
+      <button ref={panelTrigger} type="button" className={styles.panelToggle} hidden={showPanel || onboarding} title="Open workspace panel · A + E" aria-label="Show workspace panel" aria-expanded={showPanel} aria-controls={panelId} onClick={openPanel}><WorkspaceIcon name="panel" /></button>
     </div>
   </AppShell>;
 }

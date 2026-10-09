@@ -1,0 +1,10 @@
+.prism { position: absolute; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; background: #101010; opacity: 1; transition: opacity 950ms ease,filter 950ms ease; }
+.prism canvas { display: block; width: 100%; height: 100%; opacity: 0; filter: blur(14px); transform: scale(1.025); transition: opacity 1400ms ease, filter 1400ms ease, transform 1800ms ease; }
+.prism canvas[data-ready="true"] { opacity: .7; filter: blur(0); transform: scale(1); animation: prismArrive 1400ms ease both; }
+.shade { position: absolute; inset: 0; background: linear-gradient(90deg,#101010 1%,rgba(16,16,16,.98) 21%,rgba(16,16,16,.85) 42%,rgba(16,16,16,.26) 74%,rgba(16,16,16,.12)),linear-gradient(0deg,#101010,transparent 44%,transparent 75%,rgba(16,16,16,.45)); }
+.prism[data-leaving="true"] { opacity: 0; filter: blur(8px); }
+@media (max-width: 760px) { .shade { background: linear-gradient(90deg,rgba(16,16,16,.96),rgba(16,16,16,.82) 60%,rgba(16,16,16,.45)),linear-gradient(0deg,#101010,transparent 60%); } }
+@media (prefers-reduced-motion: reduce) { .prism, .prism canvas { transition: none; } }
+
+@keyframes prismArrive { from { opacity: 0; filter: blur(14px); transform: scale(1.025); } to { opacity: .7; filter: blur(0); transform: scale(1); } }
+@media (prefers-reduced-motion: reduce) { .prism canvas[data-ready="true"] { animation: none; } }

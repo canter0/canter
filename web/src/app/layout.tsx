@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import "./globals.css";
 import { CanterSiteTools } from "@/components/canter-site-tools";
+import { SiteMotion, SiteTransition } from "@/components/site-motion";
 import { siteDescription, siteOrigin, siteTitle } from "@/lib/seo";
 
 export const metadata: Metadata = {
@@ -23,7 +24,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <link rel="alternate" type="application/json" href="/.well-known/canter" title="Canter agent discovery" />
         <link rel="alternate" type="text/plain" href="/llms.txt" title="Canter agent instructions" />
       </head>
-      <body><CanterSiteTools />{children}</body>
+      <body><CanterSiteTools /><SiteMotion /><SiteTransition>{children}</SiteTransition></body>
     </html>
   );
 }

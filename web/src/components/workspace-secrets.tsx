@@ -56,7 +56,8 @@ function SecretDialog({ workspace, editing, hasOpenRouter, onClose, onSaved }: {
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  useDialog(dialog, editing.mode === "revoke" ? "[data-cancel]" : "input");
+  const dismiss = useDialog(dialog, editing.mode === "revoke" ? "[data-cancel]" : "input");
+  const close = () => dismiss(onClose);
   async function save(event: React.FormEvent) {
     event.preventDefault(); setBusy(true); setError("");
     try {
@@ -65,8 +66,8 @@ function SecretDialog({ workspace, editing, hasOpenRouter, onClose, onSaved }: {
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not save the secret."); setBusy(false); }
   }
   const remove = editing.mode === "revoke";
-  return <dialog ref={dialog} className={styles.dialog} aria-labelledby="secret-dialog-title" onCancel={event => { if (busy) event.preventDefault(); else onClose(); }}>
-    <header><h2 id="secret-dialog-title">{editing.mode === "create" ? "New workspace secret" : `${remove ? "Remove" : "Rotate"} ${editing.secret.name}`}</h2><button disabled={busy} onClick={onClose} aria-label="Close secret dialog"><WorkspaceIcon name="close" /></button></header>
+  return <dialog ref={dialog} className={styles.dialog} aria-labelledby="secret-dialog-title" onCancel={event => { event.preventDefault(); if (!busy) close(); }}>
+    <header><h2 id="secret-dialog-title">{editing.mode === "create" ? "New workspace secret" : `${remove ? "Remove" : "Rotate"} ${editing.secret.name}`}</h2><button disabled={busy} onClick={close} aria-label="Close secret dialog"><WorkspaceIcon name="close" /></button></header>
     <p className={styles.muted}>{remove ? "Canter will delete its stored value and stop using it for future requests. Requests already sent may finish." : "Only workspace owners can manage this value. It won’t be shown again after saving."}</p>
     <form className={styles.form} onSubmit={event => void save(event)}>
       {editing.mode === "create" ? <><label>Secret name<input required autoFocus autoComplete="off" spellCheck={false} maxLength={80} pattern="[A-Z][A-Z0-9_]{1,79}" placeholder="SERVICE_API_KEY" value={name} onChange={event => setName(event.target.value.toUpperCase())} /></label>
@@ -75,7 +76,7 @@ function SecretDialog({ workspace, editing, hasOpenRouter, onClose, onSaved }: {
       {editing.mode === "create" ? <label>Note <textarea maxLength={500} placeholder="What is this used for? Don’t include credentials." value={note} onChange={event => setNote(event.target.value)} /><small>Notes and names are visible to workspace members and authorized agents.</small></label> : null}
       {remove && editing.secret.purpose === "openrouter" ? <p className={styles.notice}>Future conversations will return to the server’s default model connection, if one is configured.</p> : null}
       {error ? <p className={`${styles.notice} ${styles.error}`} role="alert">{error}</p> : null}
-      <div className={styles.actions}><button type="button" data-cancel className={styles.button} disabled={busy} onClick={onClose}>Cancel</button><button className={styles.primary} disabled={busy}>{busy ? "Saving…" : remove ? "Remove secret" : editing.mode === "rotate" ? "Replace value" : "Save secret"}</button></div>
+      <div className={styles.actions}><button type="button" data-cancel className={styles.button} disabled={busy} onClick={close}>Cancel</button><button className={styles.primary} disabled={busy}>{busy ? "Saving…" : remove ? "Remove secret" : editing.mode === "rotate" ? "Replace value" : "Save secret"}</button></div>
     </form>
   </dialog>;
 }

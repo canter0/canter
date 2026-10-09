@@ -4,12 +4,15 @@ import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties
 import { operatorModelChoice, operatorModels, operatorModelOptions, reasoningLabels, type OperatorModelChoice, type OperatorModelOptions } from "@/lib/operator-models";
 import { useHoverPreview } from "./use-hover-preview";
 import { WorkspaceIcon } from "./workspace-icon";
+import { MotionPresence } from "./motion-presence";
+import { MorphLabel } from "./conversation-motion";
 import shared from "./workspace.module.css";
 import styles from "./operator-model-picker.module.css";
 
 // Original SVG marks from @lobehub/icons-static-svg 1.95.1 (MIT).
 // https://github.com/lobehub/lobe-icons — license bundled in /model-logos/LICENSE.
-const logos: Record<string, string> = { openai: "openai.svg", zai: "zai.svg", deepseek: "deepseek-color.svg", qwen: "qwen-color.svg", gemini: "gemini-color.svg" };
+// Qwen's current mark is the favicon served by https://qwen.ai/.
+const logos: Record<string, string> = { openai: "openai.svg", zai: "zai.svg", deepseek: "deepseek-color.svg", qwen: "qwen.png", gemini: "gemini-color.svg" };
 function ModelLogo({ brand }: { brand: string }) {
   if (!logos[brand]) return <WorkspaceIcon name="agent" width="18" height="18" />;
   return <span aria-hidden="true" className={styles.logo} data-mono={brand === "openai" || brand === "zai"} style={{ "--model-logo": `url(/model-logos/${logos[brand]})` } as CSSProperties} />;
@@ -84,8 +87,8 @@ export function OperatorModelPicker({ model, onChange, options, onOptionsChange,
   }
 
   return <div ref={root} className={styles.root} onBlur={event => { if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget)) onOpenChange(false); }}>
-    <button ref={trigger} type="button" className={shared.modelTrigger} aria-label={`Model: ${current?.name ?? "Connecting"}`} aria-haspopup="dialog" aria-controls={open ? id : undefined} aria-expanded={open} disabled={disabled || !model} onClick={() => { setQuery(""); setPreview(null); onOpenChange(!open); }}><span className={styles.triggerLabel}>{current?.name ?? "Connecting…"}</span><WorkspaceIcon name="down" width="12" height="12" /></button>
-    {open ? <div ref={panel} id={id} role="dialog" aria-label="Choose a model" className={styles.picker} data-stacked={position.stacked} data-side={position.side} data-below={position.below} style={{ left: position.left, bottom: position.bottom, "--picker-max-height": `${position.maxHeight}px` } as CSSProperties} onKeyDown={keyboard}>
+    <button ref={trigger} type="button" className={shared.modelTrigger} aria-label={`Model: ${current?.name ?? "Connecting"}`} aria-haspopup="dialog" aria-controls={open ? id : undefined} aria-expanded={open} disabled={disabled || !model} onClick={() => { setQuery(""); setPreview(null); onOpenChange(!open); }}>{current ? <ModelLogo brand={current.logo} /> : null}<span className={styles.triggerLabel}><MorphLabel text={current?.name ?? "Connecting…"} /></span><WorkspaceIcon name="down" width="12" height="12" /></button>
+    <MotionPresence open={open}><div ref={panel} id={id} role="dialog" aria-label="Choose a model" className={styles.picker} data-stacked={position.stacked} data-side={position.side} data-below={position.below} style={{ left: position.left, bottom: position.bottom, "--picker-max-height": `${position.maxHeight}px` } as CSSProperties} onKeyDown={keyboard}>
       <div className={styles.menu}>
         <div className={styles.search}><WorkspaceIcon name="search" width="16" height="16" /><input ref={search} aria-label="Search models" placeholder="Search models" value={query} onChange={event => { setQuery(event.target.value); setPreview(null); }} aria-controls={`${id}-options`} onFocus={() => setPreview(null)} /></div>
         <div className={styles.list} role="listbox" id={`${id}-options`} aria-label="Models">
@@ -101,6 +104,6 @@ export function OperatorModelPicker({ model, onChange, options, onOptionsChange,
         </div> : null}
         {position.stacked ? <button type="button" className={styles.choose} onClick={() => choose(inspected)}>Use {inspected.name}</button> : null}
       </aside> : null}
-    </div> : null}
+    </div></MotionPresence>
   </div>;
 }

@@ -633,6 +633,10 @@ func (h *HTTPServer) workspaces(w http.ResponseWriter, r *http.Request, parts []
 		h.workspaceBilling(w, r, p, workspaceID, parts[2:])
 		return
 	}
+	if parts[1] == "welcome" && len(parts) == 2 {
+		h.operatorWelcome(w, r, p, workspaceID)
+		return
+	}
 	if parts[1] == "conversations" {
 		h.conversations(w, r, p, workspaceID, parts[2:])
 		return

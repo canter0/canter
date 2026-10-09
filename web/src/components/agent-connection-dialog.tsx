@@ -5,6 +5,7 @@ import { canterFetch, type Authority } from "@/lib/canter-api";
 import { AgentPermissions } from "./agent-permissions";
 import { WorkspaceIcon } from "./workspace-icon";
 import { useDialog } from "./use-dialog";
+import { MorphLabel } from "./conversation-motion";
 import styles from "./agent-connection-dialog.module.css";
 
 type Pairing = {
@@ -32,7 +33,7 @@ export function AgentConnectionDialog({ workspaceId, defaultAuthority, onClose, 
   const id = pairing?.id;
   const terminal = pairing && ["connected", "expired", "cancelled", "disconnected"].includes(pairing.status);
 
-  useDialog(dialog);
+  const dismiss = useDialog(dialog);
   useEffect(() => {
     if (!id || terminal) return;
     const controller = new AbortController();
@@ -76,7 +77,7 @@ export function AgentConnectionDialog({ workspaceId, defaultAuthority, onClose, 
     setPending(true); setError("");
     try {
       if (pairing && !["connected", "disconnected", "cancelled", "expired"].includes(pairing.status)) await canterFetch(`/agent-pairings/${encodeURIComponent(pairing.id)}`, { method: "DELETE" });
-      callbacks.current.onClose();
+      dismiss(() => callbacks.current.onClose());
     } catch { setError("Couldn’t cancel the connection. Try again."); setPending(false); }
   }
 
@@ -95,12 +96,12 @@ export function AgentConnectionDialog({ workspaceId, defaultAuthority, onClose, 
   return <dialog ref={dialog} className={styles.dialog} aria-labelledby="connect-agent-title" onCancel={event => { event.preventDefault(); void close(); }}>
     <button className={styles.close} aria-label="Close agent connection" disabled={pending} onClick={() => void close()}><WorkspaceIcon name="close" width="17" height="17" /></button>
     <div className={styles.icon}><WorkspaceIcon name={pairing?.status === "connected" ? "check" : "terminal"} width="23" height="23" /></div>
-    <h2 id="connect-agent-title">{pairing?.status === "connected" ? `${name} connected` : pairing?.status === "ready" ? `${name} is ready to connect` : ended ? "Connection ended" : "Connect your agent"}</h2>
+    <h2 id="connect-agent-title"><MorphLabel text={pairing?.status === "connected" ? `${name} connected` : pairing?.status === "ready" ? `${name} is ready to connect` : ended ? "Connection ended" : "Connect your agent"} /></h2>
     {!pairing || pairing.status === "waiting" ? <>
       <p>Paste this message into your agent.</p>
       <p>{override ? "Custom permissions for this agent." : "Using workspace defaults."}{override ? <button type="button" onClick={() => setOverride(null)} disabled={pending}> Use workspace defaults</button> : null}</p>
       <AgentPermissions value={authority} onChange={setOverride} disabled={pending} />
-      <button className={styles.primary} disabled={pending} onClick={() => void copyPrompt()}><WorkspaceIcon name={copied ? "check" : "copy"} width="15" height="15" />{pending ? "Preparing…" : copied ? "Copy again" : "Copy connection prompt"}</button>
+      <button className={styles.primary} disabled={pending} onClick={() => void copyPrompt()}><WorkspaceIcon name={copied ? "check" : "copy"} width="15" height="15" /><MorphLabel text={pending ? "Preparing…" : copied ? "Copy again" : "Copy connection prompt"} shimmer={pending} /></button>
       {manualCopy ? <><p>Copy this message:</p><textarea aria-label="Connection prompt" readOnly value={prompt} onFocus={event => event.currentTarget.select()} /></> : null}
       {pairing ? <p className={styles.waiting} role="status"><span />Waiting for your agent…</p> : null}
     </> : pairing.status === "ready" ? <>
