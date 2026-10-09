@@ -253,8 +253,8 @@ func (c *Client) Checkpoint(ctx context.Context, sandbox, prefix, message string
 	if !safeName.MatchString(sandbox) {
 		return Checkpoint{}, fmt.Errorf("invalid sandbox name")
 	}
-	if prefix == "" || strings.Contains(prefix, "..") || strings.HasPrefix(prefix, "/") {
-		return Checkpoint{}, fmt.Errorf("invalid m1 prefix")
+	if err := ValidateM1Prefix(prefix); err != nil {
+		return Checkpoint{}, fmt.Errorf("invalid m1 prefix: %w", err)
 	}
 	cp := Checkpoint{ID: newID(), Sandbox: sandbox, Message: message, CreatedAt: time.Now().UTC()}
 	key := strings.TrimRight(prefix, "/") + "/checkpoints/" + cp.ID + ".json"
@@ -282,6 +282,9 @@ func (c *Client) Apply(ctx context.Context, spec Spec) (ApplyResult, error) {
 	found, etag, err := c.m1.GetJSONVersion(ctx, stateKey, &prior)
 	if err != nil {
 		return ApplyResult{}, fmt.Errorf("read existing sandbox state: %w", err)
+	}
+	if found && prior.Sandbox != spec.Metadata.Name {
+		return ApplyResult{}, fmt.Errorf("sandbox state does not belong to requested sandbox")
 	}
 	if found && prior.Phase != "destroyed" && prior.Phase != "creating" {
 		return ApplyResult{}, fmt.Errorf("sandbox %q already has live state in phase %s; inspect it with canter status", spec.Metadata.Name, prior.Phase)
@@ -932,9 +935,15 @@ func removeResource(state *State, id string) {
 }
 
 func (c *Client) Status(ctx context.Context, spec Spec) (State, error) {
+	if err := spec.Validate(); err != nil {
+		return State{}, err
+	}
 	var state State
 	if err := c.m1.Get(ctx, stateKey(spec), &state); err != nil {
 		return State{}, err
+	}
+	if state.Sandbox != spec.Metadata.Name {
+		return State{}, fmt.Errorf("sandbox state does not belong to requested sandbox")
 	}
 	if state.Phase == "destroyed" {
 		return state, nil
@@ -957,6 +966,9 @@ func (c *Client) Status(ctx context.Context, spec Spec) (State, error) {
 }
 
 func (c *Client) Destroy(ctx context.Context, spec Spec) (State, error) {
+	if err := spec.Validate(); err != nil {
+		return State{}, err
+	}
 	var state State
 	key := stateKey(spec)
 	found, etag, err := c.m1.GetJSONVersion(ctx, key, &state)
@@ -965,6 +977,9 @@ func (c *Client) Destroy(ctx context.Context, spec Spec) (State, error) {
 	}
 	if !found {
 		return State{}, fmt.Errorf("sandbox state is missing")
+	}
+	if state.Sandbox != spec.Metadata.Name {
+		return State{}, fmt.Errorf("sandbox state does not belong to requested sandbox")
 	}
 	if state.Phase == "destroyed" {
 		return state, nil

@@ -3,16 +3,93 @@ package compute
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 )
 
+func TestConfiguredProviderURLValidation(t *testing.T) {
+	for _, tc := range []struct {
+		url  string
+		want bool
+	}{
+		{"https://compute.example/v3", true},
+		{"http://127.0.0.1:5000", true},
+		{"http://compute.example", false},
+		{"https://user:secret@compute.example", false},
+		{"https://compute.example/?token=secret", false},
+		{"https://compute.example/#fragment", false},
+	} {
+		if got := validProviderURL(tc.url); got != tc.want {
+			t.Errorf("validProviderURL(%q) = %v, want %v", tc.url, got, tc.want)
+		}
+	}
+}
+
 func TestNormalizeImage(t *testing.T) {
 	if normalizeImage("Ubuntu-24.04-amd64") != normalizeImage("ubuntu-24.04") {
 		t.Fatal("public image alias does not resolve to the provider-neutral form")
+	}
+}
+
+func TestComputeRequestsDoNotForwardAuthTokenOnRedirect(t *testing.T) {
+	var redirected atomic.Int32
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		redirected.Add(1)
+		if token := r.Header.Get("X-Auth-Token"); token != "" {
+			t.Errorf("redirect target received auth token")
+		}
+	}))
+	defer target.Close()
+
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL+"/collect", http.StatusTemporaryRedirect)
+	}))
+	defer origin.Close()
+
+	client := &Client{http: providerHTTPClient(time.Second), session: session{Token: "secret-test-token", ComputeURL: origin.URL, Expires: time.Now().Add(time.Hour)}}
+	err := client.get(context.Background(), origin.URL+"/servers", &struct{}{})
+	var responseErr *HTTPError
+	if !errors.As(err, &responseErr) || responseErr.StatusCode != http.StatusTemporaryRedirect {
+		t.Fatalf("redirect response error = %v", err)
+	}
+	if redirected.Load() != 0 {
+		t.Fatalf("redirect target received %d requests", redirected.Load())
+	}
+}
+
+func TestComputeJSONResponseIsBounded(t *testing.T) {
+	body := `{"servers":[]}` + strings.Repeat(" ", maxProviderJSONBody)
+	var result struct {
+		Servers []Server `json:"servers"`
+	}
+	if err := decodeProviderJSON(strings.NewReader(body), &result); err == nil || !strings.Contains(err.Error(), "size limit") {
+		t.Fatalf("oversized response error = %v", err)
+	}
+}
+
+func TestComputeDeleteDoesNotReflectProviderBody(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete || r.URL.Path != "/servers/server-1" {
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("provider-private-token"))
+	}))
+	defer server.Close()
+
+	client := &Client{http: server.Client(), session: session{Token: "test", ComputeURL: server.URL, Expires: time.Now().Add(time.Hour)}}
+	err := client.Delete(context.Background(), "server-1")
+	var responseErr *HTTPError
+	if !errors.As(err, &responseErr) || responseErr.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("delete response error = %v", err)
+	}
+	if strings.Contains(err.Error(), "provider-private-token") {
+		t.Fatalf("provider response body was reflected: %v", err)
 	}
 }
 

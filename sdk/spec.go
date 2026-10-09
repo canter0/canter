@@ -1,12 +1,14 @@
 package sdk
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
-	"os"
+	"io"
 	"regexp"
 	"strings"
 
+	"github.com/canter0/canter/internal/fileinput"
 	"gopkg.in/yaml.v3"
 )
 
@@ -67,18 +69,42 @@ type Policy struct {
 }
 
 func LoadSpec(path string) (Spec, error) {
-	b, err := os.ReadFile(path)
+	b, err := readYAMLInput(path)
 	if err != nil {
 		return Spec{}, err
 	}
 	var s Spec
-	if err := yaml.Unmarshal(b, &s); err != nil {
+	if err := decodeYAML(b, &s); err != nil {
 		return Spec{}, fmt.Errorf("parse %s: %w", path, err)
 	}
 	if err := s.Validate(); err != nil {
 		return Spec{}, err
 	}
 	return s, nil
+}
+
+// YAML contracts are small declarative inputs. Bound bytes before parsing so
+// a local file cannot make CLI/SDK callers allocate without limit.
+const maxYAMLInputBytes = 1 << 20
+
+func readYAMLInput(path string) ([]byte, error) {
+	return fileinput.ReadRegular(path, maxYAMLInputBytes)
+}
+
+func decodeYAML(data []byte, value any) error {
+	decoder := yaml.NewDecoder(bytes.NewReader(data))
+	decoder.KnownFields(true)
+	if err := decoder.Decode(value); err != nil {
+		return err
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return fmt.Errorf("multiple YAML documents are not allowed")
+		}
+		return err
+	}
+	return nil
 }
 
 func (s Spec) Validate() error {

@@ -436,6 +436,67 @@ func testClient(spec Spec) (*Client, *fakeStore, *fakeCompute, *fakeModel) {
 	return &Client{model: planner, compute: provider, m1: store}, store, provider, planner
 }
 
+func TestCheckpointRejectsUnsafeM1Prefix(t *testing.T) {
+	store := newFakeStore()
+	client := &Client{m1: store}
+	for _, prefix := range []string{"systems/../other", "systems//demo", "systems/./demo"} {
+		if _, err := client.Checkpoint(context.Background(), "demo", prefix, "checkpoint"); err == nil {
+			t.Errorf("unsafe prefix %q was accepted", prefix)
+		}
+	}
+	if len(store.objects) != 0 {
+		t.Fatalf("unsafe checkpoint prefixes wrote objects: %v", store.objects)
+	}
+}
+
+func TestStatusAndDestroyRejectStateBoundToDifferentSandbox(t *testing.T) {
+	requested := testSpec()
+	requested.Metadata.Name = "attacker"
+	client, store, provider, _ := testClient(requested)
+
+	// The object key is selected by the caller-controlled prefix. Its contents
+	// must still be bound to the requested sandbox before status can expose
+	// resource data or destroy can mutate the lifecycle.
+	stored := State{Sandbox: "demo", Phase: "ready", Resources: []Resource{{ID: "victim-server", Status: "ACTIVE", Address: "192.0.2.8"}}}
+	provider.servers["victim"] = []compute.Server{{ID: "victim-server", Status: "ACTIVE", Addresses: map[string][]compute.Address{"public": {{Addr: "192.0.2.8", Version: 4}}}}}
+	if err := store.PutJSON(context.Background(), stateKey(requested), stored); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Status(context.Background(), requested); err == nil {
+		t.Fatal("status returned state belonging to a different sandbox")
+	}
+	if _, err := client.Destroy(context.Background(), requested); err == nil {
+		t.Fatal("destroy accepted state belonging to a different sandbox")
+	}
+	var after State
+	if err := store.Get(context.Background(), stateKey(requested), &after); err != nil {
+		t.Fatal(err)
+	}
+	if after.Sandbox != "demo" || after.Phase != "ready" {
+		t.Fatalf("mismatched destroy mutated stored state: %+v", after)
+	}
+}
+
+func TestApplyDoesNotReplaceDestroyedStateBoundToDifferentSandbox(t *testing.T) {
+	requested := testSpec()
+	requested.Metadata.Name = "attacker"
+	client, store, provider, _ := testClient(requested)
+	stored := State{Sandbox: "demo", Phase: "destroyed"}
+	if err := store.PutJSON(context.Background(), stateKey(requested), stored); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Apply(context.Background(), requested); err == nil {
+		t.Fatal("apply replaced state belonging to a different sandbox")
+	}
+	var after State
+	if err := store.Get(context.Background(), stateKey(requested), &after); err != nil {
+		t.Fatal(err)
+	}
+	if after.Sandbox != "demo" || after.Phase != "destroyed" || provider.resolveCalls != 0 {
+		t.Fatalf("mismatched apply modified prior state or resolved infrastructure: state=%+v resolveCalls=%d", after, provider.resolveCalls)
+	}
+}
+
 func TestApplyPersistsCompleteCreationIntentBeforeProviderCreate(t *testing.T) {
 	spec := testSpec()
 	client, _, provider, _ := testClient(spec)
