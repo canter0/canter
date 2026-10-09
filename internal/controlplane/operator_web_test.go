@@ -33,7 +33,16 @@ func TestOperatorWebURLAndUnicode(t *testing.T) {
 	if len(offsets) != 2 || offsets[0] != 1 || offsets[1] != 16 {
 		t.Fatalf("UTF-8 offsets: %v", offsets)
 	}
+	if offsets = webMatchOffsets("aaaaa", "aa", 8); len(offsets) != 2 || offsets[0] != 0 || offsets[1] != 2 {
+		t.Fatalf("matches must be non-overlapping: %v", offsets)
+	}
+	content := strings.Repeat("a", webDocumentBytes-201) + strings.Repeat("a", 200) + "z"
+	query := strings.Repeat("a", 200) + "z"
+	if offsets = webMatchOffsets(content, query, 8); len(offsets) != 1 || offsets[0] != webDocumentBytes-201 {
+		t.Fatalf("long-source byte offset: %v", offsets)
+	}
 }
+
 func TestOperatorExaProtocolAndFailures(t *testing.T) {
 	count := 0
 	cfg := OperatorConfig{ExaAPIKey: "test-secret", exaTransport: webTestTransport(func(req *http.Request) (*http.Response, error) {

@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -17,6 +18,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -31,12 +33,13 @@ import (
 )
 
 type process struct {
-	cmd     *exec.Cmd
-	version string
-	port    int
-	done    chan struct{}
-	mu      sync.Mutex
-	exitErr error
+	cmd      *exec.Cmd
+	version  string
+	identity string
+	port     int
+	done     chan struct{}
+	mu       sync.Mutex
+	exitErr  error
 }
 
 type nodeControl interface {
@@ -45,6 +48,54 @@ type nodeControl interface {
 	PutObserved(context.Context, sdk.ObservedRelease) error
 	AckControl(context.Context, string) error
 	PutRuntimeActionResult(context.Context, string, sdk.RuntimeActionResult) error
+}
+
+const (
+	maxNodeArtifactBytes         = 512 << 20
+	maxNodeArtifactEntries       = 4096
+	maxNodeArtifactPathBytes     = 512
+	maxNodeArtifactMetadataBytes = 16 << 10
+	maxReplicaLogBytes           = 10 << 20
+)
+
+// replicaLogWriter bounds the shared per-release log file even when several
+// replicas write to it at once. It accepts discarded bytes so applications
+// cannot block or crash when the diagnostic budget is exhausted.
+type replicaLogWriter struct {
+	mu   *sync.Mutex
+	file *os.File
+}
+
+func (w replicaLogWriter) Write(p []byte) (int, error) {
+	originalLength := len(p)
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	info, err := w.file.Stat()
+	if err != nil {
+		return 0, err
+	}
+	remaining := maxReplicaLogBytes - info.Size()
+	if remaining <= 0 {
+		return originalLength, nil
+	}
+	if int64(len(p)) > remaining {
+		p = p[:remaining]
+	}
+	if _, err := w.file.Write(p); err != nil {
+		return 0, err
+	}
+	return originalLength, nil
+}
+
+type zeroOnlyWriter struct{}
+
+func (zeroOnlyWriter) Write(p []byte) (int, error) {
+	for _, b := range p {
+		if b != 0 {
+			return 0, fmt.Errorf("nonzero data after tar end marker")
+		}
+	}
+	return len(p), nil
 }
 
 func (p *process) setExit(err error) { p.mu.Lock(); p.exitErr = err; p.mu.Unlock(); close(p.done) }
@@ -59,7 +110,7 @@ type node struct {
 	targets                 []string
 	nextTarget              uint64
 	active                  []*process
-	failedVersion           string
+	failedIdentity          string
 	restarts                int
 	lastControl             string
 	hostname                string
@@ -73,6 +124,7 @@ type node struct {
 	restartRequested        bool
 	startReplica            func(context.Context, sdk.ReleaseManifest, int) (*process, error)
 	releaseRoot             string
+	logMu                   sync.Mutex
 }
 
 func main() {
@@ -95,7 +147,8 @@ func main() {
 	n := &node{control: control, system: *system, publicPort: *publicPort, hostname: hostname, drivers: drivers, inflight: make(map[string]int)}
 	go func() {
 		addr := fmt.Sprintf(":%d", n.publicPort)
-		if err := http.ListenAndServe(addr, n); err != nil {
+		server := &http.Server{Addr: addr, Handler: n, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 60 * time.Second}
+		if err := server.ListenAndServe(); err != nil {
 			log.Fatalf("proxy: %v", err)
 		}
 	}()
@@ -143,7 +196,7 @@ func (n *node) reconcile(ctx context.Context) error {
 		return fmt.Errorf("gateway snapshot does not belong to node system")
 	}
 	if n.reapExited() > 0 {
-		n.failedVersion = ""
+		n.failedIdentity = ""
 		_ = n.writeObserved(ctx, sdk.ObservedRelease{Phase: "recovering", Restarts: n.restarts, ReadyReplicas: len(n.active), Message: "one or more application replicas exited"})
 	}
 	if err := n.applyControl(ctx, snapshot.Control); err != nil {
@@ -175,12 +228,12 @@ func (n *node) reconcile(ctx context.Context) error {
 			desired.Replicas = lease.RestoreReplicas
 		}
 	}
-	if n.failedVersion == desired.Version && !n.restartRequested {
+	if n.failedIdentity == releaseApplyIdentity(desired, n.serviceBindings) && !n.restartRequested {
 		return nil
 	}
 	if err := n.reconcileReleaseFleet(ctx, desired); err != nil {
 		if len(n.active) == 0 {
-			n.failedVersion = desired.Version
+			n.failedIdentity = releaseApplyIdentity(desired, n.serviceBindings)
 		}
 		return n.writeObserved(ctx, n.observed(desired, "release-failed", len(n.active) > 0, err.Error()))
 	}
@@ -188,11 +241,18 @@ func (n *node) reconcile(ctx context.Context) error {
 }
 
 func (n *node) reconcileReleaseFleet(ctx context.Context, desired sdk.ReleaseManifest) error {
-	versionMatches := len(n.active) > 0
-	for _, current := range n.active {
-		versionMatches = versionMatches && current.version == desired.Version
+	if len(desired.Command) == 0 || strings.TrimSpace(desired.Command[0]) == "" {
+		return fmt.Errorf("desired release has no executable command")
 	}
-	if n.restartRequested || !versionMatches {
+	if !strings.HasPrefix(desired.HealthPath, "/") || len(desired.HealthPath) > 2048 {
+		return fmt.Errorf("desired release has an invalid health path")
+	}
+	identity := releaseApplyIdentity(desired, n.serviceBindings)
+	identityMatches := len(n.active) > 0
+	for _, current := range n.active {
+		identityMatches = identityMatches && current.identity == identity
+	}
+	if n.restartRequested || !identityMatches {
 		old := append([]*process(nil), n.active...)
 		candidates := make([]*process, 0, desired.Replicas)
 		for len(candidates) < desired.Replicas {
@@ -216,7 +276,7 @@ func (n *node) reconcileReleaseFleet(ctx context.Context, desired sdk.ReleaseMan
 			n.restarts++
 		}
 		n.restartRequested = false
-		n.failedVersion = ""
+		n.failedIdentity = ""
 		return nil
 	}
 	if len(n.active) < desired.Replicas {
@@ -253,6 +313,7 @@ func (n *node) reapExited() int {
 		select {
 		case <-current.done:
 			log.Printf("release %s replica on port %d exited: %v", current.version, current.port, current.err())
+			n.stop(current)
 			n.restarts++
 			exited++
 		default:
@@ -297,22 +358,40 @@ func (n *node) startRelease(ctx context.Context, desired sdk.ReleaseManifest, po
 	cmd := exec.Command(command, desired.Command[1:]...)
 	cmd.Dir = dir
 	cmd.Env = releaseProcessEnvironment(os.Environ(), desired.Environment, n.serviceBindings, port, desired.Version)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	logFile, err := os.OpenFile(filepath.Join(dir, "application.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o640)
 	if err != nil {
 		return nil, err
 	}
-	cmd.Stdout, cmd.Stderr = logFile, logFile
+	boundedLog := replicaLogWriter{mu: &n.logMu, file: logFile}
+	cmd.Stdout, cmd.Stderr = boundedLog, boundedLog
 	if err := cmd.Start(); err != nil {
 		logFile.Close()
 		return nil, err
 	}
-	p := &process{cmd: cmd, version: desired.Version, port: port, done: make(chan struct{})}
+	p := &process{cmd: cmd, version: desired.Version, identity: releaseApplyIdentity(desired, n.serviceBindings), port: port, done: make(chan struct{})}
 	go func() { err := cmd.Wait(); _ = logFile.Close(); p.setExit(err) }()
 	if err := waitHealthy(ctx, port, desired.HealthPath, p); err != nil {
 		n.stop(p)
 		return nil, err
 	}
 	return p, nil
+}
+
+// releaseApplyIdentity describes inputs that require a new application
+// process. Version remains the legacy artifact-prefix identifier exposed to
+// users and to CANTER_RELEASE_VERSION; this digest also captures configuration
+// changes made against the same artifact.
+func releaseApplyIdentity(manifest sdk.ReleaseManifest, serviceBindings map[string]string) string {
+	identity, _ := json.Marshal(struct {
+		ArtifactSHA     string            `json:"artifactSha256"`
+		Command         []string          `json:"command"`
+		Environment     map[string]string `json:"environment,omitempty"`
+		ServiceBindings map[string]string `json:"serviceBindings,omitempty"`
+		HealthPath      string            `json:"healthPath"`
+	}{manifest.ArtifactSHA, manifest.Command, manifest.Environment, serviceBindings, manifest.HealthPath})
+	sum := sha256.Sum256(identity)
+	return hex.EncodeToString(sum[:])
 }
 
 func (n *node) launchReplica(ctx context.Context, desired sdk.ReleaseManifest, port int) (*process, error) {
@@ -360,7 +439,7 @@ func waitHealthy(ctx context.Context, port int, path string, process *process) e
 	tick := time.NewTicker(250 * time.Millisecond)
 	defer deadline.Stop()
 	defer tick.Stop()
-	client := &http.Client{Timeout: time.Second}
+	client := &http.Client{Timeout: time.Second, CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}
 	for {
 		select {
 		case <-process.done:
@@ -382,11 +461,20 @@ func waitHealthy(ctx context.Context, port int, path string, process *process) e
 }
 
 func (n *node) materialize(ctx context.Context, manifest sdk.ReleaseManifest) (string, error) {
+	if len(manifest.ArtifactSHA) != sha256.Size*2 || manifest.ArtifactSHA != strings.ToLower(manifest.ArtifactSHA) {
+		return "", fmt.Errorf("desired release has an invalid artifact digest")
+	}
+	digest, err := hex.DecodeString(manifest.ArtifactSHA)
+	if err != nil || len(digest) != sha256.Size || manifest.Version != manifest.ArtifactSHA[:12] {
+		return "", fmt.Errorf("desired release version does not match its artifact digest")
+	}
 	root := n.releaseRoot
 	if root == "" {
 		root = "/var/lib/canter-node/releases"
 	}
-	dir := filepath.Join(root, manifest.Version)
+	// Keep cached trees isolated by the full digest. The public release version
+	// remains a 12-character prefix for compatibility with existing manifests.
+	dir := releaseCacheDir(root, manifest)
 	marker := filepath.Join(dir, ".artifact-sha256")
 	if b, err := os.ReadFile(marker); err == nil && strings.TrimSpace(string(b)) == manifest.ArtifactSHA {
 		return dir, nil
@@ -422,37 +510,104 @@ func (n *node) materialize(ctx context.Context, manifest sdk.ReleaseManifest) (s
 	return dir, nil
 }
 
+func releaseCacheDir(root string, manifest sdk.ReleaseManifest) string {
+	return filepath.Join(root, manifest.Version+"-"+manifest.ArtifactSHA)
+}
+
 func extractTarGz(artifact []byte, destination string) error {
-	gz, err := gzip.NewReader(bytes.NewReader(artifact))
+	compressed := bytes.NewReader(artifact)
+	gz, err := gzip.NewReader(compressed)
 	if err != nil {
 		return err
 	}
 	defer gz.Close()
-	tr := tar.NewReader(gz)
+	gz.Multistream(false)
+	expanded := &io.LimitedReader{R: gz, N: maxNodeArtifactBytes + 1}
+	tr := tar.NewReader(expanded)
+	seen := make(map[string]byte)
+	entries := 0
+	var expandedPayload int64
 	for {
 		header, err := tr.Next()
 		if errors.Is(err, io.EOF) {
+			// tar.Reader stops at the archive terminator without reading through
+			// gzip's checksum trailer. Drain the member before accepting it.
+			if _, err := io.Copy(zeroOnlyWriter{}, expanded); err != nil {
+				return fmt.Errorf("finish tar.gz artifact: %w", err)
+			}
+			if expanded.N == 0 {
+				return fmt.Errorf("artifact expanded stream exceeds %d bytes", maxNodeArtifactBytes)
+			}
+			if compressed.Len() != 0 {
+				return fmt.Errorf("artifact contains trailing compressed data")
+			}
 			return nil
 		}
 		if err != nil {
 			return err
 		}
-		clean := filepath.Clean(header.Name)
-		if clean == "." || clean == ".." || filepath.IsAbs(clean) || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		entries++
+		if entries > maxNodeArtifactEntries {
+			return fmt.Errorf("artifact contains more than %d entries", maxNodeArtifactEntries)
+		}
+		if len(header.Name) == 0 || len(header.Name) > maxNodeArtifactPathBytes || strings.Contains(header.Name, "\\") {
 			return fmt.Errorf("unsafe artifact path %q", header.Name)
+		}
+		clean := path.Clean(header.Name)
+		canonicalName := header.Name
+		if header.Typeflag == tar.TypeDir {
+			canonicalName = strings.TrimSuffix(canonicalName, "/")
+		}
+		if clean != canonicalName || clean == "." || clean == ".." || path.IsAbs(header.Name) || strings.HasPrefix(clean, "../") {
+			return fmt.Errorf("unsafe artifact path %q", header.Name)
+		}
+		if _, duplicate := seen[clean]; duplicate {
+			return fmt.Errorf("artifact contains duplicate path %q", clean)
+		}
+		for ancestor := path.Dir(clean); ancestor != "." && ancestor != "/"; ancestor = path.Dir(ancestor) {
+			if seen[ancestor] == tar.TypeReg {
+				return fmt.Errorf("artifact path %q descends from regular file %q", clean, ancestor)
+			}
+		}
+		if header.Typeflag == tar.TypeReg {
+			for existing := range seen {
+				if strings.HasPrefix(existing, clean+"/") {
+					return fmt.Errorf("artifact regular file %q conflicts with child path %q", clean, existing)
+				}
+			}
+		}
+		metadataBytes := len(header.Uname) + len(header.Gname) + len(header.Linkname)
+		if len(header.PAXRecords) > 32 || len(header.Xattrs) > 32 {
+			return fmt.Errorf("artifact header %q contains excessive metadata", clean)
+		}
+		for key, value := range header.PAXRecords {
+			metadataBytes += len(key) + len(value)
+		}
+		for key, value := range header.Xattrs {
+			metadataBytes += len(key) + len(value)
+		}
+		if metadataBytes > maxNodeArtifactMetadataBytes || header.Mode < 0 || header.Mode&^int64(0o777) != 0 || header.Size < 0 {
+			return fmt.Errorf("artifact header %q exceeds safe metadata limits", clean)
 		}
 		path := filepath.Join(destination, clean)
 		switch header.Typeflag {
 		case tar.TypeDir:
+			if header.Size != 0 {
+				return fmt.Errorf("artifact directory %q declares data", clean)
+			}
 			if err := os.MkdirAll(path, 0o750); err != nil {
 				return err
 			}
 		case tar.TypeReg:
+			expandedPayload += header.Size
+			if expandedPayload > maxNodeArtifactBytes {
+				return fmt.Errorf("artifact expands beyond %d bytes", maxNodeArtifactBytes)
+			}
 			if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 				return err
 			}
 			mode := os.FileMode(header.Mode) & 0o750
-			f, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, mode)
+			f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, mode)
 			if err != nil {
 				return err
 			}
@@ -467,6 +622,7 @@ func extractTarGz(artifact []byte, destination string) error {
 		default:
 			return fmt.Errorf("unsupported artifact entry %q", header.Name)
 		}
+		seen[clean] = header.Typeflag
 	}
 }
 
@@ -474,13 +630,20 @@ func (n *node) stop(p *process) {
 	if p == nil || p.cmd.Process == nil {
 		return
 	}
-	_ = p.cmd.Process.Signal(syscall.SIGTERM)
+	// Release commands may start worker processes. Keep the entire replica in
+	// its own process group so scaling, failed health checks, and shutdown reap
+	// the workers along with the entrypoint.
+	_ = syscall.Kill(-p.cmd.Process.Pid, syscall.SIGTERM)
 	select {
 	case <-p.done:
-		return
+		// The entrypoint can exit before its workers. Continue through the
+		// process-group cleanup below so those workers do not outlive the replica.
 	case <-time.After(5 * time.Second):
-		_ = p.cmd.Process.Kill()
-		<-p.done
+	}
+	_ = syscall.Kill(-p.cmd.Process.Pid, syscall.SIGKILL)
+	select {
+	case <-p.done:
+	case <-time.After(time.Second):
 	}
 }
 

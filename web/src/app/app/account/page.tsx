@@ -1,23 +1,28 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { SettingsShell, SettingRow } from "@/components/settings-shell";
 import { CopyValue } from "@/components/copy-value";
 import { AccountDeletion } from "@/components/account-deletion";
 import { useWorkspace } from "@/components/workspace-context";
 import { canterFetch } from "@/lib/canter-api";
+import { clearAllOperatorAttachmentDrafts } from "@/lib/operator-attachment-draft";
+import { clearOperatorTextDrafts } from "@/lib/operator-draft-storage";
 import styles from "@/components/settings.module.css";
 
 export default function AccountPage() {
-  const router = useRouter();
   const { data, error: loadError } = useWorkspace();
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   async function signOut() {
     setBusy(true);
-    try { await canterFetch("/auth/signout", { method: "POST" }); router.push("/sign-in"); router.refresh(); }
+    try {
+      await canterFetch("/auth/signout", { method: "POST" });
+      try { clearOperatorTextDrafts(sessionStorage); } catch { /* Session storage may be unavailable. */ }
+      await clearAllOperatorAttachmentDrafts();
+      window.location.replace("/sign-in");
+    }
     catch { setError("Could not sign out. Please try again."); setBusy(false); }
   }
   return <SettingsShell active="Profile" title="Profile" description="Your personal account and sign-in session.">

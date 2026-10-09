@@ -4,6 +4,7 @@ package main
 import (
 	"flag"
 	"log"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -17,12 +18,28 @@ func nodeGatewayHandler(upstream *url.URL) http.Handler {
 		http.Error(w, "node gateway unavailable", http.StatusBadGateway)
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// The control plane trusts X-Forwarded-Proto only when the TCP peer is
+		// loopback. Keep this proxy inside that trust boundary even if --listen
+		// was configured to accept connections from a network interface.
+		if !loopbackPeer(r.RemoteAddr) {
+			http.Error(w, "local node gateway proxy only", http.StatusForbidden)
+			return
+		}
 		if !strings.HasPrefix(r.URL.Path, "/v1/node/") && !(r.Method == http.MethodGet && r.URL.Path == "/readyz") {
 			http.NotFound(w, r)
 			return
 		}
 		proxy.ServeHTTP(w, r)
 	})
+}
+
+func loopbackPeer(remoteAddr string) bool {
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		return false
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 func main() {

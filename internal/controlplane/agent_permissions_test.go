@@ -90,6 +90,17 @@ func TestAgentPermissionsPersistAndRestrictExistingSessions(t *testing.T) {
 	if err != nil || agentCanApply(workerPrincipal) {
 		t.Fatalf("worker inherited automatic deployment: %v", err)
 	}
+	// A request may resolve its Principal before an owner changes the grant.
+	// Worker issuance must check the persisted grant again inside its transaction.
+	if _, err = store.UpdateAgentAuthority(ctx, owner.ID, workspace.ID, pair.Installation.ID, read); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.CreateAgentWorker(ctx, principal, WorkerInput{Name: "Stale drafter", ClientInstance: "stale-worker", Draft: true}); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("stale principal issued a draft worker after downgrade: %v", err)
+	}
+	if _, err = store.UpdateAgentAuthority(ctx, owner.ID, workspace.ID, pair.Installation.ID, write); err != nil {
+		t.Fatal(err)
+	}
 	path := "/v1/installations/" + pair.Installation.ID + "?workspaceId=" + workspace.ID
 	if r := requestJSON(t, handler, http.MethodPatch, path, map[string]any{"authority": read}, &http.Cookie{Name: "canter_session", Value: otherHuman}); r.Code != 403 {
 		t.Fatalf("other owner changed grant: %d", r.Code)

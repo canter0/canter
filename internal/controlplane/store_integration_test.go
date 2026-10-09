@@ -3,7 +3,9 @@ package controlplane
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -91,6 +93,132 @@ func TestConcurrentRefreshReplayRevokesCredentialFamily(t *testing.T) {
 	}
 	if _, err := store.RefreshAgent(ctx, succeeded.RefreshToken, "after-race"); !errors.Is(err, ErrUnauthorized) {
 		t.Fatalf("replay loser did not revoke the winning child refresh token: %v", err)
+	}
+}
+
+func TestWorkspaceIndexPagesAreBoundedAndStableAcrossTies(t *testing.T) {
+	store := integrationStore(t)
+	ctx := context.Background()
+	_, workspace, _, err := store.Signup(ctx, "index-pages@example.com", "correct horse battery staple", "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	createdAt := time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC)
+	for i := 1; i <= 5; i++ {
+		id := fmt.Sprintf("change-%02d", i)
+		if _, err := store.pool.Exec(ctx, `INSERT INTO change_records(workspace_id,system_name,change_id,phase,summary,digest,document,created_at,updated_at) VALUES($1,'test',$2,'drafted','summary','digest','{}',$3,$3)`, workspace.ID, id, createdAt); err != nil {
+			t.Fatal(err)
+		}
+		deploymentID := fmt.Sprintf("deployment-%02d", i)
+		if _, err := store.pool.Exec(ctx, `INSERT INTO initial_deployments(id,workspace_id,system_name,phase,summary,digest,document,created_at,updated_at) VALUES($1,$2,$3,'drafted','summary','digest','{}',$4,$4)`, deploymentID, workspace.ID, fmt.Sprintf("system-%02d", i), createdAt); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	changeIDs := make([]string, 0, 5)
+	cursor := ""
+	foreignCursor := ""
+	for {
+		page, err := store.ListChangeIndexPage(ctx, workspace.ID, 2, cursor)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(page.Items) > 2 {
+			t.Fatalf("change page exceeded limit: %d", len(page.Items))
+		}
+		for _, item := range page.Items {
+			changeIDs = append(changeIDs, item.ID)
+		}
+		if !page.HasMore {
+			break
+		}
+		if page.NextCursor == "" {
+			t.Fatal("change page indicated more rows without a cursor")
+		}
+		if foreignCursor == "" {
+			foreignCursor = page.NextCursor
+		}
+		cursor = page.NextCursor
+	}
+	wantChanges := []string{"change-05", "change-04", "change-03", "change-02", "change-01"}
+	if !reflect.DeepEqual(changeIDs, wantChanges) {
+		t.Fatalf("change page traversal = %v, want %v", changeIDs, wantChanges)
+	}
+
+	deploymentIDs := make([]string, 0, 5)
+	cursor = ""
+	for {
+		page, err := store.ListInitialDeploymentIndexPage(ctx, workspace.ID, 2, cursor)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(page.Items) > 2 {
+			t.Fatalf("deployment page exceeded limit: %d", len(page.Items))
+		}
+		for _, item := range page.Items {
+			deploymentIDs = append(deploymentIDs, item.ID)
+		}
+		if !page.HasMore {
+			break
+		}
+		if page.NextCursor == "" {
+			t.Fatal("deployment page indicated more rows without a cursor")
+		}
+		cursor = page.NextCursor
+	}
+	wantDeployments := []string{"deployment-05", "deployment-04", "deployment-03", "deployment-02", "deployment-01"}
+	if !reflect.DeepEqual(deploymentIDs, wantDeployments) {
+		t.Fatalf("deployment page traversal = %v, want %v", deploymentIDs, wantDeployments)
+	}
+	if _, err := store.ListChangeIndexPage(ctx, workspace.ID, 2, "not-a-cursor"); err == nil {
+		t.Fatal("invalid cursor was accepted")
+	}
+	_, otherWorkspace, _, err := store.Signup(ctx, "index-pages-other@example.com", "correct horse battery staple", "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ListChangeIndexPage(ctx, otherWorkspace.ID, 2, foreignCursor); err == nil {
+		t.Fatal("cursor from another workspace was accepted")
+	}
+}
+
+func TestPendingChangePagesIncludePendingRowsBeyondRecentTerminalRows(t *testing.T) {
+	store := integrationStore(t)
+	ctx := context.Background()
+	_, workspace, _, err := store.Signup(ctx, "pending-index-pages@example.com", "correct horse battery staple", "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC)
+	for i := 1; i <= 50; i++ {
+		createdAt := now.Add(-time.Duration(i) * time.Second)
+		if _, err := store.pool.Exec(ctx, `INSERT INTO change_records(workspace_id,system_name,change_id,phase,summary,digest,document,created_at,updated_at) VALUES($1,'test',$2,'committed','summary','digest','{}',$3,$3)`, workspace.ID, fmt.Sprintf("terminal-%02d", i), createdAt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i := 1; i <= 2; i++ {
+		createdAt := now.Add(-time.Duration(i) * time.Hour)
+		if _, err := store.pool.Exec(ctx, `INSERT INTO change_records(workspace_id,system_name,change_id,phase,summary,digest,document,created_at,updated_at) VALUES($1,'test',$2,'drafted','summary','digest','{}',$3,$3)`, workspace.ID, fmt.Sprintf("pending-%02d", i), createdAt); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	first, err := store.ListPendingChangeIndexPage(ctx, workspace.ID, 1, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first.Items) != 1 || first.Items[0].ID != "pending-01" || !first.HasMore || first.NextCursor == "" || !first.PendingOnly {
+		t.Fatalf("unexpected pending page after recent terminal rows: %#v", first)
+	}
+	if _, err := store.ListChangeIndexPage(ctx, workspace.ID, 1, first.NextCursor); err == nil {
+		t.Fatal("pending cursor was accepted by the all-changes listing")
+	}
+	second, err := store.ListPendingChangeIndexPage(ctx, workspace.ID, 1, first.NextCursor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(second.Items) != 1 || second.Items[0].ID != "pending-02" || second.HasMore || second.NextCursor != "" {
+		t.Fatalf("pending cursor traversal skipped or repeated older pending row: %#v", second)
 	}
 }
 
@@ -253,7 +381,7 @@ func TestBootstrapAndDurableExecutionLedger(t *testing.T) {
 	if err != nil || !ok || claimed.ID != execution.ID || claimed.Attempts != 1 {
 		t.Fatalf("claim: %#v %t %v", claimed, ok, err)
 	}
-	if err := store.CompleteExecution(ctx, execution.ID, "worker-one", nil); err != nil {
+	if err := store.CompleteExecution(ctx, execution.ID, "worker-one", claimed.ClaimToken, nil); err != nil {
 		t.Fatal(err)
 	}
 	completed, err := store.Execution(ctx, execution.ID)

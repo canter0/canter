@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { canterFetch, CanterAPIError } from "@/lib/canter-api";
 import { authenticatePasskey } from "@/lib/passkeys";
+import { clearAllOperatorAttachmentDrafts } from "@/lib/operator-attachment-draft";
+import { clearOperatorTextDrafts } from "@/lib/operator-draft-storage";
 import { useDialog } from "./use-dialog";
 import { WorkspaceIcon } from "./workspace-icon";
 import styles from "./settings.module.css";
@@ -81,6 +83,8 @@ function DeletionDialog({ onClose }: { onClose: () => void }) {
         setPhase("verify");
       } else {
         await canterFetch("/auth/account/delete/finish", { method: "POST", body: JSON.stringify({ code: String(form.get("code") ?? "") }) });
+        try { clearOperatorTextDrafts(sessionStorage); } catch { /* Session storage may be unavailable. */ }
+        await clearAllOperatorAttachmentDrafts();
         // A full navigation discards private workspace and prefetched data.
         window.location.replace("/sign-in?deleted=1");
       }

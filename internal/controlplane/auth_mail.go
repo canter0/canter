@@ -46,6 +46,7 @@ func (m *ResendMailer) Send(ctx context.Context, id string, email AuthEmail) (st
 	if client == nil {
 		client = &http.Client{Timeout: 10 * time.Second}
 	}
+	client = credentialHTTPClient(client)
 	res, err := client.Do(req)
 	if err != nil {
 		return "", errors.New("email delivery temporarily unavailable")

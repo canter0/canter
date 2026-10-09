@@ -25,7 +25,20 @@ type oauthProvider struct {
 	identity func(context.Context, *oauth2.Token, string) (oauthIdentity, error)
 }
 
-var oauthHTTPClient = &http.Client{Timeout: 15 * time.Second}
+var oauthHTTPClient = &http.Client{
+	Timeout: 15 * time.Second,
+	CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	},
+}
+
+// credentialHTTPClient preserves the configured transport and timeout while
+// preventing a redirect from replaying an OAuth credential or request body.
+func credentialHTTPClient(client *http.Client) *http.Client {
+	copy := *client
+	copy.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	return &copy
+}
 
 func newOAuthProviders(config HTTPConfig) map[string]*oauthProvider {
 	providers := map[string]*oauthProvider{}
@@ -79,6 +92,10 @@ func googleIdentity(ctx context.Context, verifier *oidc.IDTokenVerifier, token *
 }
 
 func githubIdentity(ctx context.Context, client *http.Client, origin, token string) (oauthIdentity, error) {
+	if client == nil {
+		client = oauthHTTPClient
+	}
+	client = credentialHTTPClient(client)
 	get := func(path string, out any) error {
 		r, err := http.NewRequestWithContext(ctx, http.MethodGet, origin+path, nil)
 		if err != nil {

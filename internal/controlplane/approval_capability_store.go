@@ -39,10 +39,18 @@ func (s *Store) CreateChangeApprovalCapability(ctx context.Context, workspaceID,
 	}
 	defer tx.Rollback(ctx)
 	var activeInstallation string
-	if err = tx.QueryRow(ctx, `SELECT id FROM agent_installations WHERE id=$1 AND workspace_id=$2 AND revoked_at IS NULL FOR UPDATE`, p.Installation.ID, workspaceID).Scan(&activeInstallation); errors.Is(err, pgx.ErrNoRows) {
+	var draftAllowed bool
+	var applyMode string
+	// The caller's Principal was resolved before this transaction. Recheck and
+	// lock its session as well as the installation so a disconnected or expired
+	// session cannot use a stale Principal to mint a review link.
+	if err = tx.QueryRow(ctx, `SELECT i.id,i.draft_allowed,i.apply_mode FROM agent_sessions s JOIN agent_installations i ON i.id=s.installation_id LEFT JOIN agent_sessions parent ON parent.id=s.parent_session_id WHERE s.id=$1 AND s.installation_id=$2 AND s.ended_at IS NULL AND s.expires_at>$3 AND (s.parent_session_id IS NULL OR (parent.ended_at IS NULL AND parent.expires_at>$3)) AND i.workspace_id=$4 AND i.revoked_at IS NULL AND (i.expires_at IS NULL OR i.expires_at>$3) FOR UPDATE OF s,i`, p.Session.ID, p.Installation.ID, now, workspaceID).Scan(&activeInstallation, &draftAllowed, &applyMode); errors.Is(err, pgx.ErrNoRows) {
 		return ChangeApprovalCapability{}, ErrForbidden
 	} else if err != nil {
 		return ChangeApprovalCapability{}, err
+	}
+	if !draftAllowed || applyMode != "human-approval-required" {
+		return ChangeApprovalCapability{}, ErrForbidden
 	}
 	var phase, currentDigest string
 	if err = tx.QueryRow(ctx, `SELECT phase,digest FROM change_records WHERE workspace_id=$1 AND system_name=$2 AND change_id=$3 FOR SHARE`, workspaceID, systemName, changeID).Scan(&phase, &currentDigest); errors.Is(err, pgx.ErrNoRows) {
@@ -85,6 +93,17 @@ func (s *Store) ConsumeChangeApprovalCapability(ctx context.Context, token, acco
 		return ChangeApprovalReview{}, err
 	}
 	defer tx.Rollback(ctx)
+	// Installation changes revoke its pending links. Take the installation row
+	// lock first so a concurrent consume and revocation have one clear order and
+	// use the same installation-then-capability lock order as revocation.
+	var installationID string
+	err = tx.QueryRow(ctx, `SELECT i.id FROM change_approval_capabilities c JOIN agent_installations i ON i.id=c.requested_by_installation WHERE c.token_hash=$1 AND i.revoked_at IS NULL AND (i.expires_at IS NULL OR i.expires_at>$2) FOR UPDATE OF i`, secretHash(token), s.now()).Scan(&installationID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ChangeApprovalReview{}, ErrNotFound
+	}
+	if err != nil {
+		return ChangeApprovalReview{}, err
+	}
 	capability, change, role, err := s.readChangeApprovalCapability(ctx, tx, token, accountID, true)
 	if err != nil {
 		return ChangeApprovalReview{}, err
@@ -125,11 +144,11 @@ func (s *Store) readChangeApprovalCapability(ctx context.Context, q approvalCapa
 		JOIN agent_installations i ON i.id=c.requested_by_installation
 		JOIN change_records cr ON cr.workspace_id=c.workspace_id AND cr.system_name=c.system_name AND cr.change_id=c.change_id
 		JOIN memberships m ON m.workspace_id=c.workspace_id AND m.account_id=$2
-		WHERE c.token_hash=$1`
+		WHERE c.token_hash=$1 AND i.revoked_at IS NULL AND (i.expires_at IS NULL OR i.expires_at>$3)`
 	if lock {
-		query += ` FOR UPDATE OF c`
+		query += ` FOR UPDATE OF c,i`
 	}
-	err := q.QueryRow(ctx, query, secretHash(token), accountID).Scan(
+	err := q.QueryRow(ctx, query, secretHash(token), accountID, s.now()).Scan(
 		&capability.ID, &capability.WorkspaceID, &capability.System, &capability.ChangeID, &capability.Digest, &capability.Action,
 		&capability.CreatedAt, &capability.ExpiresAt, &capability.ConsumedAt, &capability.ConsumedBy, &capability.ExecutionID, &revokedAt,
 		&capability.RequestedBy.ID, &capability.RequestedBy.WorkspaceID, &capability.RequestedBy.Name, &capability.RequestedBy.Harness,

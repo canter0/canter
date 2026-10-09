@@ -285,18 +285,30 @@ func (o *OperatorRuntime) prepareRepository(ctx context.Context, c Conversation,
 	return o.Server.service.DraftInitialDeployment(ctx, c.WorkspaceID, DraftInitialDeploymentInput{Summary: "Deploy " + repo + " at " + commit[:12], System: system, ArtifactSHA256: artifact.SHA256, Release: InitialDeploymentRelease{Command: []string{"./serve"}, HealthPath: "/healthz", PublicPort: 8080}, Verification: sdk.ChangeVerification{Method: "GET", Path: "/", ExpectedStatus: 200}}, p.Actor)
 }
 func staticRepositoryFiles(archive []byte, directory string) (map[string][]byte, error) {
-	gz, err := gzip.NewReader(bytes.NewReader(archive))
+	compressed := bytes.NewReader(archive)
+	gz, err := gzip.NewReader(compressed)
 	if err != nil {
 		return nil, err
 	}
 	defer gz.Close()
-	reader := tar.NewReader(io.LimitReader(gz, 128<<20))
+	gz.Multistream(false)
+	expanded := &io.LimitedReader{R: gz, N: 128<<20 + 1}
+	reader := tar.NewReader(expanded)
 	files := map[string][]byte{}
 	total := int64(0)
 	entries := 0
 	for {
 		h, err := reader.Next()
 		if err == io.EOF {
+			if _, err := io.Copy(zeroOnlyWriter{}, expanded); err != nil {
+				return nil, fmt.Errorf("finish repository archive: %w", err)
+			}
+			if expanded.N == 0 {
+				return nil, fmt.Errorf("repository archive expands beyond supported limit")
+			}
+			if compressed.Len() != 0 {
+				return nil, fmt.Errorf("repository archive contains trailing compressed data")
+			}
 			break
 		}
 		if err != nil {

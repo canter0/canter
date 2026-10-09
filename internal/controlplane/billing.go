@@ -398,7 +398,7 @@ func (h *HTTPServer) billingWebhook(w http.ResponseWriter, r *http.Request) {
 	// subscription state. Usage, checkout completion and zero-dollar invoices
 	// are not payment conversions. The event's signature was verified above.
 	invoice := event.Data.Object
-	if event.Type == "invoice.paid" && invoice.ID != "" && invoice.Status == "paid" && invoice.AmountPaid > 0 && len(invoice.Currency) == 3 && invoice.StatusTransitions.PaidAt > 0 {
+	if event.Type == "invoice.paid" && invoice.ID != "" && invoice.Status == "paid" && invoice.AmountPaid > 0 && strings.EqualFold(invoice.Currency, pricing.Current().Currency) && invoice.StatusTransitions.PaidAt > 0 {
 		if _, err = tx.Exec(r.Context(), `INSERT INTO billing_paid_invoices(invoice_id,workspace_id,amount_paid,currency,paid_at) VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING`, invoice.ID, workspace, invoice.AmountPaid, strings.ToLower(invoice.Currency), time.Unix(invoice.StatusTransitions.PaidAt, 0)); err != nil {
 			writeStoreError(w, err)
 			return

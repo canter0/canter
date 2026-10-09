@@ -2,6 +2,7 @@ package controlplane
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -181,21 +182,121 @@ func (s *Store) EnqueueOperatorWithOptions(ctx context.Context, c Conversation, 
 	}
 	return run, tx.Commit(ctx)
 }
-func (s *Store) OperatorMessages(ctx context.Context, id string) ([]OperatorMessage, error) {
-	rows, err := s.pool.Query(ctx, `SELECT id,run_id,role,content,created_at,surface,attachments FROM operator_messages WHERE conversation_id=$1 ORDER BY created_at,id`, id)
+
+const (
+	operatorMessagePageCount = 50
+	operatorMessagePageBytes = 8 << 20
+)
+
+var errInvalidOperatorMessageCursor = errors.New("invalid message cursor")
+var errOperatorMessageTooLarge = errors.New("a message exceeds the 8 MiB conversation history page limit")
+
+type OperatorMessagePage struct {
+	Messages   []OperatorMessage `json:"messages"`
+	HasMore    bool              `json:"hasMore"`
+	NextCursor string            `json:"nextCursor,omitempty"`
+}
+
+func operatorMessageCursor(createdAt time.Time, id string) string {
+	return base64.RawURLEncoding.EncodeToString([]byte(createdAt.UTC().Format(time.RFC3339Nano) + "\n" + id))
+}
+
+func parseOperatorMessageCursor(cursor string) (time.Time, string, error) {
+	if cursor == "" {
+		return time.Time{}, "", nil
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(cursor)
 	if err != nil {
-		return nil, err
+		return time.Time{}, "", errInvalidOperatorMessageCursor
+	}
+	parts := strings.SplitN(string(raw), "\n", 2)
+	if len(parts) != 2 || parts[1] == "" || len(parts[1]) > 100 {
+		return time.Time{}, "", errInvalidOperatorMessageCursor
+	}
+	createdAt, err := time.Parse(time.RFC3339Nano, parts[0])
+	if err != nil {
+		return time.Time{}, "", errInvalidOperatorMessageCursor
+	}
+	return createdAt.UTC(), parts[1], nil
+}
+
+func (s *Store) OperatorMessages(ctx context.Context, id, cursor string) (OperatorMessagePage, error) {
+	createdAt, messageID, err := parseOperatorMessageCursor(cursor)
+	if err != nil {
+		return OperatorMessagePage{}, err
+	}
+	// Read only metadata for the bounded candidate set first. Attachment bytes
+	// are fetched in the second query only for rows that fit the page budget.
+	rows, err := s.pool.Query(ctx, `SELECT id,created_at,
+		(octet_length(to_json(content)::text)::bigint + char_length(content)::bigint*5 +
+		 COALESCE((SELECT sum(octet_length(attachment->>'dataBase64')) FROM jsonb_array_elements(COALESCE(attachments,'[]'::jsonb)) attachment),0) + 16384)::bigint
+		FROM operator_messages WHERE conversation_id=$1 AND ($2::timestamptz IS NULL OR (created_at,id)<($2,$3))
+		ORDER BY created_at DESC,id DESC LIMIT $4`, id, nullableMessageCursor(createdAt), messageID, operatorMessagePageCount+1)
+	if err != nil {
+		return OperatorMessagePage{}, err
+	}
+	type candidate struct {
+		id        string
+		createdAt time.Time
+		bytes     int64
+	}
+	candidates := make([]candidate, 0, operatorMessagePageCount+1)
+	for rows.Next() {
+		var item candidate
+		if err = rows.Scan(&item.id, &item.createdAt, &item.bytes); err != nil {
+			rows.Close()
+			return OperatorMessagePage{}, err
+		}
+		candidates = append(candidates, item)
+	}
+	if err = rows.Err(); err != nil {
+		rows.Close()
+		return OperatorMessagePage{}, err
+	}
+	rows.Close()
+	selected := make([]string, 0, operatorMessagePageCount)
+	var pageBytes int64
+	for _, item := range candidates {
+		if len(selected) == operatorMessagePageCount || pageBytes+item.bytes > operatorMessagePageBytes {
+			break
+		}
+		selected = append(selected, item.id)
+		pageBytes += item.bytes
+	}
+	page := OperatorMessagePage{Messages: []OperatorMessage{}, HasMore: len(candidates) > len(selected)}
+	if len(selected) == 0 {
+		if len(candidates) > 0 {
+			return OperatorMessagePage{}, errOperatorMessageTooLarge
+		}
+		return page, nil
+	}
+	rows, err = s.pool.Query(ctx, `SELECT id,run_id,role,content,created_at,surface,attachments FROM operator_messages WHERE conversation_id=$1 AND id=ANY($2) ORDER BY created_at DESC,id DESC`, id, selected)
+	if err != nil {
+		return OperatorMessagePage{}, err
 	}
 	defer rows.Close()
-	out := []OperatorMessage{}
 	for rows.Next() {
 		var m OperatorMessage
 		if err = rows.Scan(&m.ID, &m.RunID, &m.Role, &m.Content, &m.CreatedAt, &m.Surface, &m.Attachments); err != nil {
-			return nil, err
+			return OperatorMessagePage{}, err
 		}
-		out = append(out, m)
+		page.Messages = append(page.Messages, m)
 	}
-	return out, rows.Err()
+	if err = rows.Err(); err != nil {
+		return OperatorMessagePage{}, err
+	}
+	if page.HasMore && len(page.Messages) > 0 {
+		last := page.Messages[len(page.Messages)-1]
+		page.NextCursor = operatorMessageCursor(last.CreatedAt, last.ID)
+	}
+	return page, nil
+}
+
+func nullableMessageCursor(value time.Time) any {
+	if value.IsZero() {
+		return nil
+	}
+	return value
 }
 func (s *Store) OperatorEvents(ctx context.Context, id string, after int64) ([]OperatorEvent, error) {
 	rows, err := s.pool.Query(ctx, `SELECT sequence,COALESCE(run_id,''),kind,data,created_at FROM operator_events WHERE conversation_id=$1 AND sequence>$2 ORDER BY sequence LIMIT 300`, id, after)

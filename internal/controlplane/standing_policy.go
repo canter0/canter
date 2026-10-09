@@ -289,14 +289,40 @@ func (s *Store) EvaluateStandingPolicies(ctx context.Context, workspaceID, syste
 	var existing PolicyDecision
 	existing, err = scanPolicyDecision(tx.QueryRow(ctx, `SELECT `+policyDecisionColumns+` FROM change_policy_decisions WHERE workspace_id=$1 AND system_name=$2 AND change_id=$3 AND change_digest=$4 FOR UPDATE`, workspaceID, systemName, change.ID, change.Digest))
 	if err == nil && existing.Outcome == "automatic" {
-		policy, policyErr := scanStandingPolicy(tx.QueryRow(ctx, `SELECT `+standingPolicyColumns+` FROM standing_policies WHERE id=$1`, existing.PolicyID))
-		if policyErr != nil {
+		if existing.ExecutionID != "" {
+			// Once the decision has an execution, retries are read-only lookups of
+			// that already queued work. Keep the original policy attribution even
+			// if the policy has since expired or been revoked.
+			policy, policyErr := scanStandingPolicy(tx.QueryRow(ctx, `SELECT `+standingPolicyColumns+` FROM standing_policies WHERE id=$1`, existing.PolicyID))
+			if policyErr != nil {
+				return PolicyDecision{}, nil, policyErr
+			}
+			if err = tx.Commit(ctx); err != nil {
+				return PolicyDecision{}, nil, err
+			}
+			return existing, &policy, nil
+		}
+
+		// A cached automatic decision without an execution may be a retry after
+		// authorization, or an interrupted request. Revalidate its exact policy
+		// grant and the installation that originally evaluated it before allowing
+		// the retry to continue.
+		policy, policyErr := scanStandingPolicy(tx.QueryRow(ctx, `SELECT `+standingPolicyColumns+` FROM standing_policies WHERE workspace_id=$1 AND system_name=$2 AND id=$3 AND digest=$4 AND revoked_at IS NULL AND expires_at>$5 AND workspace_revision=$6 AND system_revision=$7 FOR SHARE`, workspaceID, systemName, existing.PolicyID, existing.PolicyDigest, s.now(), workspaceRevision, systemRevision))
+		if policyErr == nil && existing.EvaluatedByInstallation == installationID {
+			candidate := change
+			if candidate.Phase == "authorized" && candidate.Authorization != nil && candidate.Authorization.Digest == candidate.Digest && candidate.Authorization.AuthorizedBy != nil && candidate.Authorization.AuthorizedBy.Kind == "policy" && candidate.Authorization.AuthorizedBy.ID == policy.ID {
+				candidate.Phase = "drafted"
+				candidate.Authorization = nil
+			}
+			if allowed, _ := policyAllows(policy, installationID, candidate); allowed {
+				if err = tx.Commit(ctx); err != nil {
+					return PolicyDecision{}, nil, err
+				}
+				return existing, &policy, nil
+			}
+		} else if policyErr != nil && !errors.Is(policyErr, ErrNotFound) {
 			return PolicyDecision{}, nil, policyErr
 		}
-		if err = tx.Commit(ctx); err != nil {
-			return PolicyDecision{}, nil, err
-		}
-		return existing, &policy, nil
 	}
 	if err != nil && !errors.Is(err, ErrNotFound) {
 		return PolicyDecision{}, nil, err

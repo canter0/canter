@@ -1,6 +1,7 @@
 package controlplane
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 	"time"
@@ -73,9 +74,15 @@ func (h *HTTPServer) conversations(w http.ResponseWriter, r *http.Request, p Pri
 		return
 	}
 	if len(parts) == 1 && r.Method == http.MethodGet {
-		messages, err := h.service.Store.OperatorMessages(r.Context(), c.ID)
+		messages, err := h.service.Store.OperatorMessages(r.Context(), c.ID, r.URL.Query().Get("before"))
 		if err != nil {
-			writeStoreError(w, err)
+			if errors.Is(err, errInvalidOperatorMessageCursor) {
+				writeError(w, http.StatusBadRequest, err)
+			} else if errors.Is(err, errOperatorMessageTooLarge) {
+				writeError(w, http.StatusRequestEntityTooLarge, err)
+			} else {
+				writeStoreError(w, err)
+			}
 			return
 		}
 		run, err := h.service.Store.LatestOperatorRun(r.Context(), c.ID)
@@ -83,7 +90,7 @@ func (h *HTTPServer) conversations(w http.ResponseWriter, r *http.Request, p Pri
 			writeStoreError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"conversation": c, "messages": messages, "run": run})
+		writeJSON(w, http.StatusOK, map[string]any{"conversation": c, "messages": messages.Messages, "hasMore": messages.HasMore, "nextCursor": messages.NextCursor, "run": run})
 		return
 	}
 	if len(parts) == 1 && r.Method == http.MethodPatch {
@@ -159,7 +166,23 @@ func (h *HTTPServer) conversations(w http.ResponseWriter, r *http.Request, p Pri
 		defer timeout.Stop()
 		tick := time.NewTicker(300 * time.Millisecond)
 		defer tick.Stop()
+		cookie, cookieErr := h.humanCookie(r)
+		if cookieErr != nil {
+			writeStoreError(w, ErrUnauthorized)
+			return
+		}
 		for {
+			// The request principal is only a snapshot. Sessions can be revoked,
+			// expire, or lose account eligibility while this long poll is open.
+			active, sessionErr := h.service.Store.HumanSessionActive(r.Context(), p.Account.ID, p.Actor.SessionID, cookie.Value)
+			if sessionErr != nil {
+				writeStoreError(w, sessionErr)
+				return
+			}
+			if !active {
+				writeStoreError(w, ErrUnauthorized)
+				return
+			}
 			// Membership may change while a long poll is waiting.
 			if err = h.allowWorkspace(r, p, workspace, false); err != nil {
 				writeStoreError(w, err)

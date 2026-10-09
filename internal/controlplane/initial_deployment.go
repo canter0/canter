@@ -49,6 +49,17 @@ const (
 	maxArtifactMetadataBytes = 16 << 10
 )
 
+type zeroOnlyWriter struct{}
+
+func (zeroOnlyWriter) Write(p []byte) (int, error) {
+	for _, b := range p {
+		if b != 0 {
+			return 0, fmt.Errorf("nonzero data after tar end marker")
+		}
+	}
+	return len(p), nil
+}
+
 type DraftInitialDeploymentInput struct {
 	Summary        string                   `json:"summary"`
 	System         sdk.System               `json:"system"`
@@ -119,7 +130,8 @@ func validateApplicationArtifact(data []byte) ([]DeploymentArtifactEntry, error)
 	if len(data) == 0 || len(data) > maxArtifactBytes {
 		return nil, fmt.Errorf("artifact must be between 1 byte and %d bytes", maxArtifactBytes)
 	}
-	gz, err := gzip.NewReader(bytes.NewReader(data))
+	compressed := bytes.NewReader(data)
+	gz, err := gzip.NewReader(compressed)
 	if err != nil {
 		return nil, fmt.Errorf("artifact must be a tar.gz bundle: %w", err)
 	}
@@ -201,8 +213,17 @@ func validateApplicationArtifact(data []byte) ([]DeploymentArtifactEntry, error)
 		}
 		seen[clean] = header.Typeflag
 	}
-	if maxExpandedArtifactBytes+1-expandedStream.N > maxExpandedArtifactBytes {
+	// tar.Reader stops at the end-of-archive blocks. Drain the gzip stream so
+	// its checksum and size trailer are checked, and reject concatenated members
+	// or arbitrary bytes after the one supported gzip member.
+	if _, err := io.Copy(zeroOnlyWriter{}, expandedStream); err != nil {
+		return nil, fmt.Errorf("finish tar.gz artifact: %w", err)
+	}
+	if expandedStream.N == 0 {
 		return nil, fmt.Errorf("artifact expanded stream exceeds %d bytes", maxExpandedArtifactBytes)
+	}
+	if compressed.Len() != 0 {
+		return nil, fmt.Errorf("artifact contains trailing compressed data")
 	}
 	if len(entries) == 0 {
 		return nil, fmt.Errorf("artifact contains no files")

@@ -19,7 +19,9 @@ import { useWorkspace } from "./workspace-context";
 import { WorkspaceIcon } from "./workspace-icon";
 import { OperatorSurfaceView } from "./operator-surface";
 import { canterFetch, CanterAPIError } from "@/lib/canter-api";
-import { conversationBase, isSurface, surfaceKey, surfaceLabels, type ConversationDetail, type OperatorEvent, type OperatorRun, type OperatorSurface } from "@/lib/operator-api";
+import { conversationBase, conversationMessages, isSurface, surfaceKey, surfaceLabels, type ConversationDetail, type OperatorEvent, type OperatorRun, type OperatorSurface } from "@/lib/operator-api";
+import { mergeOperatorEvents } from "@/lib/operator-events";
+import { mergeConversationHistory, mergeEarlierConversationPage } from "@/lib/conversation-history";
 import { pendingRepositoryPicker, takeReviewSurface } from "@/lib/operator-surface-events";
 import styles from "./operator-workspace.module.css";
 
@@ -27,7 +29,6 @@ const subscribeDraft = (onChange: () => void) => { window.addEventListener("cant
 const subscribeModel = (onChange: () => void) => { window.addEventListener("canter-model", onChange); return () => window.removeEventListener("canter-model", onChange); };
 const activeRun = (run?: OperatorRun | null) => !!run && ["queued", "running"].includes(run.status);
 const restoredSurfaces = (events: OperatorEvent[]) => [...new Map(events.filter(event => event.kind === "surface" && isSurface(event.data) && !["github", "compute", "storage"].includes(String(event.data.kind))).map(event => [surfaceKey(event.data as OperatorSurface), event.data as OperatorSurface])).values()];
-
 export function OperatorWorkspace({ id, githubResult, focusComposer, initialDetail = null, initialLoadedAt }: { id?: string; githubResult?: string; focusComposer?: boolean; initialDetail?: ConversationDetail | null; initialLoadedAt?: number }) {
   const router = useRouter();
   const { data, conversationCache, retry: refreshWorkspace } = useWorkspace();
@@ -47,6 +48,16 @@ export function OperatorWorkspace({ id, githubResult, focusComposer, initialDeta
   const [viewMenu, setViewMenu] = useState(false);
   const [showScroll, setShowScroll] = useState(false);
   const [hasEarlierMessages, setHasEarlierMessages] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState<{ id: string; workspace: string; request: number } | null>(null);
+  const [historyProblem, setHistoryProblem] = useState<{ id: string; workspace: string; message: string } | null>(null);
+  const historyRequest = useRef(0);
+  const historyRoute = useRef({ id, workspace });
+  if (historyRoute.current.id !== id || historyRoute.current.workspace !== workspace) {
+    historyRoute.current = { id, workspace };
+    historyRequest.current++;
+  }
+  const loadingEarlier = !!historyLoading && historyLoading.id === id && historyLoading.workspace === workspace && historyLoading.request === historyRequest.current;
+  const historyError = historyProblem && historyProblem.id === id && historyProblem.workspace === workspace ? historyProblem.message : "";
   const [panelOpen, setPanelOpen] = useState(false);
   const panelId = useId();
   const [submittedPrompt, setSubmittedPrompt] = useState("");
@@ -122,7 +133,7 @@ export function OperatorWorkspace({ id, githubResult, focusComposer, initialDeta
     takeReviewSurface(latestEvents.current, seenReviews);
     async function sync(refresh = false) {
       const value = await conversationCache.load(id!, refresh);
-      if (!controller.signal.aborted) { setDetail(value); setDeliveryNotice(""); }
+      if (!controller.signal.aborted) { setDetail(current => mergeConversationHistory(current, value)); setDeliveryNotice(""); }
     }
     async function follow() {
       try {
@@ -134,7 +145,7 @@ export function OperatorWorkspace({ id, githubResult, focusComposer, initialDeta
           if (batch.length) {
             if (!restoring && batch.some(event => event.kind === "surface" && event.data.kind === "github")) setInlineGitHub(false);
             cursor = batch[batch.length - 1].sequence;
-            setEvents(current => [...current.filter(event => !batch.some(next => next.sequence === event.sequence)), ...batch].sort((a, b) => a.sequence - b.sequence));
+            setEvents(current => mergeOperatorEvents(current, batch));
             const surfaces = batch.filter(event => event.kind === "surface" && isSurface(event.data) && !["github", "compute", "storage"].includes(String(event.data.kind)));
             if (surfaces.length) {
               setOpened(current => [...new Map([...current, ...surfaces.map(event => event.data as OperatorSurface)].map(item => [surfaceKey(item), item])).values()]);
@@ -280,6 +291,28 @@ export function OperatorWorkspace({ id, githubResult, focusComposer, initialDeta
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not stop this response."); }
     finally { stopLock.current = false; setStopping(false); }
   }
+  async function loadEarlierMessages() {
+    if (!id || !workspace || !detail?.nextCursor || loadingEarlier) return;
+    const request = ++historyRequest.current;
+    const requestedId = id;
+    const requestedWorkspace = workspace;
+    const cursor = detail.nextCursor;
+    setHistoryLoading({ id: requestedId, workspace: requestedWorkspace, request });
+    setHistoryProblem({ id: requestedId, workspace: requestedWorkspace, message: "" });
+    followScroll.current = false;
+    const element = transcript.current;
+    const previousHeight = element?.scrollHeight ?? 0;
+    try {
+      const page = await conversationMessages(requestedWorkspace, requestedId, cursor);
+      if (historyRequest.current !== request || historyRoute.current.id !== requestedId || historyRoute.current.workspace !== requestedWorkspace) return;
+      setDetail(current => historyRoute.current.id === requestedId && historyRoute.current.workspace === requestedWorkspace
+        ? mergeEarlierConversationPage(current, requestedId, { ...page, messages: [...page.messages].reverse() })
+        : current);
+      requestAnimationFrame(() => { if (element && historyRequest.current === request) element.scrollTop += element.scrollHeight - previousHeight; });
+    } catch (cause) {
+      if (historyRequest.current === request && historyRoute.current.id === requestedId && historyRoute.current.workspace === requestedWorkspace) setHistoryProblem({ id: requestedId, workspace: requestedWorkspace, message: cause instanceof Error ? cause.message : "Earlier messages could not be loaded." });
+    } finally { if (historyRequest.current === request) setHistoryLoading(null); }
+  }
   function openSurface(surface: OperatorSurface) {
     if (surface.kind === "compute" || surface.kind === "storage") { setPanelOpen(false); suggestPrompt(surface.kind); return; }
     if (surface.kind === "github") { setInlineGitHub(true); setPanelOpen(false); followScroll.current = true; requestAnimationFrame(() => transcript.current?.scrollTo({ top: transcript.current.scrollHeight })); return; }
@@ -338,6 +371,7 @@ export function OperatorWorkspace({ id, githubResult, focusComposer, initialDeta
           <div className={styles.transcript} ref={transcript} tabIndex={0} role="region" aria-label="Conversation messages" onWheel={event => { if (event.deltaY < 0) followScroll.current = false; }} onTouchMove={() => { followScroll.current = false; }} onKeyDown={event => { if (["ArrowUp", "PageUp", "Home"].includes(event.key)) followScroll.current = false; }} onScroll={() => { const element = transcript.current; if (element) { const away = element.scrollHeight - element.scrollTop - element.clientHeight >= 80; setShowScroll(away); setHasEarlierMessages(element.scrollTop > 1); if (!away) followScroll.current = true; } }}>
             <div ref={transcriptContent}>
             {id && !detail && !connectionError ? <WorkspaceLoading variant="conversation" /> : null}
+            {detail?.hasMore ? <div className={styles.earlierMessages}><button type="button" onClick={() => void loadEarlierMessages()} disabled={loadingEarlier}>{loadingEarlier ? "Loading earlier messages…" : "Load earlier messages"}</button>{historyError ? <p className={styles.error} role="alert">{historyError}</p> : null}</div> : null}
             {detail?.messages.filter(message => message.role === "user").map(message => <OperatorTurn key={message.id} message={message} answer={detail.messages.find(answer => answer.role === "assistant" && answer.runId === message.runId)} events={events.filter(event => event.runId === message.runId)} running={running && message.runId === detail.run?.id} onSelect={openSurface} conversations={data?.conversations ?? []} inline={<>{!inlineGitHub && githubRun === message.runId ? github : null}</>} />)}
             {inlineGitHub ? github : null}
             {submittedPrompt && !hasMessages ? <section className={styles.turn}><article className={styles.message} data-role="user"><div className={styles.messageText}>{submittedPrompt}</div><OperatorMessageContext surface={submittedSurface} conversations={data?.conversations ?? []} /></article><div className={styles.progress} role="status"><span className={styles.pulse} />Starting your conversation…</div></section> : null}

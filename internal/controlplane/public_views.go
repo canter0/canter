@@ -37,11 +37,36 @@ func publicChange(change sdk.Change) sdk.Change {
 
 func publicChangeInspection(inspection ChangeInspection) ChangeInspection {
 	inspection.Change = publicChange(inspection.Change)
+	if inspection.Execution != nil {
+		public := publicExecution(*inspection.Execution)
+		inspection.Execution = &public
+	}
 	return inspection
+}
+
+// Execution errors can include provider responses, command output, or request
+// details. Keep status visible while applying the same public failure policy
+// used for operation and deployment failures.
+func publicExecution(execution Execution) Execution {
+	if execution.Failure != "" {
+		execution.Failure = publicOperationFailure(execution.Failure)
+	}
+	return execution
+}
+
+func publicInitialDeploymentExecution(execution InitialDeploymentExecution) InitialDeploymentExecution {
+	if execution.Failure != "" {
+		execution.Failure = publicOperationFailure(execution.Failure)
+	}
+	return execution
 }
 
 func publicPolicyApplyResult(result PolicyApplyResult) PolicyApplyResult {
 	result.Change = publicChange(result.Change)
+	if result.Execution != nil {
+		public := publicExecution(*result.Execution)
+		result.Execution = &public
+	}
 	if result.Decision.Failure != "" {
 		result.Decision.Failure = "policy application failed; operator inspection required"
 	}

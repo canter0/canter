@@ -90,7 +90,7 @@ func (h *HTTPServer) securityAuth(w http.ResponseWriter, r *http.Request, parts 
 		}
 		_, _, token, err := h.service.Store.Signin(r.Context(), email, in.Password)
 		if err != nil {
-			writeStoreError(w, err)
+			writeAuthStoreError(w, err)
 			return true
 		}
 		stage, challenge, err := h.afterPrimaryLogin(r, token)
@@ -193,7 +193,11 @@ func (h *HTTPServer) finishEmailAuth(w http.ResponseWriter, r *http.Request, in 
 	}
 	password, err := hashPassword(in.Password)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err)
+		if errors.Is(err, ErrCapacity) {
+			writeError(w, http.StatusServiceUnavailable, err)
+		} else {
+			writeError(w, http.StatusBadRequest, err)
+		}
 		return
 	}
 	tx, err := h.service.Store.pool.Begin(r.Context())

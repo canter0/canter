@@ -1,6 +1,30 @@
 package controlplane
 
-import "testing"
+import (
+	"errors"
+	"testing"
+)
+
+func TestPasswordOpsRejectWhenCapacityIsFull(t *testing.T) {
+	for i := 0; i < maxConcurrentPasswordOps; i++ {
+		passwordOpSlots <- struct{}{}
+	}
+	t.Cleanup(func() {
+		for len(passwordOpSlots) > 0 {
+			<-passwordOpSlots
+		}
+	})
+
+	if err := enterPasswordOp(); !errors.Is(err, ErrCapacity) {
+		t.Fatalf("enterPasswordOp() error = %v, want ErrCapacity", err)
+	}
+	if _, err := hashPassword("correct horse battery staple"); !errors.Is(err, ErrCapacity) {
+		t.Fatalf("hashPassword() error = %v, want ErrCapacity", err)
+	}
+	if valid, err := verifyPasswordLimited(dummyPasswordHash, "password"); valid || !errors.Is(err, ErrCapacity) {
+		t.Fatalf("verifyPasswordLimited() = (%v, %v), want (false, ErrCapacity)", valid, err)
+	}
+}
 
 func TestPasswordHashIsArgon2AndVerifies(t *testing.T) {
 	hash, err := hashPassword("correct horse battery staple")

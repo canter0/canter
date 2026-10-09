@@ -9,12 +9,43 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
+
+func TestBillingGatewayDoesNotReplayCredentialsOrMutationOnRedirect(t *testing.T) {
+	var redirected atomic.Int32
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		redirected.Add(1)
+		if username, _, ok := r.BasicAuth(); ok && username != "" {
+			t.Errorf("redirect target received billing credentials")
+		}
+	}))
+	defer target.Close()
+
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.Header.Get("Idempotency-Key") != "test-key" {
+			t.Errorf("unexpected billing request: %s %s", r.Method, r.URL.Path)
+		}
+		http.Redirect(w, r, target.URL+"/collect", http.StatusTemporaryRedirect)
+	}))
+	defer origin.Close()
+
+	gateway := NewBillingGateway(BillingConfig{SecretKey: "test-secret"})
+	gateway.baseURL = origin.URL
+	err := gateway.request(context.Background(), http.MethodPost, "/v1/test", url.Values{"customer": {"cus_test"}}, "test-key", nil)
+	if err == nil || !strings.Contains(err.Error(), "307") {
+		t.Fatalf("redirect response error = %v", err)
+	}
+	if redirected.Load() != 0 {
+		t.Fatalf("redirect target received %d requests", redirected.Load())
+	}
+}
 
 func billingSignature(body, secret string, at time.Time) string {
 	stamp := strconv.FormatInt(at.Unix(), 10)

@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { cache } from "react";
 import { CanterAPIError, type Me } from "./canter-api";
 import type { ConversationDetail } from "./operator-api";
+import { normalizeConversationDetail } from "./conversation-history";
 import type { WorkspaceBootstrap, WorkspaceOverview } from "./workspace-data";
 
 const canterAPIOrigin = process.env.CANTER_API_ORIGIN ?? "http://127.0.0.1:8081";
@@ -60,7 +61,7 @@ export async function initialConversation(id: string): Promise<{ detail: Convers
   if (!workspace) return null;
   try {
     const detail = await serverCanterFetch<ConversationDetail>(`/workspaces/${encodeURIComponent(workspace.id)}/conversations/${encodeURIComponent(id)}`);
-    return { detail, loadedAt: Date.now() };
+    return { detail: normalizeConversationDetail(detail), loadedAt: Date.now() };
   } catch {
     // The client retains its reconnect/error UI if the initial read is unavailable.
     return null;

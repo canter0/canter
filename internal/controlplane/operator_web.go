@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
@@ -470,21 +471,45 @@ func (s *Store) operatorWebSource(ctx context.Context, conversationID, id string
 	return v, err
 }
 func webMatchOffsets(content, query string, limit int) []int {
-	textRunes := []rune(strings.ToLower(content))
-	needle := []rune(strings.ToLower(query))
-	offsets := make([]int, 0, len(textRunes))
-	for offset := range content {
-		offsets = append(offsets, offset)
-	}
 	out := []int{}
-	if len(needle) == 0 {
+	needle := []rune(strings.ToLower(query))
+	if len(needle) == 0 || limit <= 0 {
 		return out
 	}
-	for i := 0; i+len(needle) <= len(textRunes) && len(out) < limit; i++ {
-		if string(textRunes[i:i+len(needle)]) == string(needle) {
-			out = append(out, offsets[i])
-			i += len(needle) - 1
+	// Build a prefix table once, then scan the saved UTF-8 source in linear
+	// time. Comparing a newly allocated string window at each candidate offset
+	// made a single 128 KiB document and a 200-byte query allocate tens of MiB.
+	prefix := make([]int, len(needle))
+	for i, matched := 1, 0; i < len(needle); i++ {
+		for matched > 0 && needle[i] != needle[matched] {
+			matched = prefix[matched-1]
 		}
+		if needle[i] == needle[matched] {
+			matched++
+		}
+		prefix[i] = matched
+	}
+	matched := 0
+	byteOffsets := make([]int, len(needle))
+	runeIndex := 0
+	for offset, r := range content {
+		byteOffsets[runeIndex%len(needle)] = offset
+		r = unicode.ToLower(r)
+		for matched > 0 && r != needle[matched] {
+			matched = prefix[matched-1]
+		}
+		if r == needle[matched] {
+			matched++
+		}
+		if matched == len(needle) {
+			out = append(out, byteOffsets[(runeIndex-len(needle)+1)%len(needle)])
+			if len(out) >= limit {
+				break
+			}
+			// Match the old behavior: results are non-overlapping.
+			matched = 0
+		}
+		runeIndex++
 	}
 	return out
 }

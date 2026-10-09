@@ -22,6 +22,8 @@ var (
 	faint      = lipgloss.NewStyle().Foreground(dim)
 )
 
+var currentPricing = pricing.Current()
+
 var menu = []struct{ name, description string }{
 	{"What is Canter?", "A home for your apps. A say in every change."},
 	{"Simple, usage-based pricing", "Start small. Pay for what runs."},
@@ -189,7 +191,7 @@ func (m Model) body(w int) string {
 	if m.page == 2 {
 		var b strings.Builder
 		b.WriteString(heading("Start small. Room to grow.") + "\n\n")
-		for _, plan := range pricing.Current().Plans {
+		for _, plan := range currentPricing.Plans {
 			b.WriteString(heading(plan.Name+"  ·  "+money(plan.MonthlyCents)+"/month") + "\n")
 			if plan.IncludedUsageCents > 0 {
 				b.WriteString(p("Includes " + money(plan.IncludedUsageCents) + " of infrastructure usage each month. Additional usage is billed separately."))

@@ -39,17 +39,15 @@ func (s *Service) Bootstrap(ctx context.Context, p Principal) (Bootstrap, error)
 	if err != nil {
 		return Bootstrap{}, err
 	}
-	changes, err := s.Store.ListChanges(ctx, p.WorkspaceID)
+	changesPage, err := s.Store.ListChangeIndexPage(ctx, p.WorkspaceID, defaultWorkspaceIndexPageSize, "")
 	if err != nil {
 		return Bootstrap{}, err
 	}
-	pending := make([]ChangeIndex, 0, len(changes))
-	for _, c := range changes {
-		if c.Phase != "committed" && c.Phase != "rejected" && c.Phase != "reverted" {
-			pending = append(pending, c)
-		}
+	pendingPage, err := s.Store.ListPendingChangeIndexPage(ctx, p.WorkspaceID, defaultWorkspaceIndexPageSize, "")
+	if err != nil {
+		return Bootstrap{}, err
 	}
-	deployments, err := s.Store.ListInitialDeployments(ctx, p.WorkspaceID)
+	deploymentsPage, err := s.Store.ListInitialDeploymentIndexPage(ctx, p.WorkspaceID, defaultWorkspaceIndexPageSize, "")
 	if err != nil {
 		return Bootstrap{}, err
 	}
@@ -57,7 +55,7 @@ func (s *Service) Bootstrap(ctx context.Context, p Principal) (Bootstrap, error)
 	if err != nil {
 		return Bootstrap{}, err
 	}
-	return Bootstrap{ProtocolVersion: "v1", Installation: *p.Installation, Session: *p.Session, Workspace: workspace, Systems: systems, Changes: changes, PendingChanges: pending, InitialDeployments: deployments, Tasks: tasks, Capabilities: initialDeploymentCapabilities(p.WorkspaceID), Incidents: []any{}}, nil
+	return Bootstrap{ProtocolVersion: "v1", Installation: *p.Installation, Session: *p.Session, Workspace: workspace, Systems: systems, Changes: changesPage.Items, ChangesHasMore: changesPage.HasMore, ChangesNextCursor: changesPage.NextCursor, PendingChanges: pendingPage.Items, PendingChangesHasMore: pendingPage.HasMore, PendingChangesNextCursor: pendingPage.NextCursor, InitialDeployments: deploymentsPage.Items, InitialDeploymentsHasMore: deploymentsPage.HasMore, InitialDeploymentsCursor: deploymentsPage.NextCursor, Tasks: tasks, Capabilities: initialDeploymentCapabilities(p.WorkspaceID), Incidents: []any{}}, nil
 }
 
 func initialDeploymentCapabilities(workspaceID string) map[string]any {
@@ -427,7 +425,7 @@ func (d *Dispatcher) runOne(parent context.Context, execution Execution) {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				if err := d.Store.RenewExecution(context.WithoutCancel(ctx), execution.ID, d.WorkerID, d.LeaseDuration); err != nil {
+				if err := d.Store.RenewExecution(context.WithoutCancel(ctx), execution.ID, d.WorkerID, execution.ClaimToken, d.LeaseDuration); err != nil {
 					cancel()
 					return
 				}
@@ -461,5 +459,5 @@ func (d *Dispatcher) runOne(parent context.Context, execution Execution) {
 	}
 	cancel()
 	wg.Wait()
-	_ = d.Store.CompleteExecution(context.WithoutCancel(parent), execution.ID, d.WorkerID, err)
+	_ = d.Store.CompleteExecution(context.WithoutCancel(parent), execution.ID, d.WorkerID, execution.ClaimToken, err)
 }

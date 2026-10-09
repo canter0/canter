@@ -65,3 +65,45 @@ func TestPublicInitialDeploymentPreservesOnlySafeActionableFailures(t *testing.T
 		t.Fatalf("provider failure was exposed: %q", public.Operations[1].Failure)
 	}
 }
+
+func TestPublicExecutionsRedactProviderAndCommandFailures(t *testing.T) {
+	changeExecution := Execution{ID: "exe_1", Failure: "provider request leaked-secret failed"}
+	publicChangeExecution := publicExecution(changeExecution)
+	if publicChangeExecution.Failure != "operation failed; operator inspection required" {
+		t.Fatalf("provider failure was exposed: %q", publicChangeExecution.Failure)
+	}
+	if changeExecution.Failure != "provider request leaked-secret failed" {
+		t.Fatal("public execution redaction mutated the stored execution")
+	}
+
+	initialExecution := InitialDeploymentExecution{ID: "ide_1", Failure: "migration stderr leaked-secret"}
+	publicInitialExecution := publicInitialDeploymentExecution(initialExecution)
+	raw, err := json.Marshal(publicInitialExecution)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "leaked-secret") || publicInitialExecution.Failure != "operation failed; operator inspection required" {
+		t.Fatalf("initial deployment execution leaked failure details: %s", raw)
+	}
+	if initialExecution.Failure != "migration stderr leaked-secret" {
+		t.Fatal("public initial execution redaction mutated the stored execution")
+	}
+}
+
+func TestPublicPolicyApplyResultRedactsNestedExecutionFailure(t *testing.T) {
+	result := PolicyApplyResult{Execution: &Execution{ID: "exe_2", Failure: "provider body leaked-policy-secret"}}
+	public := publicPolicyApplyResult(result)
+	if public.Execution == nil || public.Execution.Failure != "operation failed; operator inspection required" {
+		t.Fatalf("nested execution failure was exposed: %#v", public.Execution)
+	}
+	if result.Execution == nil || result.Execution.Failure != "provider body leaked-policy-secret" {
+		t.Fatal("policy result redaction mutated the stored execution")
+	}
+	raw, err := json.Marshal(public)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "leaked-policy-secret") {
+		t.Fatalf("policy result leaked nested execution details: %s", raw)
+	}
+}

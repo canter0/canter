@@ -127,12 +127,13 @@ func TestStandingPolicyAutomaticallyAuthorizesOnlyMatchingExactChange(t *testing
 	matching := makeChange("change-a", 500)
 	expensive := makeChange("change-b", 501)
 	afterRevoke := makeChange("change-c", 0)
-	for _, change := range []sdk.Change{matching, expensive, afterRevoke} {
+	expiredCached := makeChange("change-expired-cache", 0)
+	for _, change := range []sdk.Change{matching, expensive, afterRevoke, expiredCached} {
 		if err = store.RecordChange(ctx, workspace.ID, change); err != nil {
 			t.Fatal(err)
 		}
 	}
-	engine := &standingPolicyEngine{changes: map[string]sdk.Change{matching.ID: matching, expensive.ID: expensive, afterRevoke.ID: afterRevoke}}
+	engine := &standingPolicyEngine{changes: map[string]sdk.Change{matching.ID: matching, expensive.ID: expensive, afterRevoke.ID: afterRevoke, expiredCached.ID: expiredCached}}
 	service := Service{Store: store, Engine: engine}
 
 	automatic, err := service.ApplyChangeUnderPolicy(ctx, workspace.ID, system.Metadata.Name, matching.ID, matching.Digest, principal)
@@ -162,6 +163,49 @@ func TestStandingPolicyAutomaticallyAuthorizesOnlyMatchingExactChange(t *testing
 		t.Fatalf("out-of-envelope Change gained an execution: %v", err)
 	}
 
+	// Model an interrupted authorization request: evaluation has persisted its
+	// automatic decision, but no execution exists yet when the human revokes it.
+	// A later retry must revalidate the grant rather than trust that cache.
+	cached, _, err := store.EvaluateStandingPolicies(ctx, workspace.ID, system.Metadata.Name, pair.Installation.ID, policy.WorkspaceRevision, policy.SystemRevision, afterRevoke)
+	if err != nil || cached.Outcome != "automatic" || cached.ExecutionID != "" {
+		t.Fatalf("could not persist pre-revocation policy decision: %#v %v", cached, err)
+	}
+	if _, _, err = store.EvaluateStandingPolicies(ctx, workspace.ID, system.Metadata.Name, pair.Installation.ID, policy.WorkspaceRevision, policy.SystemRevision, expiredCached); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.pool.Exec(ctx, `UPDATE standing_policies SET expires_at=$1 WHERE id=$2`, store.now().Add(-time.Second), policy.ID); err != nil {
+		t.Fatal(err)
+	}
+	expiredResult, err := service.ApplyChangeUnderPolicy(ctx, workspace.ID, system.Metadata.Name, expiredCached.ID, expiredCached.Digest, principal)
+	if err != nil || expiredResult.Decision.Outcome != "human-approval-required" || expiredResult.Execution != nil || engine.changes[expiredCached.ID].Authorization != nil {
+		t.Fatalf("expired cached policy authorized a Change: %#v %v", expiredResult, err)
+	}
+	if _, err = store.pool.Exec(ctx, `UPDATE standing_policies SET expires_at=$1 WHERE id=$2`, store.now().Add(time.Hour), policy.ID); err != nil {
+		t.Fatal(err)
+	}
+	otherDevice, err := store.BeginDeviceAuthorization(ctx, "Other policy requester", "blackout", Authority{Inspect: true, Draft: true}, "http://canter.test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.ApproveDevice(ctx, otherDevice.UserCode, account.ID, workspace.ID); err != nil {
+		t.Fatal(err)
+	}
+	otherPair, err := store.ExchangeDevice(ctx, otherDevice.DeviceCode, "other-policy-conversation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherChange := makeChange("change-d", 0)
+	if err = store.RecordChange(ctx, workspace.ID, otherChange); err != nil {
+		t.Fatal(err)
+	}
+	bound, _, err := store.EvaluateStandingPolicies(ctx, workspace.ID, system.Metadata.Name, pair.Installation.ID, policy.WorkspaceRevision, policy.SystemRevision, otherChange)
+	if err != nil || bound.Outcome != "automatic" {
+		t.Fatalf("primary installation did not match its policy: %#v %v", bound, err)
+	}
+	unbound, _, err := store.EvaluateStandingPolicies(ctx, workspace.ID, system.Metadata.Name, otherPair.Installation.ID, policy.WorkspaceRevision, policy.SystemRevision, otherChange)
+	if err != nil || unbound.Outcome != "human-approval-required" || unbound.PolicyID != "" {
+		t.Fatalf("cached policy decision escaped its installation binding: %#v %v", unbound, err)
+	}
 	if _, err = store.RevokeStandingPolicy(ctx, workspace.ID, system.Metadata.Name, policy.ID, account.ID); err != nil {
 		t.Fatal(err)
 	}

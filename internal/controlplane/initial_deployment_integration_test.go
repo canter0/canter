@@ -9,15 +9,96 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/canter0/canter/sdk"
 	"github.com/jackc/pgx/v5"
 )
+
+type gatedArtifactReader struct {
+	started chan struct{}
+	resume  chan struct{}
+	data    *bytes.Reader
+	once    sync.Once
+}
+
+func (r *gatedArtifactReader) Read(p []byte) (int, error) {
+	r.once.Do(func() { close(r.started); <-r.resume })
+	return r.data.Read(p)
+}
+
+type countedArtifactReader struct{ reads int }
+
+func (r *countedArtifactReader) Read([]byte) (int, error) { r.reads++; return 0, io.EOF }
+
+func TestArtifactUploadAdmissionRejectsBeforeReadingBody(t *testing.T) {
+	store := integrationStore(t)
+	engine := &initialDeploymentFakeEngine{}
+	handler := NewHTTPServer(&Service{Store: store, Engine: engine}, HTTPConfig{PublicURL: "http://canter.test"})
+	account, workspace, _, err := store.Signup(context.Background(), "artifact-admission@example.com", "correct horse battery staple", "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	device, err := store.BeginDeviceAuthorization(context.Background(), "test", "codex", Authority{Inspect: true, Draft: true}, "http://canter.test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.ApproveDevice(context.Background(), device.UserCode, account.ID, workspace.ID); err != nil {
+		t.Fatal(err)
+	}
+	pair, err := store.ExchangeDevice(context.Background(), device.DeviceCode, "admission-session")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := "/v1/workspaces/" + workspace.ID + "/artifacts"
+	data := testApplicationArtifact(t)
+	const active = 2
+	started, resume := make(chan chan struct{}, active), make(chan struct{})
+	results := make(chan *httptest.ResponseRecorder, active)
+	for i := 0; i < active; i++ {
+		body := &gatedArtifactReader{started: make(chan struct{}), resume: resume, data: bytes.NewReader(data)}
+		started <- body.started
+		req := httptest.NewRequest(http.MethodPost, path, body)
+		req.Header.Set("Authorization", "Bearer "+pair.AccessToken)
+		req.Header.Set("Content-Type", "application/gzip")
+		go func() { w := httptest.NewRecorder(); handler.ServeHTTP(w, req); results <- w }()
+	}
+	for i := 0; i < active; i++ {
+		select {
+		case <-<-started:
+		case <-time.After(5 * time.Second):
+			t.Fatal("active upload did not begin reading")
+		}
+	}
+	rejectedBody := &countedArtifactReader{}
+	rejected := httptest.NewRequest(http.MethodPost, path, rejectedBody)
+	rejected.Header.Set("Authorization", "Bearer "+pair.AccessToken)
+	rejectedResult := httptest.NewRecorder()
+	handler.ServeHTTP(rejectedResult, rejected)
+	if rejectedResult.Code != http.StatusServiceUnavailable {
+		t.Fatalf("excess upload status=%d body=%s", rejectedResult.Code, rejectedResult.Body.String())
+	}
+	if rejectedBody.reads != 0 {
+		t.Fatalf("rejected upload read body %d times", rejectedBody.reads)
+	}
+	close(resume)
+	for i := 0; i < active; i++ {
+		select {
+		case result := <-results:
+			if result.Code != http.StatusCreated {
+				t.Fatalf("active upload status=%d body=%s", result.Code, result.Body.String())
+			}
+		case <-time.After(10 * time.Second):
+			t.Fatal("active upload did not finish")
+		}
+	}
+}
 
 func testApplicationArtifact(t *testing.T) []byte {
 	t.Helper()

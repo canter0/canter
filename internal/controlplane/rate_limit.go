@@ -17,6 +17,7 @@ type requestLimit struct {
 
 type requestWindow struct {
 	started time.Time
+	expires time.Time
 	count   int
 }
 
@@ -24,7 +25,10 @@ type requestLimiter struct {
 	mu      sync.Mutex
 	windows map[string]requestWindow
 	now     func() time.Time
+	lastGC  time.Time
 }
+
+const maxRequestWindows = 10_000
 
 func newRequestLimiter() *requestLimiter {
 	return &requestLimiter{windows: make(map[string]requestWindow), now: time.Now}
@@ -76,9 +80,26 @@ func (l *requestLimiter) allow(key string, limit requestLimit) (bool, time.Durat
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	now := l.now()
+	// Expire inactive keys before admitting a new one. The previous cleanup
+	// scanned the entire map on every request after it crossed 10,000 entries,
+	// and still allowed the map to grow without bound during a high-cardinality
+	// burst.
+	if now.Sub(l.lastGC) >= time.Minute {
+		for candidate, window := range l.windows {
+			if !now.Before(window.expires) {
+				delete(l.windows, candidate)
+			}
+		}
+		l.lastGC = now
+	}
 	current := l.windows[key]
 	if current.started.IsZero() || now.Sub(current.started) >= limit.window {
-		l.windows[key] = requestWindow{started: now, count: 1}
+		if current.started.IsZero() && len(l.windows) >= maxRequestWindows {
+			// Keep memory bounded. New cardinality is shed until existing
+			// windows expire instead of evicting active clients' budgets.
+			return false, time.Minute
+		}
+		l.windows[key] = requestWindow{started: now, expires: now.Add(limit.window), count: 1}
 		return true, 0
 	}
 	if current.count >= limit.max {
@@ -86,13 +107,6 @@ func (l *requestLimiter) allow(key string, limit requestLimit) (bool, time.Durat
 	}
 	current.count++
 	l.windows[key] = current
-	if len(l.windows) > 10_000 {
-		for candidate, window := range l.windows {
-			if now.Sub(window.started) >= time.Hour {
-				delete(l.windows, candidate)
-			}
-		}
-	}
 	return true, 0
 }
 
@@ -103,8 +117,11 @@ func requestIP(r *http.Request) string {
 	}
 	peer := net.ParseIP(host)
 	if peer != nil && peer.IsLoopback() {
-		forwarded := strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-For"), ",")[0])
-		if ip := net.ParseIP(forwarded); ip != nil {
+		// The trusted edge proxy appends the connection peer to XFF. Earlier
+		// values are supplied by the client and must not set the rate-limit key.
+		forwarded := r.Header.Get("X-Forwarded-For")
+		forwarded = forwarded[strings.LastIndex(forwarded, ",")+1:]
+		if ip := net.ParseIP(strings.TrimSpace(forwarded)); ip != nil {
 			return ip.String()
 		}
 	}

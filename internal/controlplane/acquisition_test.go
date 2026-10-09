@@ -142,9 +142,9 @@ func TestAcquisitionSignupFunnelAndSettledPaymentDeduplication(t *testing.T) {
 	gateway, fixture := billingTestGateway(t)
 	fixture.active = true
 	h.config.Billing = gateway
-	webhook := func(event, invoice, kind, customer, status string, amount int) {
+	webhook := func(event, invoice, kind, customer, status, currency string, amount int) {
 		t.Helper()
-		body := fmt.Sprintf(`{"id":%q,"type":%q,"data":{"object":{"id":%q,"customer":%q,"status":%q,"amount_paid":%d,"currency":"usd","status_transitions":{"paid_at":%d}}}}`, event, kind, invoice, customer, status, amount, time.Now().Unix())
+		body := fmt.Sprintf(`{"id":%q,"type":%q,"data":{"object":{"id":%q,"customer":%q,"status":%q,"amount_paid":%d,"currency":%q,"status_transitions":{"paid_at":%d}}}}`, event, kind, invoice, customer, status, amount, currency, time.Now().Unix())
 		r := httptest.NewRequest(http.MethodPost, "/v1/billing/webhook", strings.NewReader(body))
 		r.Header.Set("Stripe-Signature", billingSignature(body, gateway.Config.WebhookSecret, time.Now()))
 		w := httptest.NewRecorder()
@@ -153,13 +153,14 @@ func TestAcquisitionSignupFunnelAndSettledPaymentDeduplication(t *testing.T) {
 			t.Fatalf("webhook: %d %s", w.Code, w.Body.String())
 		}
 	}
-	webhook("evt_zero", "in_zero", "invoice.paid", "cus_test", "paid", 0)
-	webhook("evt_checkout", "cs_one", "checkout.session.completed", "cus_test", "paid", 2000)
-	webhook("evt_other_customer", "in_other", "invoice.paid", "cus_other_app", "paid", 2000)
+	webhook("evt_zero", "in_zero", "invoice.paid", "cus_test", "paid", "usd", 0)
+	webhook("evt_checkout", "cs_one", "checkout.session.completed", "cus_test", "paid", "usd", 2000)
+	webhook("evt_other_customer", "in_other", "invoice.paid", "cus_other_app", "paid", "usd", 2000)
+	webhook("evt_eur", "in_eur", "invoice.paid", "cus_test", "paid", "eur", 2000)
 	assertFunnel(1, 1, 0, 0)
-	webhook("evt_paid", "in_paid", "invoice.paid", "cus_test", "paid", 2000)
-	webhook("evt_paid", "in_paid", "invoice.paid", "cus_test", "paid", 2000)
-	webhook("evt_paid_duplicate", "in_paid", "invoice.paid", "cus_test", "paid", 2000)
+	webhook("evt_paid", "in_paid", "invoice.paid", "cus_test", "paid", "usd", 2000)
+	webhook("evt_paid", "in_paid", "invoice.paid", "cus_test", "paid", "usd", 2000)
+	webhook("evt_paid_duplicate", "in_paid", "invoice.paid", "cus_test", "paid", "usd", 2000)
 	assertFunnel(1, 1, 1, 2000)
 	if err := s.Migrate(ctx); err != nil {
 		t.Fatal("repeat migration", err)

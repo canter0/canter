@@ -117,6 +117,48 @@ func (s *Store) ListInitialDeployments(ctx context.Context, workspaceID string) 
 	return out, rows.Err()
 }
 
+func (s *Store) ListInitialDeploymentIndexPage(ctx context.Context, workspaceID string, limit int, rawCursor string) (InitialDeploymentIndexPage, error) {
+	pageSize := workspaceIndexPageSize(limit)
+	cursor, err := decodeWorkspaceIndexCursor(rawCursor, workspaceID, "initialDeployments")
+	if err != nil {
+		return InitialDeploymentIndexPage{}, err
+	}
+	query := `SELECT id,system_name,phase,summary,digest,created_at FROM initial_deployments WHERE workspace_id=$1 ORDER BY created_at DESC,id DESC LIMIT $2`
+	args := []any{workspaceID, pageSize + 1}
+	if !cursor.CreatedAt.IsZero() {
+		query = `SELECT id,system_name,phase,summary,digest,created_at FROM initial_deployments WHERE workspace_id=$1 AND (created_at,id)<($2,$3) ORDER BY created_at DESC,id DESC LIMIT $4`
+		args = []any{workspaceID, cursor.CreatedAt, cursor.ID, pageSize + 1}
+	}
+	rows, err := s.pool.Query(ctx, query, args...)
+	if err != nil {
+		return InitialDeploymentIndexPage{}, err
+	}
+	defer rows.Close()
+	page := InitialDeploymentIndexPage{Items: make([]InitialDeploymentIndex, 0, pageSize)}
+	var lastTime time.Time
+	var lastID string
+	for rows.Next() {
+		var item InitialDeploymentIndex
+		var createdAt time.Time
+		if err := rows.Scan(&item.ID, &item.System, &item.Phase, &item.Summary, &item.Digest, &createdAt); err != nil {
+			return InitialDeploymentIndexPage{}, err
+		}
+		if len(page.Items) == pageSize {
+			page.HasMore = true
+			break
+		}
+		page.Items = append(page.Items, item)
+		lastTime, lastID = createdAt, item.ID
+	}
+	if err := rows.Err(); err != nil {
+		return InitialDeploymentIndexPage{}, err
+	}
+	if page.HasMore && lastID != "" {
+		page.NextCursor = encodeWorkspaceIndexCursor(workspaceID, "initialDeployments", lastTime, lastID)
+	}
+	return page, nil
+}
+
 func (s *Store) AuthorizeInitialDeployment(ctx context.Context, workspaceID, id, digest string, actor sdk.ActorRef) (InitialDeployment, error) {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {

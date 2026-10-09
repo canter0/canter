@@ -101,6 +101,26 @@ func TestGitHubIdentityRequiresVerifiedPrimaryEmail(t *testing.T) {
 	}
 }
 
+func TestGitHubIdentityDoesNotForwardTokenAcrossRedirect(t *testing.T) {
+	var leaked bool
+	attacker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		leaked = r.Header.Get("Authorization") == "Bearer test-token"
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, `{"id":123}`)
+	}))
+	defer attacker.Close()
+	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, attacker.URL+"/collect", http.StatusFound)
+	}))
+	defer source.Close()
+	if _, err := githubIdentity(context.Background(), source.Client(), source.URL, "test-token"); err == nil {
+		t.Fatal("redirect accepted as GitHub identity")
+	}
+	if leaked {
+		t.Fatal("GitHub token reached redirect target")
+	}
+}
+
 func TestOAuthUnavailableProviderAndMissingState(t *testing.T) {
 	handler := NewHTTPServer(&Service{}, HTTPConfig{PublicURL: "http://127.0.0.1:3000", GoogleOAuth: OAuthCredentials{ClientID: "client", ClientSecret: "secret"}})
 	for _, path := range []string{"/v1/auth/oauth/github", "/v1/auth/oauth/google/callback?code=attacker-code"} {

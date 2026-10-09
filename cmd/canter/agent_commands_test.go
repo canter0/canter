@@ -129,3 +129,24 @@ func TestPersistAgentEnvRejectsSymlink(t *testing.T) {
 		t.Fatal("credential writer followed a symlink")
 	}
 }
+
+func TestAgentEnvFilesRejectSpecialAndOversizedFiles(t *testing.T) {
+	directory := t.TempDir()
+	if _, err := explicitEnvValues(directory); err == nil {
+		t.Fatal("env reader accepted a directory")
+	}
+	if err := persistAgentEnv(directory, map[string]string{"CANTER_AGENT_ACCESS_TOKEN": "secret"}); err == nil {
+		t.Fatal("credential writer accepted a directory destination")
+	}
+
+	path := filepath.Join(t.TempDir(), "agent.env")
+	if err := os.WriteFile(path, make([]byte, maxAgentEnvFileBytes+1), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := explicitEnvValues(path); err == nil {
+		t.Fatal("env reader accepted an oversized file")
+	}
+	if err := persistAgentEnv(path, map[string]string{"CANTER_AGENT_ACCESS_TOKEN": "secret"}); err == nil {
+		t.Fatal("credential writer accepted an oversized existing file")
+	}
+}
