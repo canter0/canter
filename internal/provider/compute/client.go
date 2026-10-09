@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -25,6 +26,17 @@ type Client struct {
 	config  config
 	mu      sync.Mutex
 	session session
+}
+
+const maxProviderJSONBody = 16 << 20
+
+func providerHTTPClient(timeout time.Duration) *http.Client {
+	return &http.Client{
+		Timeout: timeout,
+		// Provider endpoints can return redirects. Never forward Keystone tokens or
+		// authentication request bodies to a redirect target.
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
 }
 
 type config struct {
@@ -198,7 +210,21 @@ func NewFromEnv() (*Client, error) {
 	if cfg.AuthURL == "" || cfg.Username == "" || cfg.Password == "" || cfg.ProjectName == "" || cfg.ProjectDomainID == "" || cfg.Region == "" {
 		return nil, fmt.Errorf("compute credentials are incomplete")
 	}
-	return &Client{config: cfg, http: &http.Client{Timeout: 18 * time.Second}}, nil
+	if !validProviderURL(cfg.AuthURL) {
+		return nil, fmt.Errorf("compute auth URL must be an HTTPS URL without credentials, query, or fragment")
+	}
+	return &Client{config: cfg, http: providerHTTPClient(18 * time.Second)}, nil
+}
+
+func validProviderURL(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Opaque != "" {
+		return false
+	}
+	if u.Scheme == "https" {
+		return true
+	}
+	return u.Scheme == "http" && (u.Hostname() == "localhost" || net.ParseIP(u.Hostname()) != nil && net.ParseIP(u.Hostname()).IsLoopback())
 }
 
 func (c *Client) Probe(ctx context.Context) ProbeResult {
@@ -456,8 +482,8 @@ func (c *Client) Delete(ctx context.Context, id string) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusNotFound {
-		b, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-		return fmt.Errorf("compute delete failed with HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 2048))
+		return &HTTPError{StatusCode: resp.StatusCode}
 	}
 	return nil
 }
@@ -776,13 +802,13 @@ func (c *Client) authenticate(ctx context.Context) (session, error) {
 			}
 		} `json:"token"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+	if err := decodeProviderJSON(resp.Body, &body); err != nil {
 		return session{}, err
 	}
 	s := session{Token: resp.Header.Get("X-Subject-Token"), Expires: body.Token.ExpiresAt}
 	for _, svc := range body.Token.Catalog {
 		for _, ep := range svc.Endpoints {
-			if ep.Interface != "public" || ep.Region != c.config.Region {
+			if ep.Interface != "public" || ep.Region != c.config.Region || !validProviderURL(ep.URL) {
 				continue
 			}
 			switch svc.Type {
@@ -836,7 +862,18 @@ func (c *Client) request(ctx context.Context, method, url string, payload, targe
 	if target == nil || resp.StatusCode == http.StatusNoContent {
 		return nil
 	}
-	return json.NewDecoder(resp.Body).Decode(target)
+	return decodeProviderJSON(resp.Body, target)
+}
+
+func decodeProviderJSON(body io.Reader, target any) error {
+	data, err := io.ReadAll(io.LimitReader(body, maxProviderJSONBody+1))
+	if err != nil {
+		return err
+	}
+	if len(data) > maxProviderJSONBody {
+		return fmt.Errorf("compute response exceeded size limit")
+	}
+	return json.Unmarshal(data, target)
 }
 
 // ServerShape resolves the allocated server's actual flavor, never its class ordinal.

@@ -6,11 +6,11 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net/url"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/canter0/canter/internal/fileinput"
 	"github.com/canter0/canter/internal/provider/compute"
 )
 
@@ -138,8 +138,8 @@ func (c *Client) DeleteControlPlaneArtifact(ctx context.Context, key string) err
 // The caller remains responsible for recording workspace ownership and actor
 // attribution in its durable control-plane store.
 func (c *Client) StageControlPlaneArtifact(ctx context.Context, artifact []byte, filename, contentType string) (StagedArtifact, error) {
-	if len(artifact) == 0 {
-		return StagedArtifact{}, fmt.Errorf("artifact is empty")
+	if len(artifact) == 0 || len(artifact) > maxStagedArtifactBytes {
+		return StagedArtifact{}, fmt.Errorf("artifact must be between 1 and %d bytes", maxStagedArtifactBytes)
 	}
 	if contentType == "" {
 		contentType = "application/gzip"
@@ -163,6 +163,9 @@ func (c *Client) StageControlPlaneArtifact(ctx context.Context, artifact []byte,
 // VerifyStagedArtifact re-reads the server-side object and validates its key,
 // byte length, and digest immediately before it can become a desired release.
 func (c *Client) VerifyStagedArtifact(ctx context.Context, artifact StagedArtifact) error {
+	if artifact.Size < 1 || artifact.Size > maxStagedArtifactBytes {
+		return fmt.Errorf("staged artifact size must be between 1 and %d bytes", maxStagedArtifactBytes)
+	}
 	expectedKey, err := ControlPlaneArtifactKey(artifact.SHA256)
 	if err != nil {
 		return err
@@ -170,7 +173,7 @@ func (c *Client) VerifyStagedArtifact(ctx context.Context, artifact StagedArtifa
 	if artifact.Key != expectedKey {
 		return fmt.Errorf("staged artifact key is not canonical for digest %s", artifact.SHA256)
 	}
-	data, err := c.m1.GetBytes(ctx, artifact.Key)
+	data, err := c.readArtifactBytes(ctx, artifact.Key, artifact.Size)
 	if err != nil {
 		return fmt.Errorf("read staged artifact: %w", err)
 	}
@@ -182,6 +185,21 @@ func (c *Client) VerifyStagedArtifact(ctx context.Context, artifact StagedArtifa
 		return fmt.Errorf("staged artifact digest mismatch: expected %s, got %s", artifact.SHA256, actual)
 	}
 	return nil
+}
+
+const maxStagedArtifactBytes = 64 << 20
+
+func (c *Client) readArtifactBytes(ctx context.Context, key string, limit int64) ([]byte, error) {
+	if bounded, ok := c.m1.(interface {
+		GetBytesLimited(context.Context, string, int64) ([]byte, error)
+	}); ok {
+		return bounded.GetBytesLimited(ctx, key, limit)
+	}
+	data, err := c.m1.GetBytes(ctx, key)
+	if err == nil && int64(len(data)) > limit {
+		return nil, fmt.Errorf("artifact exceeds %d bytes", limit)
+	}
+	return data, err
 }
 
 // PublishStagedRelease makes a previously staged immutable artifact desired by
@@ -205,7 +223,7 @@ func (c *Client) PublishStagedRelease(ctx context.Context, system System, input 
 		Command: append([]string(nil), input.Command...), Environment: cloneStrings(input.Environment),
 		HealthPath: input.HealthPath, PublicPort: input.PublicPort, Replicas: 1, RequestedAt: time.Now().UTC(),
 	}
-	if err := c.m1.PutJSON(ctx, releaseKey(system, manifest.Version), manifest); err != nil {
+	if err := c.persistReleaseManifest(ctx, system, manifest); err != nil {
 		return ReleaseManifest{}, fmt.Errorf("persist release manifest: %w", err)
 	}
 	if err := c.m1.PutJSON(ctx, desiredKey(system), manifest); err != nil {
@@ -234,7 +252,7 @@ func (c *Client) StageRelease(ctx context.Context, system System, input PublishR
 	if len(input.Command) == 0 || input.PublicPort < 1 || input.PublicPort > 65535 || !strings.HasPrefix(input.HealthPath, "/") {
 		return ReleaseManifest{}, fmt.Errorf("release requires a command, absolute health path, and valid public port")
 	}
-	artifact, err := os.ReadFile(input.ArtifactPath)
+	artifact, err := readReleaseArtifact(input.ArtifactPath)
 	if err != nil {
 		return ReleaseManifest{}, err
 	}
@@ -251,10 +269,47 @@ func (c *Client) StageRelease(ctx context.Context, system System, input PublishR
 		ArtifactKey: artifactKey, ArtifactSHA: digest, Command: append([]string(nil), input.Command...),
 		Environment: input.Environment, HealthPath: input.HealthPath, PublicPort: input.PublicPort, Replicas: 1, RequestedAt: time.Now().UTC(),
 	}
-	if err := c.m1.PutJSON(ctx, releaseKey(system, version), manifest); err != nil {
+	if err := c.persistReleaseManifest(ctx, system, manifest); err != nil {
 		return ReleaseManifest{}, fmt.Errorf("persist release manifest: %w", err)
 	}
 	return manifest, nil
+}
+
+// persistReleaseManifest preserves the legacy 12-character version key while
+// ensuring two distinct full artifact digests cannot overwrite one another if
+// they share that prefix. Conditional creation closes the race between two
+// concurrent first publishers of a colliding prefix.
+func (c *Client) persistReleaseManifest(ctx context.Context, system System, manifest ReleaseManifest) error {
+	key := releaseKey(system, manifest.Version)
+	_, ok, err := c.m1.PutJSONIfAbsent(ctx, key, manifest)
+	if err != nil {
+		return err
+	}
+	if ok {
+		return nil
+	}
+	var existing ReleaseManifest
+	found, err := c.m1.GetOptional(ctx, key, &existing)
+	if err != nil {
+		return err
+	}
+	if !found || existing.ArtifactSHA != manifest.ArtifactSHA {
+		return fmt.Errorf("release version %q is already bound to a different artifact digest", manifest.Version)
+	}
+	return c.m1.PutJSON(ctx, key, manifest)
+}
+
+const maxReleaseArtifactBytes = 512 << 20
+
+func readReleaseArtifact(path string) ([]byte, error) {
+	data, err := fileinput.ReadRegular(path, maxReleaseArtifactBytes)
+	if err != nil {
+		return nil, err
+	}
+	if len(data) == 0 || len(data) > maxReleaseArtifactBytes {
+		return nil, fmt.Errorf("release artifact must be between 1 and %d bytes", maxReleaseArtifactBytes)
+	}
+	return data, nil
 }
 
 func (c *Client) ReleaseStatus(ctx context.Context, system System) (ObservedRelease, error) {

@@ -14,11 +14,15 @@ import (
 	"net/url"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/canter0/canter/sdk"
 )
 
 var ErrAuthorizationPending = errors.New("agent authorization is still pending")
+var ErrAuthorizationExpired = errors.New("agent authorization has expired")
+
+const maxResponseBytes = 4 << 20
 
 type Client struct {
 	baseURL string
@@ -117,15 +121,22 @@ type Identity struct {
 }
 
 type Bootstrap struct {
-	ProtocolVersion    string            `json:"protocolVersion"`
-	Installation       Installation      `json:"installation"`
-	Session            Session           `json:"session"`
-	Workspace          json.RawMessage   `json:"workspace"`
-	Systems            []json.RawMessage `json:"systems"`
-	PendingChanges     []json.RawMessage `json:"pendingChanges"`
-	InitialDeployments []json.RawMessage `json:"initialDeployments"`
-	Capabilities       json.RawMessage   `json:"capabilities"`
-	Incidents          []json.RawMessage `json:"incidents"`
+	ProtocolVersion           string            `json:"protocolVersion"`
+	Installation              Installation      `json:"installation"`
+	Session                   Session           `json:"session"`
+	Workspace                 json.RawMessage   `json:"workspace"`
+	Systems                   []json.RawMessage `json:"systems"`
+	Changes                   []json.RawMessage `json:"changes"`
+	ChangesHasMore            bool              `json:"changesHasMore"`
+	ChangesNextCursor         string            `json:"changesNextCursor,omitempty"`
+	PendingChanges            []json.RawMessage `json:"pendingChanges"`
+	PendingChangesHasMore     bool              `json:"pendingChangesHasMore"`
+	PendingChangesNextCursor  string            `json:"pendingChangesNextCursor,omitempty"`
+	InitialDeployments        []json.RawMessage `json:"initialDeployments"`
+	InitialDeploymentsHasMore bool              `json:"initialDeploymentsHasMore"`
+	InitialDeploymentsCursor  string            `json:"initialDeploymentsNextCursor,omitempty"`
+	Capabilities              json.RawMessage   `json:"capabilities"`
+	Incidents                 []json.RawMessage `json:"incidents"`
 }
 
 type DeploymentArtifact struct {
@@ -188,11 +199,18 @@ func (c *Client) ExchangeDevice(ctx context.Context, deviceCode, clientInstance 
 }
 
 func (c *Client) PollDevice(ctx context.Context, authorization DeviceAuthorization, clientInstance string) (TokenPair, error) {
-	interval := time.Duration(authorization.IntervalSeconds) * time.Second
-	if interval < 250*time.Millisecond {
-		interval = 2 * time.Second
+	interval := 2 * time.Second
+	if authorization.IntervalSeconds > 0 {
+		seconds := time.Duration(authorization.IntervalSeconds)
+		if seconds > time.Duration(1<<63-1)/time.Second {
+			seconds = time.Duration(1<<63-1) / time.Second
+		}
+		interval = seconds * time.Second
 	}
 	for {
+		if !authorization.ExpiresAt.IsZero() && !time.Now().Before(authorization.ExpiresAt) {
+			return TokenPair{}, ErrAuthorizationExpired
+		}
 		pair, err := c.ExchangeDevice(ctx, authorization.DeviceCode, clientInstance)
 		if err == nil {
 			return pair, nil
@@ -200,7 +218,17 @@ func (c *Client) PollDevice(ctx context.Context, authorization DeviceAuthorizati
 		if !errors.Is(err, ErrAuthorizationPending) {
 			return TokenPair{}, err
 		}
-		timer := time.NewTimer(interval)
+		wait := interval
+		if !authorization.ExpiresAt.IsZero() {
+			remaining := time.Until(authorization.ExpiresAt)
+			if remaining <= 0 {
+				return TokenPair{}, ErrAuthorizationExpired
+			}
+			if remaining < wait {
+				wait = remaining
+			}
+		}
+		timer := time.NewTimer(wait)
 		select {
 		case <-ctx.Done():
 			timer.Stop()
@@ -230,7 +258,11 @@ func (c *Client) Bootstrap(ctx context.Context, accessToken string) (Bootstrap, 
 
 func (c *Client) UploadArtifact(ctx context.Context, accessToken, workspaceID, filename, contentType string, artifact io.Reader) (DeploymentArtifact, error) {
 	var result DeploymentArtifact
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/v1/workspaces/"+url.PathEscape(workspaceID)+"/artifacts", artifact)
+	escapedWorkspaceID, err := escapePathID("workspace ID", workspaceID)
+	if err != nil {
+		return result, err
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/v1/workspaces/"+escapedWorkspaceID+"/artifacts", artifact)
 	if err != nil {
 		return result, err
 	}
@@ -243,7 +275,7 @@ func (c *Client) UploadArtifact(ctx context.Context, accessToken, workspaceID, f
 		return result, err
 	}
 	defer response.Body.Close()
-	raw, err := io.ReadAll(io.LimitReader(response.Body, 4<<20))
+	raw, err := readResponse(response.Body)
 	if err != nil {
 		return result, err
 	}
@@ -255,7 +287,11 @@ func (c *Client) UploadArtifact(ctx context.Context, accessToken, workspaceID, f
 
 func (c *Client) DraftInitialDeployment(ctx context.Context, accessToken, workspaceID string, input DraftInitialDeploymentInput) (InitialDeployment, error) {
 	var result InitialDeployment
-	err := c.do(ctx, http.MethodPost, "/v1/workspaces/"+url.PathEscape(workspaceID)+"/initial-deployments", accessToken, input, &result)
+	escapedWorkspaceID, err := escapePathID("workspace ID", workspaceID)
+	if err != nil {
+		return result, err
+	}
+	err = c.do(ctx, http.MethodPost, "/v1/workspaces/"+escapedWorkspaceID+"/initial-deployments", accessToken, input, &result)
 	return result, err
 }
 
@@ -263,20 +299,47 @@ func (c *Client) ListInitialDeployments(ctx context.Context, accessToken, worksp
 	var result struct {
 		InitialDeployments []InitialDeployment `json:"initialDeployments"`
 	}
-	err := c.do(ctx, http.MethodGet, "/v1/workspaces/"+url.PathEscape(workspaceID)+"/initial-deployments", accessToken, nil, &result)
+	escapedWorkspaceID, err := escapePathID("workspace ID", workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	err = c.do(ctx, http.MethodGet, "/v1/workspaces/"+escapedWorkspaceID+"/initial-deployments", accessToken, nil, &result)
 	return result.InitialDeployments, err
 }
 
 func (c *Client) InspectInitialDeployment(ctx context.Context, accessToken, workspaceID, deploymentID string) (InitialDeployment, error) {
 	var result InitialDeployment
-	err := c.do(ctx, http.MethodGet, "/v1/workspaces/"+url.PathEscape(workspaceID)+"/initial-deployments/"+url.PathEscape(deploymentID), accessToken, nil, &result)
+	escapedWorkspaceID, err := escapePathID("workspace ID", workspaceID)
+	if err != nil {
+		return result, err
+	}
+	escapedDeploymentID, err := escapePathID("deployment ID", deploymentID)
+	if err != nil {
+		return result, err
+	}
+	err = c.do(ctx, http.MethodGet, "/v1/workspaces/"+escapedWorkspaceID+"/initial-deployments/"+escapedDeploymentID, accessToken, nil, &result)
 	return result, err
 }
 
 func (c *Client) InspectInitialDeploymentExecution(ctx context.Context, accessToken, executionID string) (InitialDeploymentExecution, error) {
 	var result InitialDeploymentExecution
-	err := c.do(ctx, http.MethodGet, "/v1/initial-deployment-executions/"+url.PathEscape(executionID), accessToken, nil, &result)
+	escapedExecutionID, err := escapePathID("execution ID", executionID)
+	if err != nil {
+		return result, err
+	}
+	err = c.do(ctx, http.MethodGet, "/v1/initial-deployment-executions/"+escapedExecutionID, accessToken, nil, &result)
 	return result, err
+}
+
+// escapePathID ensures an identifier stays within one URL path segment after
+// intermediaries or routers decode the escaped path. Generated Canter IDs use
+// ordinary single-segment values; accepting separators or dot segments here
+// could route a bearer-authenticated request to a different endpoint.
+func escapePathID(label, id string) (string, error) {
+	if id == "" || id == "." || id == ".." || strings.ContainsAny(id, "/\\") || strings.IndexFunc(id, unicode.IsControl) >= 0 {
+		return "", fmt.Errorf("invalid %s for Canter API path", label)
+	}
+	return url.PathEscape(id), nil
 }
 
 type APIError struct {
@@ -313,11 +376,22 @@ func (c *Client) do(ctx context.Context, method, path, accessToken string, input
 		return err
 	}
 	defer response.Body.Close()
-	raw, err := io.ReadAll(io.LimitReader(response.Body, 4<<20))
+	raw, err := readResponse(response.Body)
 	if err != nil {
 		return err
 	}
 	return decodeResponse(response.StatusCode, raw, output)
+}
+
+func readResponse(body io.Reader) ([]byte, error) {
+	raw, err := io.ReadAll(io.LimitReader(body, maxResponseBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(raw) > maxResponseBytes {
+		return nil, fmt.Errorf("Canter API response exceeds %d bytes", maxResponseBytes)
+	}
+	return raw, nil
 }
 
 func decodeResponse(status int, raw []byte, output any) error {

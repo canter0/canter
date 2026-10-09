@@ -1,6 +1,7 @@
 package sdk
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -9,6 +10,37 @@ import (
 	"strings"
 	"time"
 )
+
+const endpointBodyLimit = 1 << 20
+
+// Health checks share connections across polls and never leave the approved
+// endpoint by following a redirect from a tenant-controlled application.
+var endpointTransport = func() *http.Transport {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.Proxy = nil
+	transport.MaxIdleConns = 32
+	transport.MaxIdleConnsPerHost = 2
+	return transport
+}()
+
+func endpointHTTPClient(timeout time.Duration) *http.Client {
+	return &http.Client{
+		Timeout:       timeout,
+		Transport:     endpointTransport,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
+}
+
+func readEndpointBody(body io.Reader) ([]byte, error) {
+	raw, err := io.ReadAll(io.LimitReader(body, endpointBodyLimit+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(raw) > endpointBodyLimit {
+		return nil, fmt.Errorf("public endpoint response exceeded the 1 MiB limit")
+	}
+	return raw, nil
+}
 
 // PublicEndpointObservation distinguishes internal process health from the
 // reachability a real user or agent sees through the managed public endpoint.
@@ -52,12 +84,12 @@ func (c *Client) VerifyPublicEndpoint(ctx context.Context, system System, versio
 	if err != nil {
 		return PublicEndpointObservation{}, err
 	}
-	response, err := (&http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{Proxy: nil}}).Do(request)
+	response, err := endpointHTTPClient(5 * time.Second).Do(request)
 	if err != nil {
 		return PublicEndpointObservation{}, err
 	}
 	defer response.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(response.Body, 1<<20))
+	body, err := readEndpointBody(response.Body)
 	if err != nil {
 		return PublicEndpointObservation{}, err
 	}
@@ -65,7 +97,7 @@ func (c *Client) VerifyPublicEndpoint(ctx context.Context, system System, versio
 	switch {
 	case response.StatusCode != verification.ExpectedStatus:
 		observation.Message = fmt.Sprintf("expected HTTP %d, got HTTP %d", verification.ExpectedStatus, response.StatusCode)
-	case verification.BodyContains != "" && !strings.Contains(string(body), verification.BodyContains):
+	case verification.BodyContains != "" && !bytes.Contains(body, []byte(verification.BodyContains)):
 		observation.Message = "response body did not contain the approved marker"
 	default:
 		observation.Phase = "ready"
@@ -167,12 +199,15 @@ func observeHTTP(ctx context.Context, endpoint string) (int, string) {
 	if err != nil {
 		return 0, err.Error()
 	}
-	client := &http.Client{Timeout: 3 * time.Second, Transport: &http.Transport{Proxy: nil}}
+	client := endpointHTTPClient(3 * time.Second)
 	response, err := client.Do(request)
 	if err != nil {
 		return 0, err.Error()
 	}
 	defer response.Body.Close()
+	// Small health bodies can be drained cheaply so the connection is reusable;
+	// large or streaming bodies remain bounded by this request's deadline.
+	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4<<10))
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return response.StatusCode, fmt.Sprintf("public health returned HTTP %d", response.StatusCode)
 	}

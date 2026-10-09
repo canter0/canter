@@ -3,12 +3,10 @@ package sdk
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 	"sort"
 	"strings"
 
 	"github.com/canter0/canter/internal/computeclass"
-	"gopkg.in/yaml.v3"
 )
 
 type System struct {
@@ -118,6 +116,11 @@ type SystemBuilder struct {
 	system System
 }
 
+// CompileSystem expands hosts and service instances into graph nodes. Keep
+// valid contracts within a fixed expansion budget before allocating that graph.
+const maxCompiledSystemNodes = 10000
+const maxCompiledSystemEdges = 100000
+
 func NewSystem(name, intent string) *SystemBuilder {
 	return &SystemBuilder{system: System{
 		APIVersion: APIVersion,
@@ -150,12 +153,12 @@ func (b *SystemBuilder) Build() (System, error) {
 }
 
 func LoadSystem(path string) (System, error) {
-	b, err := os.ReadFile(path)
+	b, err := readYAMLInput(path)
 	if err != nil {
 		return System{}, err
 	}
 	var system System
-	if err := yaml.Unmarshal(b, &system); err != nil {
+	if err := decodeYAML(b, &system); err != nil {
 		return System{}, fmt.Errorf("parse %s: %w", path, err)
 	}
 	if err := system.Validate(); err != nil {
@@ -186,6 +189,8 @@ func (s System) Validate() error {
 	}
 	seen := map[string]bool{}
 	guestMemory := 0
+	totalInstances := 0
+	maxInt := int(^uint(0) >> 1)
 	for _, service := range s.Spec.Services {
 		if !safeName.MatchString(service.Name) || seen[service.Name] {
 			return fmt.Errorf("service names must be valid and unique")
@@ -203,16 +208,85 @@ func (s System) Validate() error {
 		if service.Readiness.Protocol == "" || service.Readiness.Port < 1 || service.Readiness.Port > 65535 {
 			return fmt.Errorf("service %s requires a valid readiness check", service.Name)
 		}
-		guestMemory += service.Instances * service.Resources.MemoryMiB
+		if service.Instances > maxCompiledSystemNodes/2-totalInstances {
+			return fmt.Errorf("system exceeds the %d-node compilation limit", maxCompiledSystemNodes)
+		}
+		totalInstances += service.Instances
+		if service.Resources.MemoryMiB > maxInt/service.Instances {
+			return fmt.Errorf("service %s memory total overflows capacity accounting", service.Name)
+		}
+		serviceMemory := service.Instances * service.Resources.MemoryMiB
+		if serviceMemory > maxInt-guestMemory {
+			return fmt.Errorf("guest memory total overflows capacity accounting")
+		}
+		guestMemory += serviceMemory
 	}
+	expandedEdges := 0
+	dependencyCounts := make(map[string]int, len(seen))
+	dependents := make(map[string][]string, len(seen))
 	for _, service := range s.Spec.Services {
+		dependencies := make(map[string]struct{}, len(service.DependsOn))
 		for _, dependency := range service.DependsOn {
 			if dependency == service.Name || !seen[dependency] {
 				return fmt.Errorf("service %s has invalid dependency %q", service.Name, dependency)
 			}
+			if _, exists := dependencies[dependency]; exists {
+				return fmt.Errorf("service %s has duplicate dependency %q", service.Name, dependency)
+			}
+			dependencies[dependency] = struct{}{}
+		}
+		if len(service.DependsOn) > (maxCompiledSystemEdges-expandedEdges)/service.Instances {
+			return fmt.Errorf("system exceeds the %d-edge compilation limit", maxCompiledSystemEdges)
+		}
+		expandedEdges += len(service.DependsOn) * service.Instances
+		dependencyCounts[service.Name] = len(service.DependsOn)
+		for _, dependency := range service.DependsOn {
+			dependents[dependency] = append(dependents[dependency], service.Name)
 		}
 	}
+	ready := make([]string, 0, len(seen))
+	for _, service := range s.Spec.Services {
+		if dependencyCounts[service.Name] == 0 {
+			ready = append(ready, service.Name)
+		}
+	}
+	for len(ready) > 0 {
+		name := ready[len(ready)-1]
+		ready = ready[:len(ready)-1]
+		for _, dependent := range dependents[name] {
+			dependencyCounts[dependent]--
+			if dependencyCounts[dependent] == 0 {
+				ready = append(ready, dependent)
+			}
+		}
+	}
+	for _, count := range dependencyCounts {
+		if count != 0 {
+			return fmt.Errorf("system service dependencies contain a cycle")
+		}
+	}
+	if host.Count > maxCompiledSystemNodes {
+		return fmt.Errorf("system exceeds the %d-node compilation limit", maxCompiledSystemNodes)
+	}
+	if host.MemoryMiB > maxInt/host.Count || host.SystemReserve > maxInt/host.Count {
+		return fmt.Errorf("host capacity overflows capacity accounting")
+	}
 	available := host.Count * (host.MemoryMiB - host.SystemReserve)
+	runtimeNodesPerHost := 0
+	needsFirecracker, needsProcess := false, false
+	for _, service := range s.Spec.Services {
+		needsFirecracker = needsFirecracker || service.Isolation == "firecracker"
+		needsProcess = needsProcess || service.Isolation == "process"
+	}
+	if needsFirecracker {
+		runtimeNodesPerHost++
+	}
+	if needsProcess {
+		runtimeNodesPerHost++
+	}
+	if 1+host.Count*(1+runtimeNodesPerHost)+2*totalInstances > maxCompiledSystemNodes {
+		return fmt.Errorf("system exceeds the %d-node compilation limit", maxCompiledSystemNodes)
+	}
 	if guestMemory > available {
 		return fmt.Errorf("guest memory %d MiB exceeds host capacity %d MiB after system reserve", guestMemory, available)
 	}

@@ -7,7 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"time"
 
@@ -22,6 +24,12 @@ type Client struct {
 	s3      *s3.Client
 	presign *s3.PresignClient
 }
+
+const (
+	maxObjectBytes        = 512 << 20
+	maxJSONBytes          = 16 << 20
+	maxErrorResponseBytes = 64 << 10
+)
 
 type ProbeResult struct {
 	OK      bool          `json:"ok"`
@@ -41,10 +49,13 @@ func NewFromEnv() (*Client, error) {
 	if endpoint == "" || bucket == "" || access == "" || secret == "" {
 		return nil, fmt.Errorf("m1 credentials are incomplete")
 	}
+	if !validEndpointURL(endpoint) {
+		return nil, fmt.Errorf("m1 endpoint must be an HTTPS URL without credentials, query, or fragment")
+	}
 	cfg := aws.Config{
 		Region:      region,
 		Credentials: credentials.NewStaticCredentialsProvider(access, secret, ""),
-		HTTPClient:  &http.Client{Timeout: 18 * time.Second},
+		HTTPClient:  providerHTTPClient(18 * time.Second),
 	}
 	api := s3.NewFromConfig(cfg, func(o *s3.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
@@ -52,6 +63,56 @@ func NewFromEnv() (*Client, error) {
 	})
 	return &Client{bucket: bucket, s3: api, presign: s3.NewPresignClient(api)}, nil
 }
+
+func validEndpointURL(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Opaque != "" {
+		return false
+	}
+	if u.Scheme == "https" {
+		return true
+	}
+	// Local HTTP endpoints are useful for isolated development and tests. Never
+	// send signing credentials over plaintext to a non-loopback host.
+	return u.Scheme == "http" && (u.Hostname() == "localhost" || net.ParseIP(u.Hostname()) != nil && net.ParseIP(u.Hostname()).IsLoopback())
+}
+
+func providerHTTPClient(timeout time.Duration) *http.Client {
+	return &http.Client{
+		Timeout:   timeout,
+		Transport: boundedErrorResponseTransport{base: http.DefaultTransport},
+		// Object-store requests are signed with the configured credentials. A
+		// redirect target must not receive that signed request or its body.
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
+}
+
+// The AWS SDK buffers S3 error responses while decoding them. Bound those
+// bodies before they reach the SDK, while leaving successful object and list
+// responses untouched.
+type boundedErrorResponseTransport struct {
+	base http.RoundTripper
+}
+
+func (t boundedErrorResponseTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	base := t.base
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	response, err := base.RoundTrip(request)
+	if err != nil || response == nil || response.StatusCode >= http.StatusOK && response.StatusCode < http.StatusMultipleChoices || response.Body == nil {
+		return response, err
+	}
+	response.Body = &limitedReadCloser{Reader: io.LimitReader(response.Body, maxErrorResponseBytes), closer: response.Body}
+	return response, nil
+}
+
+type limitedReadCloser struct {
+	io.Reader
+	closer io.Closer
+}
+
+func (r *limitedReadCloser) Close() error { return r.closer.Close() }
 
 func (c *Client) Probe(ctx context.Context) ProbeResult {
 	start := time.Now()
@@ -121,7 +182,7 @@ func (c *Client) PutJSONIfMatch(ctx context.Context, key, etag string, value any
 }
 
 func (c *Client) Get(ctx context.Context, key string, target any) error {
-	b, err := c.GetBytes(ctx, key)
+	b, _, err := c.getBytesVersion(ctx, key, maxJSONBytes)
 	if err != nil {
 		return err
 	}
@@ -134,20 +195,40 @@ func (c *Client) GetBytes(ctx context.Context, key string) ([]byte, error) {
 }
 
 func (c *Client) GetBytesVersion(ctx context.Context, key string) ([]byte, string, error) {
+	return c.getBytesVersion(ctx, key, maxObjectBytes)
+}
+
+// GetBytesLimited applies the caller's resource budget before retaining an
+// object. Oversized objects never return a truncated successful result.
+func (c *Client) GetBytesLimited(ctx context.Context, key string, limit int64) ([]byte, error) {
+	if limit < 1 || limit > maxObjectBytes {
+		return nil, fmt.Errorf("object limit must be between 1 and %d bytes", maxObjectBytes)
+	}
+	b, _, err := c.getBytesVersion(ctx, key, limit)
+	return b, err
+}
+
+func (c *Client) getBytesVersion(ctx context.Context, key string, limit int64) ([]byte, string, error) {
 	out, err := c.s3.GetObject(ctx, &s3.GetObjectInput{Bucket: &c.bucket, Key: &key})
 	if err != nil {
 		return nil, "", err
 	}
 	defer out.Body.Close()
-	b, err := io.ReadAll(io.LimitReader(out.Body, 512<<20))
+	if out.ContentLength != nil && *out.ContentLength > limit {
+		return nil, "", fmt.Errorf("object exceeds %d bytes", limit)
+	}
+	b, err := io.ReadAll(io.LimitReader(out.Body, limit+1))
 	if err != nil {
 		return nil, "", err
+	}
+	if int64(len(b)) > limit {
+		return nil, "", fmt.Errorf("object exceeds %d bytes", limit)
 	}
 	return b, aws.ToString(out.ETag), nil
 }
 
 func (c *Client) GetJSONVersion(ctx context.Context, key string, target any) (bool, string, error) {
-	b, etag, err := c.GetBytesVersion(ctx, key)
+	b, etag, err := c.getBytesVersion(ctx, key, maxJSONBytes)
 	if err == nil {
 		return true, etag, json.Unmarshal(b, target)
 	}

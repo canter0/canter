@@ -29,6 +29,27 @@ func TestLegacySystemHostBootstrapFailsClosed(t *testing.T) {
 	}
 }
 
+func TestPersistReleaseManifestRejectsDigestPrefixCollision(t *testing.T) {
+	store := newFakeStore()
+	client := &Client{m1: store}
+	system := testSystem()
+	firstDigest := strings.Repeat("a", 12) + strings.Repeat("0", 52)
+	secondDigest := strings.Repeat("a", 12) + strings.Repeat("1", 52)
+	first := ReleaseManifest{SchemaVersion: "v1", System: system.Metadata.Name, Version: firstDigest[:12], ArtifactSHA: firstDigest, Command: []string{"./one"}}
+	second := ReleaseManifest{SchemaVersion: "v1", System: system.Metadata.Name, Version: secondDigest[:12], ArtifactSHA: secondDigest, Command: []string{"./two"}}
+	if err := client.persistReleaseManifest(t.Context(), system, first); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.persistReleaseManifest(t.Context(), system, second); err == nil || !strings.Contains(err.Error(), "different artifact digest") {
+		t.Fatalf("prefix collision was not rejected: %v", err)
+	}
+	var persisted ReleaseManifest
+	found, err := store.GetOptional(t.Context(), releaseKey(system, first.Version), &persisted)
+	if err != nil || !found || persisted.ArtifactSHA != firstDigest {
+		t.Fatalf("first release was overwritten: found=%v release=%#v err=%v", found, persisted, err)
+	}
+}
+
 func TestSystemdQuoteArgRejectsControlCharactersAndEscapesSpecifiers(t *testing.T) {
 	for _, value := range []string{"line\nbreak", "carriage\rreturn", "nul\x00byte"} {
 		if _, err := systemdQuoteArg(value); err == nil {

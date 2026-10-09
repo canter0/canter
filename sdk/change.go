@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"os"
@@ -377,6 +376,9 @@ func scaleDescription(service string, from, to int, restoreAt *time.Time) string
 }
 
 func (c *Client) InspectChange(ctx context.Context, system System, id string) (Change, error) {
+	if err := system.Validate(); err != nil {
+		return Change{}, err
+	}
 	if !safeName.MatchString(id) {
 		return Change{}, fmt.Errorf("invalid change id")
 	}
@@ -387,7 +389,20 @@ func (c *Client) InspectChange(ctx context.Context, system System, id string) (C
 	if change.SchemaVersion != "v1" || change.System != system.Metadata.Name {
 		return Change{}, fmt.Errorf("change does not belong to system")
 	}
+	if change.ID != id {
+		return Change{}, fmt.Errorf("change identity does not match its object key")
+	}
+	if !safeReleaseVersion(change.Plan.BaseVersion) || !safeReleaseVersion(change.Plan.Release.Version) || change.Plan.Release.System != system.Metadata.Name {
+		return Change{}, fmt.Errorf("change contains an invalid release identity")
+	}
 	return change, nil
+}
+
+// Release versions are used as one object-key segment. Content-addressed
+// versions are the first 12 hex characters of a SHA-256 digest and may start
+// with a digit; older callers may also use aliases such as release-one.
+func safeReleaseVersion(version string) bool {
+	return safeM1Segment.MatchString(version) && version != "." && version != ".."
 }
 
 func (c *Client) AuthorizeChange(ctx context.Context, system System, id, digest string) (Change, error) {
@@ -575,7 +590,7 @@ func (c *Client) executeChangeOperation(ctx context.Context, system System, chan
 	case "http.verify":
 		state, err := c.SystemHostStatus(ctx, system)
 		if err != nil {
-			return "", fmt.Errorf("resolve verification endpoint: %w", err)
+			return "", fmt.Errorf("could not resolve verification endpoint")
 		}
 		if len(state.Resources) != 1 || state.Resources[0].Address == "" {
 			return "", fmt.Errorf("verification requires exactly one addressed host")
@@ -583,19 +598,19 @@ func (c *Client) executeChangeOperation(ctx context.Context, system System, chan
 		verification := change.Plan.Verification
 		request, err := http.NewRequestWithContext(ctx, verification.Method, "http://"+net.JoinHostPort(state.Resources[0].Address, fmt.Sprint(change.Plan.Release.PublicPort))+verification.Path, nil)
 		if err != nil {
-			return "", err
+			return "", fmt.Errorf("could not prepare verification request")
 		}
-		response, err := (&http.Client{Timeout: 10 * time.Second, Transport: &http.Transport{Proxy: nil}}).Do(request)
+		response, err := endpointHTTPClient(10 * time.Second).Do(request)
 		if err != nil {
-			return "", err
+			return "", fmt.Errorf("verification request failed")
 		}
 		defer response.Body.Close()
-		body, err := io.ReadAll(io.LimitReader(response.Body, 1<<20))
+		body, err := readEndpointBody(response.Body)
 		if err != nil {
-			return "", err
+			return "", fmt.Errorf("could not read verification response")
 		}
 		if response.StatusCode != verification.ExpectedStatus || (verification.BodyContains != "" && !strings.Contains(string(body), verification.BodyContains)) {
-			return "", fmt.Errorf("verification failed: status=%d body=%q", response.StatusCode, firstN(strings.TrimSpace(string(body)), 512))
+			return "", fmt.Errorf("verification failed: status=%d; approved response contract did not match", response.StatusCode)
 		}
 		bodyDigest := sha256.Sum256(body)
 		return fmt.Sprintf("%s returned %d, matched the approved response contract, and produced body sha256:%s", verification.Path, response.StatusCode, hex.EncodeToString(bodyDigest[:])), nil

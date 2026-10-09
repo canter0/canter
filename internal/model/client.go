@@ -14,6 +14,8 @@ import (
 
 const DefaultModel = "openai/gpt-5.6-luna"
 
+const maxModelResponseBytes = 1 << 20
+
 type Client struct {
 	HTTP *http.Client
 }
@@ -43,9 +45,6 @@ type completionResponse struct {
 	Choices []struct {
 		Message message `json:"message"`
 	} `json:"choices"`
-	Error *struct {
-		Message string `json:"message"`
-	} `json:"error,omitempty"`
 }
 
 func (c Client) Probe(ctx context.Context) ProbeResult {
@@ -97,20 +96,30 @@ func (c Client) complete(ctx context.Context, prompt string, target any) (string
 	if client == nil {
 		client = &http.Client{Timeout: 18 * time.Second}
 	}
-	resp, err := client.Do(req)
+	// Keep injected transports and timeouts, but never let a provider redirect
+	// this credential-bearing request to another host.
+	clientCopy := *client
+	clientCopy.CheckRedirect = func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }
+	resp, err := clientCopy.Do(req)
 	if err != nil {
 		return "", err
 	}
 	defer resp.Body.Close()
-	var decoded completionResponse
-	if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
-		return "", fmt.Errorf("decode model response: %w", err)
+	responseBody, err := io.ReadAll(io.LimitReader(resp.Body, maxModelResponseBytes+1))
+	if err != nil {
+		return "", fmt.Errorf("read model response")
+	}
+	if len(responseBody) > maxModelResponseBytes {
+		return "", fmt.Errorf("model response exceeded the size limit")
 	}
 	if resp.StatusCode != http.StatusOK {
-		if decoded.Error != nil {
-			return "", fmt.Errorf("model request failed: %s", decoded.Error.Message)
-		}
+		// Provider error messages can echo request contents or other sensitive
+		// data, so expose only the status code.
 		return "", fmt.Errorf("model request failed with HTTP %d", resp.StatusCode)
+	}
+	var decoded completionResponse
+	if err := json.Unmarshal(responseBody, &decoded); err != nil {
+		return "", fmt.Errorf("decode model response: %w", err)
 	}
 	if len(decoded.Choices) != 1 || strings.TrimSpace(decoded.Choices[0].Message.Content) == "" {
 		return "", fmt.Errorf("model returned no result")

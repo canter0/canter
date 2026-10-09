@@ -1,6 +1,8 @@
 package sdk
 
 import (
+	"fmt"
+	"math"
 	"reflect"
 	"strings"
 	"testing"
@@ -17,6 +19,103 @@ func mysqlPairSystem(t *testing.T) System {
 		}).Build()
 	if err != nil {
 		t.Fatal(err)
+	}
+	return system
+}
+
+func TestSystemRejectsOverflowingCapacityAndUnboundedGraphs(t *testing.T) {
+	base := mysqlPairSystem(t)
+	for name, mutate := range map[string]func(*System){
+		"host multiplication": func(s *System) {
+			s.Spec.Constraints.Host.Count = 2
+			s.Spec.Constraints.Host.MemoryMiB = math.MaxInt
+			s.Spec.Constraints.Host.SystemReserve = 0
+		},
+		"service multiplication": func(s *System) {
+			s.Spec.Services[0].Resources.MemoryMiB = math.MaxInt
+		},
+		"host graph expansion": func(s *System) {
+			s.Spec.Constraints.Host.Count = maxCompiledSystemNodes
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := base
+			s.Spec.Services = append([]SystemService(nil), base.Spec.Services...)
+			mutate(&s)
+			if err := s.Validate(); err == nil {
+				t.Fatal("unsafe capacity or graph size was accepted")
+			}
+		})
+	}
+}
+
+func TestSystemGraphLimitCountsBothRuntimeTypes(t *testing.T) {
+	system := mysqlPairSystem(t)
+	system.Spec.Constraints.Host.Count = 3333
+	system.Spec.Services = append(system.Spec.Services, SystemService{
+		Name: "worker", Kind: "web", Isolation: "process", Instances: 1,
+		Resources: ServiceResources{VCPU: 1, MemoryMiB: 1}, Readiness: Readiness{Protocol: "http", Port: 8080},
+	})
+	if err := system.Validate(); err == nil || !strings.Contains(err.Error(), "compilation limit") {
+		t.Fatalf("mixed-runtime graph at node limit returned %v, want compilation limit error", err)
+	}
+}
+
+func TestSystemRejectsDependencyEdgeAmplification(t *testing.T) {
+	base := mysqlPairSystem(t)
+	base.Spec.Services[0].DependsOn = []string{"web", "web"}
+	base.Spec.Services = append(base.Spec.Services, SystemService{
+		Name: "web", Kind: "web", Isolation: "process", Instances: 1,
+		Resources: ServiceResources{VCPU: 1, MemoryMiB: 1}, Readiness: Readiness{Protocol: "http", Port: 8080},
+	})
+	if err := base.Validate(); err == nil || !strings.Contains(err.Error(), "duplicate dependency") {
+		t.Fatalf("duplicate dependency returned %v, want duplicate dependency error", err)
+	}
+
+	cycle := mysqlPairSystem(t)
+	cycle.Spec.Services[0].DependsOn = []string{"web"}
+	cycle.Spec.Services = append(cycle.Spec.Services, SystemService{
+		Name: "web", Kind: "web", Isolation: "process", Instances: 1,
+		Resources: ServiceResources{VCPU: 1, MemoryMiB: 1}, Readiness: Readiness{Protocol: "http", Port: 8080},
+		DependsOn: []string{"mysql"},
+	})
+	if err := cycle.Validate(); err == nil || !strings.Contains(err.Error(), "contain a cycle") {
+		t.Fatalf("cyclic dependencies returned %v, want cycle error", err)
+	}
+
+	nearLimit := dependencyFanoutSystem(t, 1000, 100)
+	graph, err := CompileSystem(nearLimit)
+	if err != nil {
+		t.Fatalf("system with exactly %d expanded dependency edges was rejected: %v", maxCompiledSystemEdges, err)
+	}
+	if len(graph.Nodes) != 2203 {
+		t.Fatalf("near-limit graph has %d nodes, want 2203", len(graph.Nodes))
+	}
+
+	system := dependencyFanoutSystem(t, 1001, 100)
+	if err := system.Validate(); err == nil || !strings.Contains(err.Error(), "edge compilation limit") {
+		t.Fatalf("expanded dependencies returned %v, want edge compilation limit error", err)
+	}
+}
+
+func dependencyFanoutSystem(t *testing.T, instances, dependencyCount int) System {
+	t.Helper()
+	system := mysqlPairSystem(t)
+	system.Spec.Constraints.Host.MemoryMiB = 8192
+	system.Spec.Services = make([]SystemService, dependencyCount+1)
+	dependencies := make([]string, dependencyCount)
+	for i := range dependencies {
+		name := fmt.Sprintf("service-%d", i)
+		system.Spec.Services[i] = SystemService{
+			Name: name, Kind: "web", Isolation: "process", Instances: 1,
+			Resources: ServiceResources{VCPU: 1, MemoryMiB: 1}, Readiness: Readiness{Protocol: "http", Port: 8080},
+		}
+		dependencies[i] = name
+	}
+	system.Spec.Services[dependencyCount] = SystemService{
+		Name: "target", Kind: "web", Isolation: "process", Instances: instances,
+		Resources: ServiceResources{VCPU: 1, MemoryMiB: 1}, Readiness: Readiness{Protocol: "http", Port: 8080},
+		DependsOn: dependencies,
 	}
 	return system
 }

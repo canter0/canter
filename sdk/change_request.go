@@ -4,11 +4,7 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
-	"io"
-	"os"
 	"strings"
-
-	"gopkg.in/yaml.v3"
 )
 
 //go:embed schema/change-request.v1.schema.json
@@ -68,22 +64,12 @@ type ChangeRequestVerification struct {
 }
 
 func LoadChangeRequest(path string) (ChangeRequest, error) {
-	file, err := os.Open(path)
+	b, err := readYAMLInput(path)
 	if err != nil {
 		return ChangeRequest{}, err
 	}
-	defer file.Close()
-	decoder := yaml.NewDecoder(file)
-	decoder.KnownFields(true)
 	var request ChangeRequest
-	if err := decoder.Decode(&request); err != nil {
-		return ChangeRequest{}, fmt.Errorf("parse %s: %w", path, err)
-	}
-	var trailing any
-	if err := decoder.Decode(&trailing); err != io.EOF {
-		if err == nil {
-			return ChangeRequest{}, fmt.Errorf("parse %s: multiple YAML documents are not allowed", path)
-		}
+	if err := decodeYAML(b, &request); err != nil {
 		return ChangeRequest{}, fmt.Errorf("parse %s: %w", path, err)
 	}
 	if err := request.Validate(); err != nil {
