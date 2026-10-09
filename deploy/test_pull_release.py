@@ -16,6 +16,76 @@ release = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(release)
 
 
+class RetentionTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        base = Path(temporary.name)
+        self.root, self.state, self.harness = base / 'root', base / 'state', base / 'harness'
+        self.releases, self.runtimes = self.root / 'releases', self.harness / 'releases'
+        for path in (self.releases, self.runtimes, self.state):
+            path.mkdir(parents=True)
+        self.shas = [f'{number:040x}' for number in range(6)]
+        self.paths = [self.releases / ('actions-' + sha) for sha in self.shas]
+        for number, (sha, path) in enumerate(zip(self.shas, self.paths)):
+            public = path / 'previous-web/public'
+            public.mkdir(parents=True)
+            previous = self.shas[number - 1] if number else '9' * 40
+            (public / 'release.json').write_text(json.dumps({'commit': previous}))
+            (path / 'canter-controlplane').write_bytes(b'executable')
+            (path / 'database.dump').write_bytes(('database-' + sha).encode())
+            (self.runtimes / sha).mkdir()
+        (self.state / 'current').write_text(self.shas[4])
+        (self.state / 'failed').write_text(self.shas[5])
+        (self.paths[5] / 'failed-web').mkdir()
+        (self.harness / 'current').symlink_to(self.runtimes / self.shas[4])
+        self.enterContext(patch.multiple(release, ROOT=self.root, STATE=self.state, HARNESS=self.harness))
+
+    def test_prunes_artifacts_without_losing_backups_rollback_or_failed_releases(self):
+        backups = {path / 'database.dump': (path / 'database.dump').read_bytes() for path in self.paths}
+        outside = self.root / 'operator-file'
+        outside.write_bytes(b'keep')
+        (self.paths[0] / 'web').symlink_to(outside)
+        (self.paths[0] / 'operator-note').write_bytes(b'keep')
+        linked_release = self.releases / ('actions-' + '7' * 40)
+        linked_release.symlink_to(self.paths[5])
+
+        release.prune_releases(self.shas[4])
+        release.prune_releases(self.shas[4])
+
+        for path, content in backups.items():
+            self.assertEqual(path.read_bytes(), content)
+        for path in self.paths[2:]:
+            self.assertTrue((path / 'previous-web').is_dir())
+            self.assertTrue((path / 'canter-controlplane').is_file())
+        for path in self.paths[:2]:
+            self.assertFalse((path / 'previous-web').exists())
+            self.assertFalse((path / 'canter-controlplane').exists())
+        self.assertFalse((self.runtimes / self.shas[0]).exists())
+        for sha in self.shas[1:]:
+            self.assertTrue((self.runtimes / sha).is_dir())
+        self.assertEqual(outside.read_bytes(), b'keep')
+        self.assertEqual((self.paths[0] / 'operator-note').read_bytes(), b'keep')
+        self.assertTrue(linked_release.is_symlink())
+
+    def test_invalid_rollback_metadata_leaves_all_artifacts_untouched(self):
+        manifest = self.paths[4] / 'previous-web/public/release.json'
+        original = manifest.read_bytes()
+        for content in (b'broken JSON', b'null', b'{}', json.dumps({'commit': self.shas[4]}).encode(),
+                        json.dumps({'commit': '../outside'}).encode()):
+            with self.subTest(content=content):
+                manifest.write_bytes(content)
+                release.prune_releases(self.shas[4])
+                self.assertTrue((self.paths[0] / 'canter-controlplane').is_file())
+                self.assertTrue((self.runtimes / self.shas[0]).is_dir())
+        manifest.write_bytes(original)
+        (self.harness / 'current').unlink()
+        (self.harness / 'current').symlink_to(self.runtimes / self.shas[0])
+        release.prune_releases(self.shas[4])
+        self.assertTrue((self.paths[0] / 'canter-controlplane').is_file())
+        self.assertTrue((self.runtimes / self.shas[0]).is_dir())
+
+
 class DownloadTests(unittest.TestCase):
     def test_download_streams_bounded_chunks_and_hashes_content(self):
         content = b'x' * (release.DOWNLOAD_CHUNK_SIZE * 2 + 7)
