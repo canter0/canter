@@ -13,7 +13,8 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:17-alpine
+        # Docker's official distribution avoids shared-runner Docker Hub limits.
+        image: public.ecr.aws/docker/library/postgres:17-alpine
         env:
           POSTGRES_PASSWORD: postgres
         ports: ["5432:5432"]
