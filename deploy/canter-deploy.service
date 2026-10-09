@@ -5,6 +5,7 @@ After=network-online.target
 
 [Service]
 Type=oneshot
+EnvironmentFile=/etc/canter/controlplane.env
 ExecStart=/usr/bin/python3 /opt/canter/deploy/pull-release.py
 TimeoutStartSec=10min
 UMask=0077
