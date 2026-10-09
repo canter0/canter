@@ -41,7 +41,7 @@ export function AgentOnboardingPrompt() {
         </svg>
       </button>
       <p id="agent-prompt-hint" className={styles.promptHint} role="status" aria-live="polite">
-        <MorphLabel text={status === "manual" ? "Prompt selected. Press ⌘C or Ctrl+C, then paste it into your agent." : status === "copied" ? "Paste it into your agent to get connected." : "Paste into Claude Code, Codex, Cursor, or your agent of choice."} />
+        <span key={status} data-motion="fade">{status === "manual" ? "Prompt selected. Press ⌘C or Ctrl+C, then paste it into your agent." : status === "copied" ? "Paste it into your agent to get connected." : "Paste into Claude Code, Codex, Cursor, or your agent of choice."}</span>
       </p>
       <Link href="/onboarding/agent" className={styles.connectionLink}>Already have a connection code? <span aria-hidden="true">↗</span></Link>
     </div>
