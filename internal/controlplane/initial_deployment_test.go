@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"encoding/json"
 	"fmt"
+	"io"
 	"strings"
 	"testing"
 
@@ -113,6 +114,28 @@ func TestMCPPublishesInitialDeploymentTools(t *testing.T) {
 	for _, tool := range mcpTools() {
 		if tool.Name == "canter_authorize_initial_deployment" || tool.Name == "canter_authorize_change" {
 			t.Fatalf("MCP must not expose human approval capability %s", tool.Name)
+		}
+	}
+}
+
+func TestMCPChangeAndDeploymentListsAdvertiseCursors(t *testing.T) {
+	for _, wanted := range []string{"canter_list_changes", "canter_list_initial_deployments"} {
+		var found bool
+		for _, tool := range mcpTools() {
+			if tool.Name != wanted {
+				continue
+			}
+			found = true
+			properties, ok := tool.InputSchema["properties"].(map[string]any)
+			if !ok || properties["cursor"] == nil || properties["limit"] == nil || (wanted == "canter_list_changes" && properties["pendingOnly"] == nil) {
+				t.Fatalf("%s does not advertise page limit and cursor: %#v", wanted, tool.InputSchema)
+			}
+			if !strings.Contains(tool.Description, "nextCursor") || !strings.Contains(tool.Description, "hasMore") {
+				t.Fatalf("%s does not explain page continuation: %q", wanted, tool.Description)
+			}
+		}
+		if !found {
+			t.Fatalf("MCP tool %s is missing", wanted)
 		}
 	}
 }
@@ -251,5 +274,40 @@ func TestArtifactValidationCapsEntryCount(t *testing.T) {
 	}
 	if _, err := validateApplicationArtifact(archiveWithHeaders(t, headers...)); err == nil || !strings.Contains(err.Error(), "more than") {
 		t.Fatalf("entry limit was not enforced: %v", err)
+	}
+}
+
+func TestArtifactValidationChecksGzipTrailerAndRejectsTrailingMembers(t *testing.T) {
+	valid := testApplicationArtifact(t)
+	badChecksum := append([]byte(nil), valid...)
+	badChecksum[len(badChecksum)-8] ^= 0xff
+	secondMember := append(append([]byte(nil), valid...), valid...)
+	trailing := append(append([]byte(nil), valid...), 0x00)
+	compressedReader, err := gzip.NewReader(bytes.NewReader(valid))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain, err := io.ReadAll(compressedReader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := compressedReader.Close(); err != nil {
+		t.Fatal(err)
+	}
+	plain = append(plain, 0x41)
+	var tailed bytes.Buffer
+	tailedWriter := gzip.NewWriter(&tailed)
+	if _, err := tailedWriter.Write(plain); err != nil {
+		t.Fatal(err)
+	}
+	if err := tailedWriter.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for name, artifact := range map[string][]byte{"checksum": badChecksum, "second gzip member": secondMember, "trailing byte": trailing, "nonzero tar tail": tailed.Bytes()} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := validateApplicationArtifact(artifact); err == nil {
+				t.Fatal("invalid gzip trailer or trailing data was accepted")
+			}
+		})
 	}
 }

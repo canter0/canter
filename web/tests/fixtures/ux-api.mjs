@@ -7,7 +7,7 @@ const date = '2026-09-23T16:00:00Z';
 const authority = { inspect: true, draft: true, applyMode: 'human' };
 const workspace = { id: 'ws_ux_fixture', name: 'Craft workspace', role: 'owner', agentAuthority: authority };
 const account = { id: 'acct_ux_fixture', email: 'designer@example.test' };
-let state = { offline: false, failSend: false, failDetail: false };
+let state = { offline: false, failSend: false, failDetail: false, paginateHistory: false };
 let messagesSent = 0;
 const conversations = ['Plan a small VPS for my project', 'Review the staging deployment', 'Connect the documentation repository', 'Check infrastructure spending', 'A very long conversation title that needs to stay readable without pushing the sidebar controls away', 'Review the latest changes'].map((title, i) => ({ id: `conv_fixture_${i}`, workspaceId: workspace.id, title, updatedAt: date, status: i === 1 ? 'failed' : 'completed' }));
 const messages = new Map(conversations.map(conversation => [conversation.id, [
@@ -69,7 +69,18 @@ const server = http.createServer(async (request, response) => {
     if (state.failDetail) return send({ error: 'Fixture conversation refresh failed.' }, 503);
     const conversation = conversations.find(item => item.id === conversationId);
     if (request.method === 'PATCH' && conversation) conversation.title = body.title;
-    return send({ conversation, messages: messages.get(conversationId) ?? [], run: { id: 'run_fixture', status: 'completed', model: 'fixture' } });
+    let history = messages.get(conversationId) ?? [];
+    if (state.paginateHistory) {
+      history = Array.from({ length: 80 }, (_, index) => {
+        const turn = Math.floor(index / 2);
+        const role = index % 2 ? 'assistant' : 'user';
+        return { id: `${conversationId}_history_${index}`, runId: `${conversationId}_history_run_${turn}`, role, content: role === 'user' ? `Earlier fixture question ${turn + 1}` : `Earlier fixture answer ${turn + 1}`, createdAt: new Date(Date.parse(date) + index * 1000).toISOString() };
+      });
+      const end = Math.min(history.length, Math.max(0, Number(url.searchParams.get('before') ?? history.length) || 0));
+      const start = Math.max(0, end - 10);
+      return send({ conversation, messages: history.slice(start, end).reverse(), hasMore: start > 0, nextCursor: start > 0 ? String(start) : undefined, run: { id: 'run_fixture', status: 'completed', model: 'fixture' } });
+    }
+    return send({ conversation, messages: [...history].reverse(), hasMore: false, run: { id: 'run_fixture', status: 'completed', model: 'fixture' } });
   }
   return send({ error: `Fixture endpoint not implemented: ${path}` }, 404);
 });

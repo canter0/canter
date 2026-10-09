@@ -5,7 +5,9 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
+	"errors"
 	"fmt"
+	"net/http"
 	"net/mail"
 	"strings"
 	"unicode/utf8"
@@ -19,6 +21,31 @@ const (
 	argonThreads = 2
 	argonKeyLen  = 32
 )
+
+// Argon2 uses 64 MiB for each operation. Reject excess work immediately so
+// distinct clients cannot create an unbounded queue or working set.
+const maxConcurrentPasswordOps = 2
+
+var passwordOpSlots = make(chan struct{}, maxConcurrentPasswordOps)
+
+func enterPasswordOp() error {
+	select {
+	case passwordOpSlots <- struct{}{}:
+		return nil
+	default:
+		return ErrCapacity
+	}
+}
+
+func leavePasswordOp() { <-passwordOpSlots }
+
+func writeAuthStoreError(w http.ResponseWriter, err error) {
+	if errors.Is(err, ErrCapacity) {
+		writeError(w, http.StatusServiceUnavailable, err)
+		return
+	}
+	writeStoreError(w, err)
+}
 
 func newSecret(prefix string, bytes int) (string, error) {
 	raw := make([]byte, bytes)
@@ -41,35 +68,48 @@ func hashPassword(password string) (string, error) {
 	if _, err := rand.Read(salt); err != nil {
 		return "", err
 	}
+	if err := enterPasswordOp(); err != nil {
+		return "", err
+	}
+	defer leavePasswordOp()
 	key := argon2.IDKey([]byte(password), salt, argonTime, argonMemory, argonThreads, argonKeyLen)
 	return fmt.Sprintf("$argon2id$v=19$m=%d,t=%d,p=%d$%s$%s", argonMemory, argonTime, argonThreads,
 		base64.RawStdEncoding.EncodeToString(salt), base64.RawStdEncoding.EncodeToString(key)), nil
 }
 
 func verifyPassword(encoded, password string) bool {
+	valid, err := verifyPasswordLimited(encoded, password)
+	return err == nil && valid
+}
+
+func verifyPasswordLimited(encoded, password string) (bool, error) {
 	parts := strings.Split(encoded, "$")
 	if len(parts) != 6 || parts[1] != "argon2id" || parts[2] != "v=19" {
-		return false
+		return false, nil
 	}
 	var memory uint32
 	var iterations uint32
 	var threads uint8
 	if _, err := fmt.Sscanf(parts[3], "m=%d,t=%d,p=%d", &memory, &iterations, &threads); err != nil {
-		return false
+		return false, nil
 	}
 	if memory < 8*uint32(threads) || memory > argonMemory || iterations == 0 || iterations > 10 || threads == 0 || threads > 16 {
-		return false
+		return false, nil
 	}
 	salt, err := base64.RawStdEncoding.DecodeString(parts[4])
 	if err != nil {
-		return false
+		return false, nil
 	}
 	want, err := base64.RawStdEncoding.DecodeString(parts[5])
 	if err != nil || len(want) != argonKeyLen {
-		return false
+		return false, nil
 	}
+	if err := enterPasswordOp(); err != nil {
+		return false, err
+	}
+	defer leavePasswordOp()
 	actual := argon2.IDKey([]byte(password), salt, iterations, memory, threads, uint32(len(want)))
-	return subtle.ConstantTimeCompare(actual, want) == 1
+	return subtle.ConstantTimeCompare(actual, want) == 1, nil
 }
 
 func normalizeEmail(email string) (string, error) {

@@ -1,14 +1,20 @@
 import type { OperatorEvent } from "./operator-api";
 
-// Text events are cumulative snapshots per model step, not incremental tokens.
-// Retain first sequence positions while replacing content with the latest snapshot.
+// Retain first sequence positions per step. New events carry only fresh text;
+// older persisted events remain cumulative snapshots.
 export function turnTimeline(events: OperatorEvent[]) {
   const rows = new Map<string, OperatorEvent>();
   for (const event of events) {
     if (event.kind !== "text" && event.kind !== "tool") continue;
     const key = event.kind === "text" ? `text:${event.data.step}` : `tool:${event.data.callId}`;
     const previous = rows.get(key);
-    rows.set(key, { ...event, sequence: previous?.sequence ?? event.sequence });
+    if (event.kind === "text" && event.data.delta === true) {
+      const previousContent = typeof previous?.data.content === "string" ? previous.data.content : "";
+      const delta = typeof event.data.content === "string" ? event.data.content : "";
+      rows.set(key, { ...event, sequence: previous?.sequence ?? event.sequence, data: { ...event.data, content: previousContent + delta, delta: false } });
+    } else {
+      rows.set(key, { ...event, sequence: previous?.sequence ?? event.sequence });
+    }
   }
   const ordered = [...rows.values()].sort((a, b) => a.sequence - b.sequence);
   const firstTool = ordered.findIndex(event => event.kind === "tool");

@@ -219,6 +219,15 @@ func TestChangeApprovalCapabilityExpiresAndNewRequestRevokesPriorLink(t *testing
 	if _, err = store.ReviewChangeApprovalCapability(ctx, secondToken, account.ID); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("expired link remained live: %v", err)
 	}
+	if _, err = store.pool.Exec(ctx, `UPDATE agent_installations SET expires_at=$1 WHERE id=$2`, store.now().Add(-time.Second), installation.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.CreateChangeApprovalCapability(ctx, workspace.ID, "api", change.ID, change.Digest, p, "http://canter.test"); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("stale principal created a link after installation expiry: %v", err)
+	}
+	if _, err = store.pool.Exec(ctx, `UPDATE agent_installations SET expires_at=NULL WHERE id=$1`, installation.ID); err != nil {
+		t.Fatal(err)
+	}
 	third, err := store.CreateChangeApprovalCapability(ctx, workspace.ID, "api", change.ID, change.Digest, p, "http://canter.test")
 	if err != nil {
 		t.Fatal(err)
@@ -249,8 +258,78 @@ func TestChangeApprovalCapabilityExpiresAndNewRequestRevokesPriorLink(t *testing
 	if successes != 1 || rejected != 1 {
 		t.Fatalf("concurrent consume successes=%d rejected=%d", successes, rejected)
 	}
+	if _, err = store.UpdateAgentAuthority(ctx, account.ID, workspace.ID, installation.ID, Authority{Inspect: true, Draft: false, ApplyMode: "never"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.CreateChangeApprovalCapability(ctx, workspace.ID, "api", change.ID, change.Digest, p, "http://canter.test"); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("stale principal created a link after its authority was reduced: %v", err)
+	}
+	if _, err = store.UpdateAgentAuthority(ctx, account.ID, workspace.ID, installation.ID, Authority{Inspect: true, Draft: true, ApplyMode: "human-approval-required"}); err != nil {
+		t.Fatal(err)
+	}
+	p, err = store.ResolveAgent(ctx, pair.AccessToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fourth, err := store.CreateChangeApprovalCapability(ctx, workspace.ID, "api", change.ID, change.Digest, p, "http://canter.test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fourthToken := path.Base(mustParseURL(t, fourth.ReviewURL).Path)
+	expires := store.now().Add(time.Hour)
+	if _, err = store.pool.Exec(ctx, `UPDATE agent_installations SET expires_at=$1 WHERE id=$2`, expires, installation.ID); err != nil {
+		t.Fatal(err)
+	}
+	p.Installation.ExpiresAt = &expires
+	if err := store.DisconnectAgent(ctx, p); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ReviewChangeApprovalCapability(ctx, fourthToken, account.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("approval route survived requester installation revocation: %v", err)
+	}
+	if _, err := store.ConsumeChangeApprovalCapability(ctx, fourthToken, account.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("revoked requester route could still be consumed: %v", err)
+	}
 	if installation.ID == "" {
 		t.Fatal("installation was not created")
+	}
+}
+
+func TestEndedAgentSessionCannotMintApprovalCapabilityFromStalePrincipal(t *testing.T) {
+	store := integrationStore(t)
+	ctx := context.Background()
+	account, workspace, _, err := store.Signup(ctx, "approval-ended-session@example.com", "correct horse battery staple", "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pairing, err := store.CreateAgentPairing(ctx, account.ID, workspace.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	device, err := store.ClaimAgentPairing(ctx, pairing.Token, "Persistent requester", "blackout", "http://canter.test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.ApproveAgentPairing(ctx, pairing.ID, account.ID, true, Authority{Inspect: true, Draft: true, ApplyMode: "human-approval-required"}); err != nil {
+		t.Fatal(err)
+	}
+	pair, err := store.ExchangeDevice(ctx, device.DeviceCode, "persistent-request")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := store.ResolveAgent(ctx, pair.AccessToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	change := sdk.Change{SchemaVersion: "v1", ID: "change-ended-session", System: "api", Summary: "ended session", Phase: "drafted", Digest: strings.Repeat("d", 64), CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()}
+	if err = store.RecordChange(ctx, workspace.ID, change); err != nil {
+		t.Fatal(err)
+	}
+	if err = store.DisconnectAgent(ctx, p); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.CreateChangeApprovalCapability(ctx, workspace.ID, "api", change.ID, change.Digest, p, "http://canter.test"); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("stale principal minted capability after its session ended: %v", err)
 	}
 }
 

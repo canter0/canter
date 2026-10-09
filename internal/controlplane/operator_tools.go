@@ -60,7 +60,7 @@ func (o *OperatorRuntime) tools() []mcpTool {
 		{"canter_show_compute", "Support the user's compute planning request. For an explicit VPS/VM request, plan that directly; do not redirect to app deployment or a repository. For an outcome-oriented request, compare managed app hosting and VM control only when it matters. Draft a usable plan in human terms: CPU, memory, disk, OS, each VM's role, Canter's estimated monthly usage charge, and relevant access, network, and backup notes. Use canter_estimate_compute_cost for proposed CPU/RAM allocations. Keep the plan and Canter price in the foreground; do not discuss execution limits or provider internals unless the user asks to provision. Never show c1/c2/c3 as VM sizes or invent provider availability, exact provider shapes, authorization, or provisioning."},
 		{"canter_show_storage", "Check storage bucket planning capabilities. Gather requirements conversationally, one question at a time; do not open a form. standalone bucket provisioning is unavailable. Never claim a bucket was created."},
 		{"canter_show_apps", "Read this workspace's real applications and open the Apps view."},
-		{"canter_show_deployments", "Read real deployment proposals and Changes, and open the Deployments view."},
+		{"canter_show_deployments", "Read the newest 50 deployment proposals and Changes, and open the Deployments view. When hasMore is true, use canter_list_initial_deployments or canter_list_changes to retrieve the remaining pages."},
 		{"canter_show_billing", "Read recorded spending, daily usage, resource capacity, trends and forecasts, and open Billing. A null forecast means there is not enough recorded history; do not invent predictions. Capacity is configured allocation, not measured CPU utilization. not_started means no billing period has begun; do not call its calculated zeros an invoice. Payments require the human's UI."},
 		{"canter_show_activity", "Read audited workspace actions and open Activity."},
 		{"canter_show_agents", "Read agent installations and their grants and open Access. Revocation requires the human's UI."},
@@ -206,15 +206,15 @@ func (o *OperatorRuntime) localTool(ctx context.Context, r OperatorRun, c Conver
 		}
 		return map[string]any{"systems": systems}, true, err
 	case "canter_show_deployments":
-		deployments, err := s.ListInitialDeployments(ctx, c.WorkspaceID)
+		deployments, err := s.ListInitialDeploymentIndexPage(ctx, c.WorkspaceID, defaultWorkspaceIndexPageSize, "")
 		if err != nil {
 			return nil, true, err
 		}
-		changes, err := s.ListChanges(ctx, c.WorkspaceID)
+		changes, err := s.ListChangeIndexPage(ctx, c.WorkspaceID, defaultWorkspaceIndexPageSize, "")
 		if err == nil {
 			err = o.surface(ctx, r, OperatorSurface{Kind: "deployments"})
 		}
-		return map[string]any{"initialDeployments": deployments, "changes": changes}, true, err
+		return map[string]any{"initialDeployments": deployments.Items, "initialDeploymentsHasMore": deployments.HasMore, "initialDeploymentsNextCursor": deployments.NextCursor, "changes": changes.Items, "changesHasMore": changes.HasMore, "changesNextCursor": changes.NextCursor}, true, err
 	case "canter_show_billing":
 		state, err := s.billingState(ctx, c.WorkspaceID)
 		state.CheckoutEnabled = o.Server.config.Billing.Ready()

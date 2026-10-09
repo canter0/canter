@@ -16,13 +16,15 @@ apt-get update
 apt-get install -y ca-certificates curl gnupg postgresql postgresql-client ufw unzip
 
 if ! command -v aws >/dev/null 2>&1; then
-  aws_bundle=/tmp/awscliv2.zip
-  aws_unpack=/tmp/aws
+  aws_work=$(mktemp -d /tmp/canter-awscli.XXXXXX)
+  trap 'rm -rf "$aws_work"' EXIT
+  trap 'exit 1' HUP INT TERM
+  aws_bundle=$aws_work/awscliv2.zip
+  aws_unpack=$aws_work/unpacked
+  mkdir -m 0700 "$aws_unpack"
   curl -fsSL https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip -o "$aws_bundle"
-  rm -rf "$aws_unpack"
-  unzip -q "$aws_bundle" -d /tmp
-  /tmp/aws/install --bin-dir /usr/local/bin --install-dir /usr/local/aws-cli
-  rm -rf "$aws_bundle" "$aws_unpack"
+  unzip -q "$aws_bundle" -d "$aws_unpack"
+  "$aws_unpack/aws/install" --bin-dir /usr/local/bin --install-dir /usr/local/aws-cli
 fi
 
 if ! command -v node >/dev/null 2>&1 || [ "$(node -p 'Number(process.versions.node.split(`.`)[0])')" -lt 22 ]; then
@@ -38,7 +40,16 @@ if ! command -v caddy >/dev/null 2>&1; then
 fi
 
 id canter >/dev/null 2>&1 || useradd --system --create-home --home-dir /var/lib/canter --shell /usr/sbin/nologin canter
-install -d -o canter -g canter -m 0750 /opt/canter /opt/canter/bin /opt/canter/web /opt/canter/deploy /var/lib/canter
+getent group canter-web >/dev/null 2>&1 || groupadd --system canter-web
+if id canter-web >/dev/null 2>&1; then
+  usermod --gid canter-web --groups canter-web --home /nonexistent --shell /usr/sbin/nologin canter-web
+else
+  useradd --system --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin --gid canter-web canter-web
+fi
+install -d -o canter -g canter -m 0750 /opt/canter /opt/canter/bin /opt/canter/deploy /var/lib/canter
+install -d -o canter-web -g canter-web -m 0750 /opt/canter/web
+# The web account needs path traversal to its web tree, but cannot list this directory.
+chmod 0751 /opt/canter
 install -d -o root -g canter -m 0750 /etc/canter
 
 if ! swapon --show --noheadings | grep -q .; then

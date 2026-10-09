@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -142,12 +143,19 @@ func initCommand(args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+	if !validInitName(*name) {
+		return errors.New("name must start with a lowercase letter and contain at most 48 lowercase letters, digits, or hyphens")
+	}
 	if *name != "first-sandbox" {
 		s := strings.ReplaceAll(sdk.StarterYAML, "first-sandbox", *name)
 		return writeExclusive(*file, []byte(s))
 	}
 	return writeExclusive(*file, []byte(sdk.StarterYAML))
 }
+
+var initNamePattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,47}$`)
+
+func validInitName(name string) bool { return initNamePattern.MatchString(name) }
 
 func probeCommand(client *sdk.Client, args []string) error {
 	fs := flag.NewFlagSet("probe", flag.ContinueOnError)

@@ -2,13 +2,73 @@ package controlplane
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/canter0/canter/sdk"
 	"github.com/jackc/pgx/v5"
 )
+
+const (
+	defaultWorkspaceIndexPageSize = 50
+	maxWorkspaceIndexPageSize     = 100
+)
+
+type workspaceIndexCursor struct {
+	WorkspaceID string    `json:"workspaceId"`
+	Kind        string    `json:"kind"`
+	CreatedAt   time.Time `json:"createdAt"`
+	ID          string    `json:"id"`
+}
+
+type ChangeIndexPage struct {
+	Items       []ChangeIndex `json:"changes"`
+	NextCursor  string        `json:"nextCursor,omitempty"`
+	HasMore     bool          `json:"hasMore"`
+	PendingOnly bool          `json:"pendingOnly,omitempty"`
+}
+
+type InitialDeploymentIndexPage struct {
+	Items      []InitialDeploymentIndex `json:"initialDeployments"`
+	NextCursor string                   `json:"nextCursor,omitempty"`
+	HasMore    bool                     `json:"hasMore"`
+}
+
+func workspaceIndexPageSize(limit int) int {
+	if limit <= 0 {
+		return defaultWorkspaceIndexPageSize
+	}
+	if limit > maxWorkspaceIndexPageSize {
+		return maxWorkspaceIndexPageSize
+	}
+	return limit
+}
+
+func decodeWorkspaceIndexCursor(raw, workspaceID, kind string) (workspaceIndexCursor, error) {
+	if raw == "" {
+		return workspaceIndexCursor{}, nil
+	}
+	if len(raw) > 512 {
+		return workspaceIndexCursor{}, fmt.Errorf("invalid cursor")
+	}
+	data, err := base64.RawURLEncoding.DecodeString(raw)
+	if err != nil {
+		return workspaceIndexCursor{}, fmt.Errorf("invalid cursor")
+	}
+	var cursor workspaceIndexCursor
+	if err := json.Unmarshal(data, &cursor); err != nil || cursor.ID == "" || cursor.CreatedAt.IsZero() || cursor.WorkspaceID != workspaceID || (cursor.Kind != kind && !(kind != "pendingChanges" && cursor.Kind == "")) {
+		return workspaceIndexCursor{}, fmt.Errorf("invalid cursor")
+	}
+	return cursor, nil
+}
+
+func encodeWorkspaceIndexCursor(workspaceID, kind string, createdAt time.Time, id string) string {
+	data, _ := json.Marshal(workspaceIndexCursor{WorkspaceID: workspaceID, Kind: kind, CreatedAt: createdAt, ID: id})
+	return base64.RawURLEncoding.EncodeToString(data)
+}
 
 func (s *Store) RecordChange(ctx context.Context, workspaceID string, change sdk.Change) error {
 	raw, err := json.Marshal(change)
@@ -34,6 +94,70 @@ func (s *Store) ListChanges(ctx context.Context, workspaceID string) ([]ChangeIn
 		out = append(out, c)
 	}
 	return out, rows.Err()
+}
+
+// ListChangeIndexPage bounds workspace list reads while preserving a stable
+// newest-first traversal. The unpaged method remains for internal full-state
+// reconstruction paths that require all rows.
+func (s *Store) ListChangeIndexPage(ctx context.Context, workspaceID string, limit int, rawCursor string) (ChangeIndexPage, error) {
+	return s.listChangeIndexPage(ctx, workspaceID, limit, rawCursor, false)
+}
+
+func (s *Store) ListPendingChangeIndexPage(ctx context.Context, workspaceID string, limit int, rawCursor string) (ChangeIndexPage, error) {
+	page, err := s.listChangeIndexPage(ctx, workspaceID, limit, rawCursor, true)
+	page.PendingOnly = true
+	return page, err
+}
+
+func (s *Store) listChangeIndexPage(ctx context.Context, workspaceID string, limit int, rawCursor string, pendingOnly bool) (ChangeIndexPage, error) {
+	pageSize := workspaceIndexPageSize(limit)
+	kind := "changes"
+	if pendingOnly {
+		kind = "pendingChanges"
+	}
+	cursor, err := decodeWorkspaceIndexCursor(rawCursor, workspaceID, kind)
+	if err != nil {
+		return ChangeIndexPage{}, err
+	}
+	where := `c.workspace_id=$1`
+	if pendingOnly {
+		where += ` AND c.phase NOT IN ('committed','rejected','reverted')`
+	}
+	query := `SELECT c.change_id,c.system_name,c.phase,c.summary,c.digest,COALESCE(e.id,''),COALESCE(e.phase,''),c.created_at FROM change_records c LEFT JOIN executions e ON e.workspace_id=c.workspace_id AND e.system_name=c.system_name AND e.change_id=c.change_id WHERE ` + where + ` ORDER BY c.created_at DESC,c.change_id DESC LIMIT $2`
+	args := []any{workspaceID, pageSize + 1}
+	if !cursor.CreatedAt.IsZero() {
+		query = `SELECT c.change_id,c.system_name,c.phase,c.summary,c.digest,COALESCE(e.id,''),COALESCE(e.phase,''),c.created_at FROM change_records c LEFT JOIN executions e ON e.workspace_id=c.workspace_id AND e.system_name=c.system_name AND e.change_id=c.change_id WHERE ` + where + ` AND (c.created_at,c.change_id)<($2,$3) ORDER BY c.created_at DESC,c.change_id DESC LIMIT $4`
+		args = []any{workspaceID, cursor.CreatedAt, cursor.ID, pageSize + 1}
+	}
+	rows, err := s.pool.Query(ctx, query, args...)
+	if err != nil {
+		return ChangeIndexPage{}, err
+	}
+	defer rows.Close()
+	page := ChangeIndexPage{Items: make([]ChangeIndex, 0, pageSize)}
+	page.PendingOnly = pendingOnly
+	var lastTime time.Time
+	var lastID string
+	for rows.Next() {
+		var item ChangeIndex
+		var createdAt time.Time
+		if err := rows.Scan(&item.ID, &item.System, &item.Phase, &item.Summary, &item.Digest, &item.ExecutionID, &item.ExecutionPhase, &createdAt); err != nil {
+			return ChangeIndexPage{}, err
+		}
+		if len(page.Items) == pageSize {
+			page.HasMore = true
+			break
+		}
+		page.Items = append(page.Items, item)
+		lastTime, lastID = createdAt, item.ID
+	}
+	if err := rows.Err(); err != nil {
+		return ChangeIndexPage{}, err
+	}
+	if page.HasMore && lastID != "" {
+		page.NextCursor = encodeWorkspaceIndexCursor(workspaceID, kind, lastTime, lastID)
+	}
+	return page, nil
 }
 
 func (s *Store) ExecutionForChange(ctx context.Context, workspaceID, systemName, changeID string) (Execution, error) {
@@ -79,6 +203,9 @@ func (s *Store) Execution(ctx context.Context, id string) (Execution, error) {
 }
 
 func (s *Store) ClaimExecution(ctx context.Context, worker string, lease time.Duration) (Execution, bool, error) {
+	if worker == "" || lease <= 0 {
+		return Execution{}, false, errors.New("execution worker and positive lease are required")
+	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return Execution{}, false, err
@@ -93,8 +220,12 @@ func (s *Store) ClaimExecution(ctx context.Context, worker string, lease time.Du
 	if err != nil {
 		return Execution{}, false, err
 	}
+	claimToken, err := newSecret("fence_", 24)
+	if err != nil {
+		return Execution{}, false, err
+	}
 	var e Execution
-	err = tx.QueryRow(ctx, `UPDATE executions SET phase='running',claimed_by=$1,lease_expires_at=$2,attempts=attempts+1,started_at=COALESCE(started_at,$3),failure='' WHERE id=$4 RETURNING id,workspace_id,system_name,change_id,phase,requested_by_kind,requested_by_id,requested_session_id,attempts,available_at,claimed_by,lease_expires_at,failure,created_at,started_at,completed_at`, worker, now.Add(lease), now, id).Scan(&e.ID, &e.WorkspaceID, &e.SystemName, &e.ChangeID, &e.Phase, &e.RequestedBy.Kind, &e.RequestedBy.ID, &e.RequestedBy.SessionID, &e.Attempts, &e.AvailableAt, &e.ClaimedBy, &e.LeaseExpiresAt, &e.Failure, &e.CreatedAt, &e.StartedAt, &e.CompletedAt)
+	err = tx.QueryRow(ctx, `UPDATE executions SET phase='running',claimed_by=$1,claim_token=$2,lease_expires_at=$3,attempts=attempts+1,started_at=COALESCE(started_at,$4),failure='' WHERE id=$5 RETURNING id,workspace_id,system_name,change_id,phase,requested_by_kind,requested_by_id,requested_session_id,attempts,available_at,claimed_by,claim_token,lease_expires_at,failure,created_at,started_at,completed_at`, worker, claimToken, now.Add(lease), now, id).Scan(&e.ID, &e.WorkspaceID, &e.SystemName, &e.ChangeID, &e.Phase, &e.RequestedBy.Kind, &e.RequestedBy.ID, &e.RequestedBy.SessionID, &e.Attempts, &e.AvailableAt, &e.ClaimedBy, &e.ClaimToken, &e.LeaseExpiresAt, &e.Failure, &e.CreatedAt, &e.StartedAt, &e.CompletedAt)
 	if err != nil {
 		return Execution{}, false, err
 	}
@@ -104,8 +235,12 @@ func (s *Store) ClaimExecution(ctx context.Context, worker string, lease time.Du
 	return e, true, nil
 }
 
-func (s *Store) RenewExecution(ctx context.Context, id, worker string, lease time.Duration) error {
-	result, err := s.pool.Exec(ctx, `UPDATE executions SET lease_expires_at=$1 WHERE id=$2 AND phase='running' AND claimed_by=$3`, s.now().Add(lease), id, worker)
+func (s *Store) RenewExecution(ctx context.Context, id, worker, claimToken string, lease time.Duration) error {
+	if lease <= 0 || claimToken == "" {
+		return ErrConflict
+	}
+	now := s.now()
+	result, err := s.pool.Exec(ctx, `UPDATE executions SET lease_expires_at=$1 WHERE id=$2 AND phase='running' AND claimed_by=$3 AND claim_token=$4 AND lease_expires_at>$5`, now.Add(lease), id, worker, claimToken, now)
 	if err != nil {
 		return err
 	}
@@ -115,13 +250,17 @@ func (s *Store) RenewExecution(ctx context.Context, id, worker string, lease tim
 	return nil
 }
 
-func (s *Store) CompleteExecution(ctx context.Context, id, worker string, applyErr error) error {
+func (s *Store) CompleteExecution(ctx context.Context, id, worker, claimToken string, applyErr error) error {
+	if claimToken == "" {
+		return ErrConflict
+	}
 	phase, failure := "succeeded", ""
 	if applyErr != nil {
 		phase = "failed"
 		failure = applyErr.Error()
 	}
-	result, err := s.pool.Exec(ctx, `UPDATE executions SET phase=$1,failure=$2,completed_at=$3,lease_expires_at=NULL WHERE id=$4 AND phase='running' AND claimed_by=$5`, phase, failure, s.now(), id, worker)
+	now := s.now()
+	result, err := s.pool.Exec(ctx, `UPDATE executions SET phase=$1,failure=$2,completed_at=$3,lease_expires_at=NULL WHERE id=$4 AND phase='running' AND claimed_by=$5 AND claim_token=$6 AND lease_expires_at>$3`, phase, failure, now, id, worker, claimToken)
 	if err != nil {
 		return err
 	}

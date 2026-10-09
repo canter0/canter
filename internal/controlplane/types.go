@@ -82,17 +82,23 @@ type SystemRecord struct {
 }
 
 type Bootstrap struct {
-	ProtocolVersion    string                   `json:"protocolVersion"`
-	Installation       Installation             `json:"installation"`
-	Session            AgentSession             `json:"session"`
-	Workspace          Workspace                `json:"workspace"`
-	Systems            []SystemRecord           `json:"systems"`
-	Changes            []ChangeIndex            `json:"changes"`
-	PendingChanges     []ChangeIndex            `json:"pendingChanges"`
-	InitialDeployments []InitialDeploymentIndex `json:"initialDeployments"`
-	Tasks              []WorkspaceTask          `json:"tasks"`
-	Capabilities       map[string]any           `json:"capabilities"`
-	Incidents          []any                    `json:"incidents"`
+	ProtocolVersion           string                   `json:"protocolVersion"`
+	Installation              Installation             `json:"installation"`
+	Session                   AgentSession             `json:"session"`
+	Workspace                 Workspace                `json:"workspace"`
+	Systems                   []SystemRecord           `json:"systems"`
+	Changes                   []ChangeIndex            `json:"changes"`
+	ChangesHasMore            bool                     `json:"changesHasMore"`
+	ChangesNextCursor         string                   `json:"changesNextCursor,omitempty"`
+	PendingChanges            []ChangeIndex            `json:"pendingChanges"`
+	PendingChangesHasMore     bool                     `json:"pendingChangesHasMore"`
+	PendingChangesNextCursor  string                   `json:"pendingChangesNextCursor,omitempty"`
+	InitialDeployments        []InitialDeploymentIndex `json:"initialDeployments"`
+	InitialDeploymentsHasMore bool                     `json:"initialDeploymentsHasMore"`
+	InitialDeploymentsCursor  string                   `json:"initialDeploymentsNextCursor,omitempty"`
+	Tasks                     []WorkspaceTask          `json:"tasks"`
+	Capabilities              map[string]any           `json:"capabilities"`
+	Incidents                 []any                    `json:"incidents"`
 }
 
 // SystemView is the provider-neutral read model exposed through HTTP and MCP.
@@ -267,6 +273,7 @@ type Execution struct {
 	Attempts       int          `json:"attempts"`
 	AvailableAt    time.Time    `json:"availableAt"`
 	ClaimedBy      string       `json:"claimedBy,omitempty"`
+	ClaimToken     string       `json:"-"`
 	LeaseExpiresAt *time.Time   `json:"leaseExpiresAt,omitempty"`
 	Failure        string       `json:"failure,omitempty"`
 	CreatedAt      time.Time    `json:"createdAt"`

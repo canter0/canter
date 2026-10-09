@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"io"
 	"testing"
 )
 
@@ -68,5 +69,35 @@ func TestOperatorStaticArchiveValidation(t *testing.T) {
 	}
 	if _, err := staticRepositoryFiles(archive("", tar.TypeReg), "dist"); err == nil {
 		t.Fatal("missing build output accepted")
+	}
+	valid := archive("", tar.TypeReg)
+	badChecksum := append([]byte(nil), valid...)
+	badChecksum[len(badChecksum)-8] ^= 0xff
+	secondMember := append(append([]byte(nil), valid...), valid...)
+	trailing := append(append([]byte(nil), valid...), 0x00)
+	compressedReader, err := gzip.NewReader(bytes.NewReader(valid))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain, err := io.ReadAll(compressedReader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := compressedReader.Close(); err != nil {
+		t.Fatal(err)
+	}
+	plain = append(plain, 0x41)
+	var tailed bytes.Buffer
+	taileder := gzip.NewWriter(&tailed)
+	if _, err := taileder.Write(plain); err != nil {
+		t.Fatal(err)
+	}
+	if err := taileder.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for name, malformed := range map[string][]byte{"checksum": badChecksum, "second gzip member": secondMember, "trailing byte": trailing, "nonzero tar tail": tailed.Bytes()} {
+		if _, err := staticRepositoryFiles(malformed, ""); err == nil {
+			t.Errorf("accepted repository archive with invalid %s", name)
+		}
 	}
 }

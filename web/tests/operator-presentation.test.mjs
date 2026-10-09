@@ -16,6 +16,10 @@ test('text-only answers remain a single response', () => {
   const value = turnTimeline([event(1,'text',{step:1,content:'Hello'}),event(2,'text',{step:1,content:'Hello there.'})]);
   assert.equal(value.preamble,null); assert.equal(value.work.length,0); assert.equal(value.tail.data.content,'Hello there.');
 });
+test('incremental text events fold into one cumulative step snapshot', () => {
+  const value = turnTimeline([event(1,'text',{step:1,content:'Hello',delta:true}),event(2,'text',{step:1,content:' there.',delta:true})]);
+  assert.equal(value.tail.data.content,'Hello there.');
+});
 test('elapsed time remains stable after replay and supports minutes', () => {
   assert.equal(elapsedLabel('2026-09-16T12:00:00Z','2026-09-16T12:01:38Z'),'1m 38s');
 });

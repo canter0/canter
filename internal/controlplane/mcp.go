@@ -11,6 +11,11 @@ import (
 	"github.com/canter0/canter/sdk"
 )
 
+const (
+	mcpPublicBodyLimit = 64 << 10
+	mcpToolBodyLimit   = 96 << 20
+)
+
 type mcpRequest struct {
 	JSONRPC string          `json:"jsonrpc"`
 	ID      json.RawMessage `json:"id,omitempty"`
@@ -29,8 +34,37 @@ func (h *HTTPServer) mcp(w http.ResponseWriter, r *http.Request) {
 		methodNotAllowed(w)
 		return
 	}
+	// Bound parsing concurrency before touching the request body. Discovery is
+	// public, so unauthenticated callers get the small request allowance below.
+	select {
+	case h.mcpRequests <- struct{}{}:
+		defer func() { <-h.mcpRequests }()
+	default:
+		writeError(w, http.StatusServiceUnavailable, fmt.Errorf("MCP request capacity is full; retry shortly"))
+		return
+	}
+
+	principal, principalErr := h.principal(r)
+	principalValid := principalErr == nil
+	bodyLimit := int64(mcpPublicBodyLimit)
+	if principalValid {
+		bodyLimit = mcpToolBodyLimit
+	}
+	if r.ContentLength > bodyLimit {
+		writeError(w, http.StatusRequestEntityTooLarge, fmt.Errorf("MCP request exceeds %d bytes", bodyLimit))
+		return
+	}
+	if (r.ContentLength < 0 && principalValid) || r.ContentLength > mcpPublicBodyLimit {
+		select {
+		case h.mcpLargeBodies <- struct{}{}:
+			defer func() { <-h.mcpLargeBodies }()
+		default:
+			writeError(w, http.StatusServiceUnavailable, fmt.Errorf("MCP large request capacity is full; retry shortly"))
+			return
+		}
+	}
 	var request mcpRequest
-	if !decodeLimit(w, r, &request, 96<<20) {
+	if !decodeLimit(w, r, &request, bodyLimit) {
 		return
 	}
 	if request.JSONRPC != "2.0" {
@@ -47,9 +81,8 @@ func (h *HTTPServer) mcp(w http.ResponseWriter, r *http.Request) {
 	case "tools/list":
 		h.mcpResult(w, request.ID, map[string]any{"tools": mcpTools()})
 	case "tools/call":
-		principal, err := h.principal(r)
-		if err != nil {
-			writeStoreError(w, err)
+		if principalErr != nil {
+			writeStoreError(w, principalErr)
 			return
 		}
 		var params struct {
@@ -155,8 +188,8 @@ func mcpTools() []mcpTool {
 		{Name: "canter_claim_task", Description: "Atomically claim a queued task for this agent, or resume this agent's existing claim. This does not authorize any deployment or Change.", InputSchema: object(map[string]any{"workspaceId": str, "taskId": str}, "workspaceId", "taskId")},
 		{Name: "canter_finish_task", Description: "Report a completed or failed task claimed by this agent. Include an accurate result; this report does not substitute for Canter deployment verification.", InputSchema: object(map[string]any{"workspaceId": str, "taskId": str, "status": map[string]any{"type": "string", "enum": []string{"completed", "failed"}}, "result": str}, "workspaceId", "taskId", "status", "result")},
 		{Name: "canter_whoami", Description: "Return the authenticated human or durable agent installation and current session.", InputSchema: object(nil)},
-		{Name: "canter_bootstrap", Description: "Reconstruct the current durable workspace state without relying on conversation history.", InputSchema: object(map[string]any{"workspaceId": str})},
-		{Name: "canter_list_changes", Description: "List durable Changes in a workspace.", InputSchema: object(map[string]any{"workspaceId": str}, "workspaceId")},
+		{Name: "canter_bootstrap", Description: "Reconstruct current durable workspace state without relying on conversation history. Changes, pendingChanges, and initial deployments include at most 50 entries each; when a corresponding HasMore field is true, pass its NextCursor to canter_list_changes (set pendingOnly for pendingChanges) or canter_list_initial_deployments to continue.", InputSchema: object(map[string]any{"workspaceId": str})},
+		{Name: "canter_list_changes", Description: "List durable Changes in a workspace, newest first. Set pendingOnly to list pending Changes independently of newer terminal rows. Results are capped at 100 per page; follow nextCursor with the same pendingOnly value until hasMore is false.", InputSchema: object(map[string]any{"workspaceId": str, "limit": map[string]any{"type": "integer", "minimum": 1, "maximum": maxWorkspaceIndexPageSize}, "cursor": str, "pendingOnly": map[string]any{"type": "boolean"}}, "workspaceId")},
 		{Name: "canter_inspect_system", Description: "Inspect a System's declared contract, deterministic graph, bindings, and observed state.", InputSchema: object(map[string]any{"workspaceId": str, "system": str}, "workspaceId", "system")},
 		{Name: "canter_draft_change", Description: "Draft a governed release or typed application replica Change through the real Canter engine. Replica targets are validated against existing host capacity; no provider resources are exposed or silently created. This never authorizes or applies it.", InputSchema: object(map[string]any{"workspaceId": str, "system": str, "request": changeRequest}, "workspaceId", "system", "request")},
 		{Name: "canter_inspect_change", Description: "Inspect a durable Change, its exact digest, authorization, operation ledger, and evidence.", InputSchema: object(map[string]any{"workspaceId": str, "system": str, "changeId": str}, "workspaceId", "system", "changeId")},
@@ -168,13 +201,16 @@ func mcpTools() []mcpTool {
 		{Name: "canter_request_change_approval", Description: "Request a ten-minute, single-use human review URL bound to one exact drafted Change digest. The URL grants no agent authorization and must be shown only to the human who will review it.", InputSchema: object(map[string]any{"workspaceId": str, "system": str, "changeId": str, "digest": str}, "workspaceId", "system", "changeId", "digest")},
 		{Name: "canter_upload_artifact", Description: "Upload a base64 tar.gz application bundle through Canter into durable content-addressed storage. Provider credentials are never returned.", InputSchema: object(map[string]any{"workspaceId": str, "filename": str, "contentType": str, "dataBase64": map[string]any{"type": "string", "contentEncoding": "base64"}}, "workspaceId", "filename", "dataBase64")},
 		{Name: "canter_draft_initial_deployment", Description: "Draft an immutable governed proposal for a System's first real deployment. This never provisions or publishes anything.", InputSchema: object(map[string]any{"workspaceId": str, "proposal": initialProposal}, "workspaceId", "proposal")},
-		{Name: "canter_list_initial_deployments", Description: "List governed first-deployment proposals in a workspace.", InputSchema: object(map[string]any{"workspaceId": str}, "workspaceId")},
+		{Name: "canter_list_initial_deployments", Description: "List governed first-deployment proposals in a workspace, newest first. Results are capped at 100 per page; follow nextCursor until hasMore is false.", InputSchema: object(map[string]any{"workspaceId": str, "limit": map[string]any{"type": "integer", "minimum": 1, "maximum": maxWorkspaceIndexPageSize}, "cursor": str}, "workspaceId")},
 		{Name: "canter_inspect_initial_deployment", Description: "Inspect a first-deployment proposal, exact digest, human authorization, operations, and evidence.", InputSchema: object(map[string]any{"workspaceId": str, "deploymentId": str}, "workspaceId", "deploymentId")},
 		{Name: "canter_inspect_initial_deployment_execution", Description: "Inspect server-owned execution state for a first deployment.", InputSchema: object(map[string]any{"executionId": str}, "executionId")},
 	}
 }
 
 type mcpArguments struct {
+	Limit        int             `json:"limit"`
+	Cursor       string          `json:"cursor"`
+	PendingOnly  bool            `json:"pendingOnly"`
 	TaskID       string          `json:"taskId"`
 	ContextID    string          `json:"contextId"`
 	Status       string          `json:"status"`
@@ -243,24 +279,27 @@ func (h *HTTPServer) callMCPTool(r *http.Request, p Principal, name string, raw 
 		if err != nil {
 			return nil, err
 		}
-		changes, err := h.service.Store.ListChanges(r.Context(), args.WorkspaceID)
+		changesPage, err := h.service.Store.ListChangeIndexPage(r.Context(), args.WorkspaceID, defaultWorkspaceIndexPageSize, "")
 		if err != nil {
 			return nil, err
 		}
-		deployments, err := h.service.Store.ListInitialDeployments(r.Context(), args.WorkspaceID)
+		pendingPage, err := h.service.Store.ListPendingChangeIndexPage(r.Context(), args.WorkspaceID, defaultWorkspaceIndexPageSize, "")
 		if err != nil {
 			return nil, err
 		}
-		return map[string]any{"protocolVersion": "v1", "workspace": workspace, "systems": systems, "changes": changes, "initialDeployments": deployments, "capabilities": initialDeploymentCapabilities(args.WorkspaceID), "incidents": []any{}}, nil
+		deploymentsPage, err := h.service.Store.ListInitialDeploymentIndexPage(r.Context(), args.WorkspaceID, defaultWorkspaceIndexPageSize, "")
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"protocolVersion": "v1", "workspace": workspace, "systems": systems, "changes": changesPage.Items, "changesHasMore": changesPage.HasMore, "changesNextCursor": changesPage.NextCursor, "pendingChanges": pendingPage.Items, "pendingChangesHasMore": pendingPage.HasMore, "pendingChangesNextCursor": pendingPage.NextCursor, "initialDeployments": deploymentsPage.Items, "initialDeploymentsHasMore": deploymentsPage.HasMore, "initialDeploymentsNextCursor": deploymentsPage.NextCursor, "capabilities": initialDeploymentCapabilities(args.WorkspaceID), "incidents": []any{}}, nil
 	case "canter_list_changes":
 		if err := h.allowWorkspace(r, p, args.WorkspaceID, false); err != nil {
 			return nil, err
 		}
-		changes, err := h.service.Store.ListChanges(r.Context(), args.WorkspaceID)
-		if err != nil {
-			return nil, err
+		if args.PendingOnly {
+			return h.service.Store.ListPendingChangeIndexPage(r.Context(), args.WorkspaceID, args.Limit, args.Cursor)
 		}
-		return map[string]any{"changes": changes}, nil
+		return h.service.Store.ListChangeIndexPage(r.Context(), args.WorkspaceID, args.Limit, args.Cursor)
 	case "canter_inspect_system":
 		if err := h.allowWorkspace(r, p, args.WorkspaceID, false); err != nil {
 			return nil, err
@@ -288,7 +327,8 @@ func (h *HTTPServer) callMCPTool(r *http.Request, p Principal, name string, raw 
 		if err := h.allowWorkspace(r, p, args.WorkspaceID, false); err != nil {
 			return nil, err
 		}
-		return h.service.Store.ExecutionForChange(r.Context(), args.WorkspaceID, args.System, args.ChangeID)
+		execution, err := h.service.Store.ExecutionForChange(r.Context(), args.WorkspaceID, args.System, args.ChangeID)
+		return publicExecution(execution), err
 	case "canter_list_standing_policies":
 		if err := h.allowWorkspace(r, p, args.WorkspaceID, false); err != nil {
 			return nil, err
@@ -381,11 +421,7 @@ func (h *HTTPServer) callMCPTool(r *http.Request, p Principal, name string, raw 
 		if err := h.allowWorkspace(r, p, args.WorkspaceID, false); err != nil {
 			return nil, err
 		}
-		items, err := h.service.Store.ListInitialDeployments(r.Context(), args.WorkspaceID)
-		if err != nil {
-			return nil, err
-		}
-		return map[string]any{"initialDeployments": items}, nil
+		return h.service.Store.ListInitialDeploymentIndexPage(r.Context(), args.WorkspaceID, args.Limit, args.Cursor)
 	case "canter_inspect_initial_deployment":
 		if err := h.allowWorkspace(r, p, args.WorkspaceID, false); err != nil {
 			return nil, err
@@ -400,7 +436,7 @@ func (h *HTTPServer) callMCPTool(r *http.Request, p Principal, name string, raw 
 		if err := h.allowWorkspace(r, p, execution.WorkspaceID, false); err != nil {
 			return nil, err
 		}
-		return execution, nil
+		return publicInitialDeploymentExecution(execution), nil
 	default:
 		return nil, fmt.Errorf("unknown tool %q", name)
 	}

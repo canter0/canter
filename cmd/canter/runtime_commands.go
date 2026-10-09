@@ -5,7 +5,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -22,27 +21,13 @@ func hostCommand(client *sdk.Client, args []string) error {
 	switch args[0] {
 	case "bootstrap":
 		fs := flag.NewFlagSet("host bootstrap", flag.ContinueOnError)
-		file := fs.String("file", "system.yaml", "system contract path")
-		nodePath := fs.String("node", "bin/canter-node-linux-amd64", "Linux node runtime binary")
-		timeout := fs.Duration("timeout", 5*time.Minute, "host bootstrap deadline")
+		fs.String("file", "system.yaml", "system contract path")
+		fs.String("node", "bin/canter-node-linux-amd64", "Linux node runtime binary")
+		fs.Duration("timeout", 5*time.Minute, "host bootstrap deadline")
 		if err := fs.Parse(args[1:]); err != nil {
 			return err
 		}
-		system, err := sdk.LoadSystem(*file)
-		if err != nil {
-			return err
-		}
-		nodeBinary, err := os.ReadFile(*nodePath)
-		if err != nil {
-			return err
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), *timeout)
-		defer cancel()
-		result, err := client.BootstrapSystemHost(ctx, system, nodeBinary)
-		if err != nil {
-			return err
-		}
-		return printJSON(result)
+		return errors.New("node gateway enrollment is required; account-wide m1 credentials cannot be installed on a tenant host")
 	case "expose":
 		fs := flag.NewFlagSet("host expose", flag.ContinueOnError)
 		file := fs.String("file", "system.yaml", "system contract path")

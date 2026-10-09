@@ -20,6 +20,24 @@ type modelToolCall struct {
 		Arguments string `json:"arguments"`
 	} `json:"function"`
 }
+type modelToolCallBuilder struct {
+	id        string
+	typeName  string
+	name      strings.Builder
+	arguments strings.Builder
+}
+
+func (b *modelToolCallBuilder) modelToolCall() modelToolCall {
+	return modelToolCall{
+		ID:   b.id,
+		Type: b.typeName,
+		Function: struct {
+			Name      string `json:"name"`
+			Arguments string `json:"arguments"`
+		}{Name: b.name.String(), Arguments: b.arguments.String()},
+	}
+}
+
 type modelMessage struct {
 	Role             string               `json:"role"`
 	Content          string               `json:"content"`
@@ -63,7 +81,7 @@ func (c OperatorConfig) complete(ctx context.Context, messages []modelMessage, t
 	return c.completeWithLimit(ctx, messages, tools, maxTokens, onText)
 }
 
-func (c OperatorConfig) completeWithLimit(ctx context.Context, messages []modelMessage, tools []mcpTool, maxTokens int, onText func(string) error) (modelMessage, error) {
+func (c OperatorConfig) completeWithLimit(ctx context.Context, messages []modelMessage, tools []mcpTool, maxTokens int, onText func(string) error) (out modelMessage, err error) {
 	functions := make([]any, 0, len(tools))
 	for _, tool := range tools {
 		functions = append(functions, map[string]any{"type": "function", "function": map[string]any{"name": tool.Name, "description": tool.Description, "parameters": tool.InputSchema}})
@@ -101,14 +119,18 @@ func (c OperatorConfig) completeWithLimit(ctx context.Context, messages []modelM
 	if response.StatusCode != http.StatusOK {
 		return modelMessage{}, fmt.Errorf("model provider returned HTTP %d; check the configured model and provider account", response.StatusCode)
 	}
-	out := modelMessage{Role: "assistant"}
+	out = modelMessage{Role: "assistant"}
+	var contentParts []string
+	contentBytes := 0
+	defer func() { out.Content = strings.Join(contentParts, "") }()
 	var reasoningDetails []json.RawMessage
-	calls := map[int]*modelToolCall{}
+	calls := map[int]*modelToolCallBuilder{}
 	var order []int
 	scanner := bufio.NewScanner(io.LimitReader(response.Body, 2<<20))
 	scanner.Buffer(make([]byte, 4096), 1<<20)
 	done := false
 	lastSent := time.Time{}
+	sentContentParts := 0
 	for scanner.Scan() {
 		line := scanner.Text()
 		if !strings.HasPrefix(line, "data:") {
@@ -153,7 +175,10 @@ func (c OperatorConfig) completeWithLimit(ctx context.Context, messages []modelM
 			if choice.FinishReason != nil && *choice.FinishReason == "length" {
 				return out, fmt.Errorf("the agent reached its response limit; ask it to continue with a smaller step")
 			}
-			out.Content += choice.Delta.Content
+			if choice.Delta.Content != "" {
+				contentParts = append(contentParts, choice.Delta.Content)
+				contentBytes += len(choice.Delta.Content)
+			}
 			if len(choice.Delta.ReasoningDetails) > 0 && string(choice.Delta.ReasoningDetails) != "null" {
 				var parts []json.RawMessage
 				if err = json.Unmarshal(choice.Delta.ReasoningDetails, &parts); err != nil {
@@ -166,21 +191,25 @@ func (c OperatorConfig) completeWithLimit(ctx context.Context, messages []modelM
 			for _, part := range choice.Delta.ToolCalls {
 				call, ok := calls[part.Index]
 				if !ok {
-					call = &modelToolCall{Type: "function"}
+					call = &modelToolCallBuilder{typeName: "function"}
 					calls[part.Index] = call
 					order = append(order, part.Index)
 				}
 				if part.ID != "" {
-					call.ID = part.ID
+					call.id = part.ID
 				}
-				call.Function.Name += part.Function.Name
-				call.Function.Arguments += part.Function.Arguments
+				_, _ = call.name.WriteString(part.Function.Name)
+				_, _ = call.arguments.WriteString(part.Function.Arguments)
 			}
 		}
-		if out.Content != "" && time.Since(lastSent) > 300*time.Millisecond {
-			if err = onText(out.Content); err != nil {
+		if contentBytes > 0 && sentContentParts < len(contentParts) && time.Since(lastSent) > 300*time.Millisecond {
+			// Progress events are retained individually. Send only the newly
+			// received text so a bounded provider response cannot be amplified
+			// into quadratic event storage.
+			if err = onText(strings.Join(contentParts[sentContentParts:], "")); err != nil {
 				return out, err
 			}
+			sentContentParts = len(contentParts)
 			lastSent = time.Now()
 		}
 	}
@@ -190,17 +219,22 @@ func (c OperatorConfig) completeWithLimit(ctx context.Context, messages []modelM
 	if !done {
 		return out, fmt.Errorf("model response was incomplete; please retry")
 	}
+	if sentContentParts < len(contentParts) {
+		if err = onText(strings.Join(contentParts[sentContentParts:], "")); err != nil {
+			return out, err
+		}
+	}
 	if len(reasoningDetails) > 0 {
 		out.ReasoningDetails, _ = json.Marshal(reasoningDetails)
 	}
 	for _, i := range order {
-		call := calls[i]
+		call := calls[i].modelToolCall()
 		if call.ID == "" || call.Function.Name == "" || !json.Valid([]byte(call.Function.Arguments)) {
 			return out, fmt.Errorf("model returned an incomplete tool request")
 		}
-		out.ToolCalls = append(out.ToolCalls, *call)
+		out.ToolCalls = append(out.ToolCalls, call)
 	}
-	if out.Content == "" && len(out.ToolCalls) == 0 {
+	if contentBytes == 0 && len(out.ToolCalls) == 0 {
 		return out, fmt.Errorf("the model returned an empty response")
 	}
 	return out, nil

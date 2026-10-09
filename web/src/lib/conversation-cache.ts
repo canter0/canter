@@ -1,6 +1,6 @@
 import type { ConversationDetail, OperatorEvent } from "./operator-api";
 
-type Snapshot = { detail: ConversationDetail; events: OperatorEvent[]; fetchedAt: number; bytes: number };
+type Snapshot = { detail: ConversationDetail; events: OperatorEvent[]; fetchedAt: number; bytes: number; eventBytes: number };
 
 // Owned by one authenticated WorkspaceProvider. Nothing persists across accounts
 // or logout, and large attachment histories cannot grow the cache without a bound.
@@ -10,6 +10,8 @@ export function createConversationCache(workspace: string, fetcher: (id: string)
   const maxBytes = 16 * 1024 * 1024;
   const maxEntries = 8;
   const lifetime = 5 * 60_000;
+  const detailLengths = new WeakMap<object, number>();
+  const eventLengths = new WeakMap<object, number>();
   let bytes = 0;
 
   function remove(id: string) {
@@ -22,15 +24,38 @@ export function createConversationCache(workspace: string, fetcher: (id: string)
     if (value && now() - value.fetchedAt > lifetime) { remove(id); return undefined; }
     return value;
   }
+  function serializedLength(value: object, lengths: WeakMap<object, number>) {
+    const cached = lengths.get(value);
+    if (cached !== undefined) return cached;
+    const length = JSON.stringify(value).length;
+    lengths.set(value, length);
+    return length;
+  }
+  function sizeOf(detail: ConversationDetail, events: OperatorEvent[], previous?: Snapshot) {
+    const detailLength = serializedLength(detail, detailLengths);
+    let eventLength = 0;
+    let prefix = 0;
+    if (previous) {
+      const shared = Math.min(previous.events.length, events.length);
+      while (prefix < shared && previous.events[prefix] === events[prefix]) prefix++;
+    }
+    // Event objects are immutable snapshots. The WeakMap avoids serializing the
+    // unchanged history again; only events after the shared prefix need sizing.
+    if (previous && prefix === previous.events.length) eventLength = previous.eventBytes;
+    else for (let index = 0; index < prefix; index++) eventLength += serializedLength(events[index], eventLengths);
+    for (let index = prefix; index < events.length; index++) eventLength += serializedLength(events[index], eventLengths);
+    const jsonLength = '{"detail":'.length + detailLength + ',"events":['.length + eventLength + Math.max(0, events.length - 1) + ']}'.length;
+    return { bytes: jsonLength * 2, eventBytes: eventLength };
+  }
   function save(id: string, detail: ConversationDetail, events: OperatorEvent[] = [], fetchedAt?: number) {
     if (detail.conversation.id !== id || detail.conversation.workspaceId !== workspace) return;
     const previous = entries.get(id);
     const fetched = fetchedAt ?? (previous?.detail === detail ? previous.fetchedAt : now());
-    const size = JSON.stringify({ detail, events }).length * 2;
+    const measured = sizeOf(detail, events, previous);
     remove(id);
-    if (size > maxBytes) return;
-    entries.set(id, { detail, events, fetchedAt: fetched, bytes: size });
-    bytes += size;
+    if (measured.bytes > maxBytes) return;
+    entries.set(id, { detail, events, fetchedAt: fetched, ...measured });
+    bytes += measured.bytes;
     while (entries.size > maxEntries || bytes > maxBytes) remove(entries.keys().next().value!);
   }
   function invalidate(id: string) {

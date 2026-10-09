@@ -296,6 +296,164 @@ func TestOperatorUsageStreamAndCurrentRequestPreserved(t *testing.T) {
 	}
 }
 
+func TestOperatorTextStreamEmitsOnlyNewContent(t *testing.T) {
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"first\"}}]}\n\n")
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		time.Sleep(320 * time.Millisecond)
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\" second\"}}]}\n\n")
+		fmt.Fprint(w, "data: [DONE]\n\n")
+	}))
+	defer provider.Close()
+	var updates []string
+	answer, err := (OperatorConfig{BaseURL: provider.URL, Model: "test"}).complete(context.Background(), []modelMessage{{Role: "user", Content: "hi"}}, nil, func(text string) error {
+		updates = append(updates, text)
+		return nil
+	})
+	if err != nil || answer.Content != "first second" {
+		t.Fatalf("stream result: %+v %v", answer, err)
+	}
+	if strings.Join(updates, "") != answer.Content || len(updates) != 2 || updates[1] != " second" {
+		t.Fatalf("progress callbacks were not deltas: %#v", updates)
+	}
+}
+
+func TestOperatorTextStreamPreservesPartialContentOnProviderErrors(t *testing.T) {
+	for _, tc := range []struct {
+		name, body, wantError string
+	}{
+		{
+			name:      "incomplete stream",
+			body:      "data: {\"choices\":[{\"delta\":{\"content\":\"partial answer\"}}]}\n\n",
+			wantError: "model response was incomplete; please retry",
+		},
+		{
+			name:      "malformed stream",
+			body:      "data: {\"choices\":[{\"delta\":{\"content\":\"partial answer\"}}]}\n\ndata: {\"choices\":[\n\n",
+			wantError: "invalid model stream",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "text/event-stream")
+				fmt.Fprint(w, tc.body)
+			}))
+			defer provider.Close()
+
+			answer, err := (OperatorConfig{BaseURL: provider.URL, Model: "test"}).complete(context.Background(), nil, nil, func(string) error { return nil })
+			if err == nil || err.Error() != tc.wantError {
+				t.Fatalf("stream error = %v, want %q", err, tc.wantError)
+			}
+			if answer.Content != "partial answer" {
+				t.Fatalf("partial content was lost: %q", answer.Content)
+			}
+		})
+	}
+}
+
+func TestOperatorTextStreamPreservesContentAndCallbackError(t *testing.T) {
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"first\"}}]}\n\n")
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		time.Sleep(320 * time.Millisecond)
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\" second\"}}]}\n\n")
+	}))
+	defer provider.Close()
+
+	wantErr := errors.New("stop progress delivery")
+	var updates []string
+	answer, err := (OperatorConfig{BaseURL: provider.URL, Model: "test"}).complete(context.Background(), nil, nil, func(delta string) error {
+		updates = append(updates, delta)
+		return wantErr
+	})
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("callback error = %v, want original error %v", err, wantErr)
+	}
+	if answer.Content != "first" {
+		t.Fatalf("partial content was lost: %q", answer.Content)
+	}
+	if len(updates) != 1 || updates[0] != "first" {
+		t.Fatalf("callback did not receive only the available delta: %#v", updates)
+	}
+}
+
+func TestOperatorToolCallStreamBuildsInterleavedFragmentsByIndex(t *testing.T) {
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprintln(w, `data: {"choices":[{"delta":{"content":"Checking.","tool_calls":[{"index":1,"id":"call_b","type":"function","function":{"name":"canter_","arguments":"{\"text\":"}},{"index":0,"id":"call_a","type":"function","function":{"name":"canter_","arguments":"{\"count\":"}}]}}]}`)
+		fmt.Fprintln(w, `data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"name":"count","arguments":"3}"}},{"index":1,"function":{"name":"echo","arguments":"\"hello\"}"}}]}}]}`)
+		fmt.Fprintln(w, "data: [DONE]")
+	}))
+	defer provider.Close()
+
+	answer, err := (OperatorConfig{BaseURL: provider.URL, Model: "test"}).complete(context.Background(), nil, nil, func(string) error { return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if answer.Content != "Checking." {
+		t.Fatalf("combined response content = %q", answer.Content)
+	}
+	if len(answer.ToolCalls) != 2 {
+		t.Fatalf("tool calls = %#v", answer.ToolCalls)
+	}
+	if got := answer.ToolCalls[0]; got.ID != "call_b" || got.Type != "function" || got.Function.Name != "canter_echo" || got.Function.Arguments != `{"text":"hello"}` {
+		t.Fatalf("first-seen index 1 call was not reconstructed: %+v", got)
+	}
+	if got := answer.ToolCalls[1]; got.ID != "call_a" || got.Type != "function" || got.Function.Name != "canter_count" || got.Function.Arguments != `{"count":3}` {
+		t.Fatalf("second-seen index 0 call was not reconstructed: %+v", got)
+	}
+}
+
+func TestOperatorToolCallStreamKeepsToolOnlyAndInvalidCallSemantics(t *testing.T) {
+	for _, tc := range []struct {
+		name, body, wantError string
+		wantName, wantArgs    string
+	}{
+		{
+			name:     "tool only",
+			body:     "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_only\",\"function\":{\"name\":\"canter_\",\"arguments\":\"{}\"}}]}}]}\n\ndata: [DONE]\n\n",
+			wantName: "canter_",
+			wantArgs: "{}",
+		},
+		{
+			name:      "invalid fragmented arguments",
+			body:      "data: {\"choices\":[{\"delta\":{\"content\":\"partial\",\"tool_calls\":[{\"index\":0,\"id\":\"call_bad\",\"function\":{\"name\":\"canter_\",\"arguments\":\"{\"}}]}}]}\n\ndata: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"name\":\"run\",\"arguments\":\"not-json\"}}]}}]}\n\ndata: [DONE]\n\n",
+			wantError: "model returned an incomplete tool request",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "text/event-stream")
+				fmt.Fprint(w, tc.body)
+			}))
+			defer provider.Close()
+
+			answer, err := (OperatorConfig{BaseURL: provider.URL, Model: "test"}).complete(context.Background(), nil, nil, func(string) error { return nil })
+			if tc.wantError != "" {
+				if err == nil || err.Error() != tc.wantError {
+					t.Fatalf("error = %v, want %q", err, tc.wantError)
+				}
+				if answer.Content != "partial" || len(answer.ToolCalls) != 0 {
+					t.Fatalf("invalid call changed partial answer semantics: %+v", answer)
+				}
+				return
+			}
+			if err != nil || answer.Content != "" || len(answer.ToolCalls) != 1 {
+				t.Fatalf("tool-only response = %+v, %v", answer, err)
+			}
+			if answer.ToolCalls[0].Function.Name != tc.wantName || answer.ToolCalls[0].Function.Arguments != tc.wantArgs {
+				t.Fatalf("tool-only call = %+v", answer.ToolCalls[0])
+			}
+		})
+	}
+}
+
 // This opt-in check uses the actual external model and the real command bridge.
 // A viewer grant prevents the model from mutating infrastructure or creating
 // shared tasks, even if it unexpectedly requests those tools.
@@ -348,8 +506,8 @@ func TestOperatorHarnessLiveModel(t *testing.T) {
 	if err = s.pool.QueryRow(ctx, `SELECT scratch FROM operator_working_context WHERE conversation_id=$1`, c.ID).Scan(&scratch); err != nil || strings.TrimSpace(scratch["/scratch/region.txt"]) != "Toronto" {
 		t.Fatalf("live command state did not survive: %v", err)
 	}
-	messages, err := s.OperatorMessages(ctx, c.ID)
-	if err != nil || !strings.Contains(strings.ToLower(messages[len(messages)-1].Content), "flight") {
+	page, err := s.OperatorMessages(ctx, c.ID, "")
+	if err != nil || len(page.Messages) == 0 || !strings.Contains(strings.ToLower(page.Messages[0].Content), "flight") {
 		t.Fatalf("follow-up lost project identity: %v", err)
 	}
 	t.Logf("verified model %s across two turns: context saved, commands executed, files resumed", config.Model)

@@ -134,6 +134,14 @@ func enrollTOTP(t *testing.T, h *HTTPServer, cookie *http.Cookie) (string, []str
 	}
 	w = authRequest(t, h, "security/totp/confirm", map[string]string{"code": code}, cookie)
 	requireStatus(t, w, 200)
+	rotated := authCookie(t, h, w, "session")
+	if rotated.Value == cookie.Value {
+		t.Fatal("enabling authenticator did not rotate session token")
+	}
+	if _, err := h.service.Store.ResolveHuman(context.Background(), cookie.Value); !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("pre-enrollment session token remains valid: %v", err)
+	}
+	cookie.Value = rotated.Value
 	var result struct {
 		Codes []string `json:"recoveryCodes"`
 	}
@@ -196,6 +204,8 @@ func TestAuthEmailAttemptLimitAndExpiry(t *testing.T) {
 func TestAuthMFAEnforcedForPasswordOAuthAndRecovery(t *testing.T) {
 	s, h, _ := newAuthTestServer(t)
 	ctx := context.Background()
+	now := time.Now().UTC().Truncate(30 * time.Second).Add(10 * time.Second)
+	s.now = func() time.Time { return now }
 	w := signupHTTP(t, h, "mfa@example.com")
 	requireStatus(t, w, 201)
 	cookie := authCookie(t, h, w, "session")
@@ -208,6 +218,10 @@ func TestAuthMFAEnforcedForPasswordOAuthAndRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	secret, codes := enrollTOTP(t, h, cookie)
+	var enrolledStep int64
+	if err = s.pool.QueryRow(ctx, `SELECT last_step FROM account_totp WHERE account_id=$1`, p.Account.ID).Scan(&enrolledStep); err != nil || enrolledStep != now.Unix()/30 {
+		t.Fatalf("enrollment step=%d want %d: %v", enrolledStep, now.Unix()/30, err)
+	}
 	if _, err = s.ResolveHuman(ctx, old); !errors.Is(err, ErrUnauthorized) {
 		t.Fatal("old session survived enrollment", err)
 	}
@@ -232,9 +246,8 @@ func TestAuthMFAEnforcedForPasswordOAuthAndRecovery(t *testing.T) {
 	code, _ := totp.GenerateCode(secret, s.now())
 	w = authRequest(t, h, "mfa/finish", authInput{Code: code}, challenge)
 	requireStatus(t, w, 400)
-	now := s.now()
-	s.now = func() time.Time { return now.Add(30 * time.Second) }
-	code, _ = totp.GenerateCode(secret, s.now())
+	now = now.Add(30 * time.Second)
+	code, _ = totp.GenerateCode(secret, now)
 	w = authRequest(t, h, "mfa/finish", authInput{Code: code}, challenge)
 	requireStatus(t, w, 200)
 	session := authCookie(t, h, w, "session")

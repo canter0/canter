@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useSyncExternalStore } from "react";
 import type { OperatorAttachment } from "./operator-api";
+import { clearOperatorAttachmentStorage, openOperatorAttachmentDatabase } from "./operator-attachment-storage";
 
 type Draft = { items: OperatorAttachment[]; error: string; loaded: boolean };
 const empty: Draft = { items: [], error: "", loaded: false };
@@ -8,21 +9,12 @@ const drafts = new Map<string, Draft>();
 const listeners = new Set<() => void>();
 const subscribe = (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; };
 const publish = (key: string, value: Draft) => { drafts.set(key, value); listeners.forEach(listener => listener()); };
-let database: Promise<IDBDatabase> | undefined;
-function open() {
-  return database ??= new Promise((resolve, reject) => {
-    const request = indexedDB.open("canter-drafts", 1);
-    request.onupgradeneeded = () => request.result.createObjectStore("attachments");
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => { database = undefined; reject(request.error); };
-  });
-}
 export function useOperatorAttachmentDraft(key: string | null) {
   const draft = useSyncExternalStore(subscribe, () => key ? drafts.get(key) ?? empty : empty, () => empty);
   useEffect(() => {
     if (!key || drafts.has(key)) return;
     let cancelled = false;
-    void open().then(db => {
+    void openOperatorAttachmentDatabase().then(db => {
       const request = db.transaction("attachments").objectStore("attachments").get(key);
       request.onsuccess = () => { if (!cancelled && !drafts.has(key)) publish(key, { items: request.result ?? [], error: "", loaded: true }); };
       request.onerror = () => { if (!cancelled) publish(key, { items: [], error: "Attachments cannot be restored in this browser.", loaded: true }); };
@@ -33,7 +25,7 @@ export function useOperatorAttachmentDraft(key: string | null) {
     const key = targetKey;
     if (!key) return;
     publish(key, { items, error: "", loaded: true });
-    void open().then(db => new Promise<void>((resolve, reject) => {
+    void openOperatorAttachmentDatabase().then(db => new Promise<void>((resolve, reject) => {
       const transaction = db.transaction("attachments", "readwrite");
       if (items.length) transaction.objectStore("attachments").put(items, key);
       else transaction.objectStore("attachments").delete(key);
@@ -47,7 +39,13 @@ export function useOperatorAttachmentDraft(key: string | null) {
 
 export function clearOperatorAttachmentDraft(key: string) {
   publish(key, { items: [], error: "", loaded: true });
-  void open().then(db => {
+  void openOperatorAttachmentDatabase().then(db => {
     db.transaction("attachments", "readwrite").objectStore("attachments").delete(key);
   }).catch(() => { /* Local draft storage may be unavailable. */ });
+}
+
+export async function clearAllOperatorAttachmentDrafts() {
+  drafts.clear();
+  listeners.forEach(listener => listener());
+  await clearOperatorAttachmentStorage();
 }

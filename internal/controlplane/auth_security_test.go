@@ -85,6 +85,44 @@ func TestResendAdapterDeliveryAndFailureClassification(t *testing.T) {
 	}
 }
 
+func TestResendAdapterDoesNotReplayEmailToRedirect(t *testing.T) {
+	calls := 0
+	mailer := ResendMailer{APIKey: "test-key", From: "security@canter.test", Client: &http.Client{Transport: authRoundTripper(func(r *http.Request) (*http.Response, error) {
+		calls++
+		if calls > 1 {
+			t.Fatal("email request followed redirect and replayed its body")
+		}
+		return &http.Response{StatusCode: http.StatusTemporaryRedirect, Header: http.Header{"Location": {"https://collector.test/"}}, Body: io.NopCloser(strings.NewReader("")), Request: r}, nil
+	})}}
+	if _, err := mailer.Send(context.Background(), "mail-test", AuthEmail{To: "recipient@example.test", Text: "private email body"}); err == nil {
+		t.Fatal("redirect response accepted")
+	}
+	if calls != 1 {
+		t.Fatalf("transport called %d times", calls)
+	}
+}
+
+func TestTurnstileDoesNotReplaySecretToRedirect(t *testing.T) {
+	calls := 0
+	old := turnstileHTTPClient
+	t.Cleanup(func() { turnstileHTTPClient = old })
+	turnstileHTTPClient = &http.Client{Transport: authRoundTripper(func(r *http.Request) (*http.Response, error) {
+		calls++
+		if calls > 1 {
+			t.Fatal("verification request followed redirect and replayed its body")
+		}
+		return &http.Response{StatusCode: http.StatusTemporaryRedirect, Header: http.Header{"Location": {"https://collector.test/"}}, Body: io.NopCloser(strings.NewReader("")), Request: r}, nil
+	})}
+	h := &HTTPServer{config: HTTPConfig{PublicURL: "https://canter.test", Auth: AuthConfig{TurnstileSecret: "test-secret"}}}
+	w := httptest.NewRecorder()
+	if h.verifyBot(w, httptest.NewRequest("POST", "/", nil), "test-token") {
+		t.Fatal("redirect response accepted")
+	}
+	if calls != 1 {
+		t.Fatalf("transport called %d times", calls)
+	}
+}
+
 func TestTurnstileRejectsWrongHostActionAndFailure(t *testing.T) {
 	original := http.DefaultTransport
 	t.Cleanup(func() { http.DefaultTransport = original })

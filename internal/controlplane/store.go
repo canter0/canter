@@ -104,6 +104,18 @@ var vpsMigration string
 //go:embed migrations/029_account_deletion.sql
 var accountDeletionMigration string
 
+//go:embed migrations/030_operator_run_lookup.sql
+var operatorRunLookupMigration string
+
+//go:embed migrations/031_operator_message_history.sql
+var operatorMessageHistoryMigration string
+
+//go:embed migrations/032_execution_claim_fencing.sql
+var executionClaimFencingMigration string
+
+//go:embed migrations/033_workspace_index_paging.sql
+var workspaceIndexPagingMigration string
+
 var (
 	ErrNotFound      = errors.New("not found")
 	ErrUnauthorized  = errors.New("unauthorized")
@@ -330,6 +342,30 @@ func (s *Store) Migrate(ctx context.Context) error {
 	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('029_account_deletion') ON CONFLICT DO NOTHING`); err != nil {
 		return err
 	}
+	if _, err := tx.Exec(ctx, operatorRunLookupMigration); err != nil {
+		return fmt.Errorf("apply operator run lookup migration: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('030_operator_run_lookup') ON CONFLICT DO NOTHING`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, operatorMessageHistoryMigration); err != nil {
+		return fmt.Errorf("apply operator message history migration: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('031_operator_message_history') ON CONFLICT DO NOTHING`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, executionClaimFencingMigration); err != nil {
+		return fmt.Errorf("apply execution claim fencing migration: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('032_execution_claim_fencing') ON CONFLICT DO NOTHING`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, workspaceIndexPagingMigration); err != nil {
+		return fmt.Errorf("apply workspace index paging migration: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('033_workspace_index_paging') ON CONFLICT DO NOTHING`); err != nil {
+		return err
+	}
 
 	return tx.Commit(ctx)
 }
@@ -420,7 +456,9 @@ func (s *Store) signupVerifiedTx(ctx context.Context, tx pgx.Tx, email, password
 func (s *Store) Signin(ctx context.Context, email, password string) (Account, []Workspace, string, error) {
 	email, err := normalizeEmail(email)
 	if err != nil {
-		verifyPassword(dummyPasswordHash, password)
+		if _, verifyErr := verifyPasswordLimited(dummyPasswordHash, password); verifyErr != nil {
+			return Account{}, nil, "", verifyErr
+		}
 		return Account{}, nil, "", ErrUnauthorized
 	}
 	tx, err := s.pool.Begin(ctx)
@@ -434,10 +472,16 @@ func (s *Store) Signin(ctx context.Context, email, password string) (Account, []
 	var version int64
 	err = tx.QueryRow(ctx, `SELECT id,email,password_hash,created_at,disabled_at,auth_version FROM accounts WHERE email=$1 FOR UPDATE`, email).Scan(&account.ID, &account.Email, &passwordHash, &account.CreatedAt, &disabled, &version)
 	if err != nil || !strings.HasPrefix(passwordHash, "$argon2id$") {
-		verifyPassword(dummyPasswordHash, password)
+		if _, verifyErr := verifyPasswordLimited(dummyPasswordHash, password); verifyErr != nil {
+			return Account{}, nil, "", verifyErr
+		}
 		return Account{}, nil, "", ErrUnauthorized
 	}
-	if !verifyPassword(passwordHash, password) || disabled != nil {
+	valid, verifyErr := verifyPasswordLimited(passwordHash, password)
+	if verifyErr != nil {
+		return Account{}, nil, "", verifyErr
+	}
+	if !valid || disabled != nil {
 		return Account{}, nil, "", ErrUnauthorized
 	}
 	sessionID, err := newID("hss_")
@@ -468,6 +512,22 @@ func (s *Store) ResolveHuman(ctx context.Context, token string) (Principal, erro
 	p.Account = &account
 	p.Actor = sdk.ActorRef{Kind: "human", ID: account.ID, SessionID: sessionID, DisplayName: account.Email}
 	return p, nil
+}
+
+// HumanSessionActive rechecks the authority captured by a request principal.
+// Long polls can outlive the request-time authentication check, so they must
+// not rely on the account and session snapshot alone.
+func (s *Store) HumanSessionActive(ctx context.Context, accountID, sessionID, token string) (bool, error) {
+	var active bool
+	err := s.pool.QueryRow(ctx, `SELECT EXISTS(
+		SELECT 1 FROM human_sessions hs JOIN accounts a ON a.id=hs.account_id
+		WHERE hs.id=$1 AND hs.account_id=$2 AND hs.token_hash=$3 AND hs.revoked_at IS NULL AND hs.expires_at>$4
+		AND hs.auth_version=a.auth_version AND a.disabled_at IS NULL AND a.email_verified_at IS NOT NULL
+		AND (hs.mfa_verified_at IS NOT NULL OR NOT EXISTS (
+			SELECT 1 FROM account_totp t WHERE t.account_id=a.id AND t.enabled_at IS NOT NULL
+		))
+	)`, sessionID, accountID, secretHash(token), s.now()).Scan(&active)
+	return active, err
 }
 
 func (s *Store) RevokeHumanSession(ctx context.Context, token string) error {
@@ -841,6 +901,9 @@ func (s *Store) RevokeInstallation(ctx context.Context, workspaceID, id string) 
 	}
 	if result.RowsAffected() != 1 {
 		return ErrNotFound
+	}
+	if _, err = tx.Exec(ctx, `UPDATE change_approval_capabilities SET revoked_at=$1 WHERE requested_by_installation=$2 AND consumed_at IS NULL AND revoked_at IS NULL`, now, id); err != nil {
+		return err
 	}
 	if _, err = tx.Exec(ctx, `UPDATE agent_credentials SET revoked_at=$1 WHERE installation_id=$2 AND revoked_at IS NULL`, now, id); err != nil {
 		return err

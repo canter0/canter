@@ -223,7 +223,7 @@ func (o *OperatorRuntime) work(ctx context.Context, run *OperatorRun) error {
 		}
 		modelStarted := time.Now()
 		answer, err := config.complete(ctx, modelContext, o.tools(), func(content string) error {
-			return s.operatorEvent(ctx, *run, "text", map[string]any{"content": content, "step": run.Steps})
+			return s.operatorEvent(ctx, *run, "text", map[string]any{"content": content, "step": run.Steps, "delta": true})
 		})
 		if err != nil {
 			return err

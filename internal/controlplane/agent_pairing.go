@@ -216,7 +216,7 @@ func (s *Store) CancelAgentPairing(ctx context.Context, id, accountID string) er
 }
 
 func (s *Store) revokeInstallationTx(ctx context.Context, tx pgx.Tx, id string) error {
-	for _, query := range []string{`UPDATE agent_installations SET revoked_at=COALESCE(revoked_at,$2) WHERE id=$1`, `UPDATE agent_credentials SET revoked_at=COALESCE(revoked_at,$2) WHERE installation_id=$1`, `UPDATE agent_sessions SET ended_at=COALESCE(ended_at,$2) WHERE installation_id=$1`} {
+	for _, query := range []string{`UPDATE agent_installations SET revoked_at=COALESCE(revoked_at,$2) WHERE id=$1`, `UPDATE change_approval_capabilities SET revoked_at=$2 WHERE requested_by_installation=$1 AND consumed_at IS NULL AND revoked_at IS NULL`, `UPDATE agent_credentials SET revoked_at=COALESCE(revoked_at,$2) WHERE installation_id=$1`, `UPDATE agent_sessions SET ended_at=COALESCE(ended_at,$2) WHERE installation_id=$1`} {
 		if _, err := tx.Exec(ctx, query, id, s.now()); err != nil {
 			return err
 		}

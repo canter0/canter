@@ -107,7 +107,7 @@ func changeCommand(client *sdk.Client, args []string) error {
 		for _, assignment := range environments {
 			key, value, ok := strings.Cut(assignment, "=")
 			if !ok || key == "" {
-				return fmt.Errorf("invalid environment assignment %q", assignment)
+				return errors.New("invalid environment assignment; expected KEY=VALUE")
 			}
 			environment[key] = value
 		}

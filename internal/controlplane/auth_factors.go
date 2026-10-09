@@ -114,7 +114,12 @@ func (h *HTTPServer) accountSecurity(w http.ResponseWriter, r *http.Request, par
 	switch {
 	case route == "reauth" && r.Method == http.MethodPost:
 		if strings.HasPrefix(a.Password, "$argon2id$") {
-			if !verifyPassword(a.Password, in.Password) {
+			valid, verifyErr := verifyPasswordLimited(a.Password, in.Password)
+			if verifyErr != nil {
+				writeAuthStoreError(w, verifyErr)
+				return
+			}
+			if !valid {
 				writeStoreError(w, ErrUnauthorized)
 				return
 			}
@@ -207,7 +212,11 @@ func (h *HTTPServer) accountSecurity(w http.ResponseWriter, r *http.Request, par
 		}
 		password, e := hashPassword(in.Password)
 		if e != nil {
-			writeError(w, http.StatusBadRequest, e)
+			if errors.Is(e, ErrCapacity) {
+				writeError(w, http.StatusServiceUnavailable, e)
+			} else {
+				writeError(w, http.StatusBadRequest, e)
+			}
 			return
 		}
 		_, err = tx.Exec(ctx, `UPDATE accounts SET password_hash=$2 WHERE id=$1`, a.ID, password)
@@ -250,6 +259,11 @@ func (h *HTTPServer) accountSecurity(w http.ResponseWriter, r *http.Request, par
 	}
 	if err == nil && action != "" {
 		err = h.invalidateAuthTx(ctx, tx, a.ID, p.Actor.SessionID)
+		if err == nil && route == "totp/confirm" {
+			// Enabling MFA elevates this session. Rotate its bearer token so a
+			// copied pre-enrollment token cannot inherit the new MFA state.
+			rotatedToken, err = h.rotateSessionTx(ctx, tx, p.Actor.SessionID, true)
+		}
 		if err == nil {
 			err = h.securityEventTx(ctx, tx, a, action)
 		}

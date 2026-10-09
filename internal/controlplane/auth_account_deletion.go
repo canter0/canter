@@ -149,7 +149,12 @@ func (h *HTTPServer) accountDeletion(w http.ResponseWriter, r *http.Request, rou
 	}
 	if route == "/start" {
 		if hasPassword {
-			if !verifyPassword(a.Password, in.Password) {
+			valid, verifyErr := verifyPasswordLimited(a.Password, in.Password)
+			if verifyErr != nil {
+				writeAuthStoreError(w, verifyErr)
+				return
+			}
+			if !valid {
 				writeError(w, http.StatusUnauthorized, errors.New("incorrect password"))
 				return
 			}

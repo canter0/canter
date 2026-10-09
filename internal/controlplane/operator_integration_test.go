@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 func operatorFixture(t *testing.T) (*Store, Conversation, string) {
@@ -56,6 +58,70 @@ func TestOperatorConversationMentionUsesOwnedHistory(t *testing.T) {
 		t.Fatalf("missing conversation attached: %v", err)
 	}
 }
+
+func TestOperatorEventsLongPollStopsAfterSessionRevocation(t *testing.T) {
+	s, conversation, token := operatorFixture(t)
+	principal, err := s.ResolveHuman(context.Background(), token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := NewHTTPServer(&Service{Store: s}, HTTPConfig{}).(*HTTPServer)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	req := httptest.NewRequest(http.MethodGet, "/events", nil).WithContext(ctx)
+	req.AddCookie(&http.Cookie{Name: h.humanCookieName(), Value: token})
+	response := httptest.NewRecorder()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		h.conversations(response, req, principal, conversation.WorkspaceID, []string{conversation.ID, "events"})
+	}()
+	// Let the request pass its initial authorization check and enter the wait.
+	time.Sleep(50 * time.Millisecond)
+	if err = s.RevokeHumanSession(context.Background(), token); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("event long poll did not stop after session revocation")
+	}
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("revoked session received an event response: status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
+func TestOperatorEventsLongPollStopsAfterSessionTokenRotation(t *testing.T) {
+	s, conversation, token := operatorFixture(t)
+	principal, err := s.ResolveHuman(context.Background(), token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := NewHTTPServer(&Service{Store: s}, HTTPConfig{}).(*HTTPServer)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	req := httptest.NewRequest(http.MethodGet, "/events", nil).WithContext(ctx)
+	req.AddCookie(&http.Cookie{Name: h.humanCookieName(), Value: token})
+	response := httptest.NewRecorder()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		h.conversations(response, req, principal, conversation.WorkspaceID, []string{conversation.ID, "events"})
+	}()
+	time.Sleep(50 * time.Millisecond)
+	if _, err = s.pool.Exec(context.Background(), `UPDATE human_sessions SET token_hash=$2 WHERE id=$1`, principal.Actor.SessionID, secretHash("chs_rotated_token")); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("event long poll did not stop after session token rotation")
+	}
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("old session token received an event response: status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
 func TestOperatorIdempotencyRecoveryAndCancellation(t *testing.T) {
 	s, c, _ := operatorFixture(t)
 	ctx := context.Background()
@@ -70,9 +136,9 @@ func TestOperatorIdempotencyRecoveryAndCancellation(t *testing.T) {
 	if next, err := s.EnqueueOperator(ctx, c, "request_2", "Another message", "test", nil); err != nil || next.Status != "queued" {
 		t.Fatalf("follow-up was not queued: %v", err)
 	}
-	messages, err := s.OperatorMessages(ctx, c.ID)
-	if err != nil || len(messages) != 2 || messages[0].Surface == nil || messages[0].Surface.Kind != "billing" {
-		t.Fatalf("message or view context was not persisted: %+v %v", messages, err)
+	page, err := s.OperatorMessages(ctx, c.ID, "")
+	if err != nil || len(page.Messages) != 2 || page.Messages[1].Surface == nil || page.Messages[1].Surface.Kind != "billing" {
+		t.Fatalf("message or view context was not persisted: %+v %v", page, err)
 	}
 	run, ok, err := s.claimOperator(ctx)
 	if err != nil || !ok {
@@ -203,6 +269,119 @@ func TestOperatorHTTPConversationIsolationAndGrantRevocation(t *testing.T) {
 	}
 }
 
+func TestOperatorMessagePagesBoundBytesCountAndPreserveOwnerScope(t *testing.T) {
+	s, c, token := operatorFixture(t)
+	ctx := context.Background()
+	base := time.Now().UTC().Truncate(time.Microsecond)
+	attachmentJSON, err := json.Marshal([]OperatorAttachment{{ID: "large-file", Name: "large.txt", MediaType: "text/plain", DataBase64: strings.Repeat("A", 1_200_000), Size: 900_000}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := make([]string, 0, 110)
+	for i := 0; i < 110; i++ {
+		messageID, runID := fmt.Sprintf("msg_page_%03d", i), fmt.Sprintf("run_page_%03d", i)
+		createdAt := base.Add(time.Duration(i) * time.Second)
+		if _, err := s.pool.Exec(ctx, `INSERT INTO operator_runs(id,conversation_id,request_id,model,status,created_at) VALUES($1,$2,$3,'test','completed',$4)`, runID, c.ID, runID, createdAt); err != nil {
+			t.Fatal(err)
+		}
+		attachments := []byte(`[]`)
+		if i >= 102 {
+			attachments = attachmentJSON
+		}
+		if _, err := s.pool.Exec(ctx, `INSERT INTO operator_messages(id,conversation_id,run_id,role,content,created_at,attachments) VALUES($1,$2,$3,'user',$4,$5,$6)`, messageID, c.ID, runID, strings.Repeat("x", 800), createdAt, attachments); err != nil {
+			t.Fatal(err)
+		}
+		expected = append([]string{messageID}, expected...)
+	}
+	var traversed []string
+	cursor := ""
+	firstPageCount := -1
+	sawCountLimitedPage := false
+	for pageNumber := 0; pageNumber < 4; pageNumber++ {
+		page, err := s.OperatorMessages(ctx, c.ID, cursor)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(page.Messages) > operatorMessagePageCount {
+			t.Fatalf("page returned %d messages", len(page.Messages))
+		}
+		if len(page.Messages) == operatorMessagePageCount && page.HasMore {
+			sawCountLimitedPage = true
+		}
+		encoded, err := json.Marshal(page.Messages)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(encoded) > operatorMessagePageBytes {
+			t.Fatalf("page payload is %d bytes, limit is %d", len(encoded), operatorMessagePageBytes)
+		}
+		if pageNumber == 0 {
+			firstPageCount = len(page.Messages)
+			if firstPageCount >= operatorMessagePageCount || firstPageCount < 2 || !page.HasMore || page.NextCursor == "" {
+				t.Fatalf("byte budget did not split large history: %+v", page)
+			}
+		}
+		for _, message := range page.Messages {
+			traversed = append(traversed, message.ID)
+		}
+		if !page.HasMore {
+			break
+		}
+		if page.NextCursor == "" {
+			t.Fatal("page with more history omitted its cursor")
+		}
+		cursor = page.NextCursor
+	}
+	if len(traversed) != len(expected) {
+		t.Fatalf("page traversal returned %d of %d messages", len(traversed), len(expected))
+	}
+	if !sawCountLimitedPage {
+		t.Fatal("count ceiling did not split the history")
+	}
+	for i := range expected {
+		if traversed[i] != expected[i] {
+			t.Fatalf("unstable page order at %d: got %s want %s", i, traversed[i], expected[i])
+		}
+	}
+	if _, _, err := parseOperatorMessageCursor(cursor); err != nil {
+		t.Fatalf("last cursor did not parse: %v", err)
+	}
+
+	other, _, otherToken, err := s.Signup(ctx, "history-reader@example.com", "correct horse battery staple", "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.pool.Exec(ctx, `INSERT INTO memberships(account_id,workspace_id,role) VALUES($1,$2,'viewer')`, other.ID, c.WorkspaceID); err != nil {
+		t.Fatal(err)
+	}
+	h := NewHTTPServer(&Service{Store: s}, HTTPConfig{PublicURL: "http://canter.test"}).(*HTTPServer)
+	path := "http://canter.test/v1/workspaces/" + c.WorkspaceID + "/conversations/" + c.ID
+	ownerRequest := httptest.NewRequest(http.MethodGet, path, nil)
+	ownerRequest.Header.Set("Origin", "http://canter.test")
+	ownerRequest.AddCookie(&http.Cookie{Name: "canter_session", Value: token})
+	ownerResponse := httptest.NewRecorder()
+	h.ServeHTTP(ownerResponse, ownerRequest)
+	if ownerResponse.Code != http.StatusOK || ownerResponse.Body.Len() > operatorMessagePageBytes {
+		t.Fatalf("owner detail response exceeded history bounds: status=%d bytes=%d", ownerResponse.Code, ownerResponse.Body.Len())
+	}
+	var detail struct {
+		Messages   []OperatorMessage `json:"messages"`
+		HasMore    bool              `json:"hasMore"`
+		NextCursor string            `json:"nextCursor"`
+	}
+	if err := json.Unmarshal(ownerResponse.Body.Bytes(), &detail); err != nil || !detail.HasMore || detail.NextCursor == "" || len(detail.Messages) > operatorMessagePageCount {
+		t.Fatalf("detail endpoint omitted paging metadata or exceeded count bound: %+v %v", detail, err)
+	}
+	r := httptest.NewRequest(http.MethodGet, path+"?before="+url.QueryEscape(operatorMessageCursor(base, "msg_page_000")), nil)
+	r.Header.Set("Origin", "http://canter.test")
+	r.AddCookie(&http.Cookie{Name: "canter_session", Value: otherToken})
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("foreign owner used a valid page cursor to read conversation: %d", w.Code)
+	}
+}
+
 // The deterministic provider here verifies protocol and database behavior. The
 // separate live verification runs against the configured external model.
 func TestOperatorRuntimeExecutesToolAndPersistsFollowup(t *testing.T) {
@@ -270,8 +449,8 @@ func TestOperatorRuntimeExecutesToolAndPersistsFollowup(t *testing.T) {
 			t.Fatalf("run did not complete: %+v %v", latest, err)
 		}
 	}
-	messages, err := s.OperatorMessages(ctx, c.ID)
-	if err != nil || len(messages) != 4 || calls != 3 {
-		t.Fatalf("conversation not durably continued: messages=%d calls=%d err=%v", len(messages), calls, err)
+	page, err := s.OperatorMessages(ctx, c.ID, "")
+	if err != nil || len(page.Messages) != 4 || calls != 3 {
+		t.Fatalf("conversation not durably continued: messages=%d calls=%d err=%v", len(page.Messages), calls, err)
 	}
 }

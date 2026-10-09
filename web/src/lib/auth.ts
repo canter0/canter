@@ -7,7 +7,11 @@ export function authDestination(next: string, fallback = "/app") {
     const decoded = decodeURIComponent(next);
     if (decoded.startsWith("//") || /[\\\r\n]/.test(decoded)) return fallback;
     const url = new URL(next, "http://canter.local");
-    return url.origin === "http://canter.local" ? `${url.pathname}${url.search}${url.hash}` : fallback;
+    // URL parsing removes dot segments. A path such as "/.//attacker.example"
+    // therefore becomes "//attacker.example", which redirect() and the
+    // browser treat as an external network-path URL.
+    if (url.origin !== "http://canter.local" || url.pathname.startsWith("//")) return fallback;
+    return `${url.pathname}${url.search}${url.hash}`;
   } catch { return fallback; }
 }
 

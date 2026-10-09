@@ -47,6 +47,10 @@
 .surfaces button[aria-pressed="true"], .suggestions button:hover, .surfaces button:hover { color: var(--ink); background: #292929; }
 .surfaces { margin-bottom: 12px; }
 .note { color: var(--muted); line-height: 1.8; margin: 15px 0; font-size: 13px; }
+.earlierMessages { display: flex; flex-direction: column; align-items: center; gap: 4px; margin: 10px 0 18px; }
+.earlierMessages > button { padding: 7px 12px; border: 1px solid #393939; border-radius: 18px; color: #aaa; font-size: 12px; }
+.earlierMessages > button:hover:not(:disabled) { color: #eee; background: #252525; border-color: #555; }
+.earlierMessages > button:disabled { opacity: .6; }
 .error { padding: 12px 0; color: #e5b3b3; font-size: 12px; line-height: 1.7; }
 .error button { text-decoration: underline; margin-left: 7px; }
 .progress { display: flex; align-items: center; gap: 9px; color: var(--muted); font-size: 12px; margin: 15px 0; }

@@ -37,10 +37,16 @@ func (s *Store) CreateAgentWorker(ctx context.Context, p Principal, in WorkerInp
 	}
 	defer tx.Rollback(ctx)
 	var expiry time.Time
+	var inspectAllowed, draftAllowed bool
 	// Synchronize issuance with refresh/disconnect and installation revocation.
-	err = tx.QueryRow(ctx, `SELECT s.expires_at FROM agent_sessions s JOIN agent_installations i ON i.id=s.installation_id WHERE s.id=$1 AND s.ended_at IS NULL AND s.expires_at>$2 AND i.revoked_at IS NULL AND (i.expires_at IS NULL OR i.expires_at>$2) FOR SHARE OF s,i`, p.Session.ID, s.now()).Scan(&expiry)
+	// Read the current grant under the same lock as the session. The Principal
+	// may have been resolved before an owner downgraded the installation.
+	err = tx.QueryRow(ctx, `SELECT s.expires_at,i.inspect_allowed,i.draft_allowed FROM agent_sessions s JOIN agent_installations i ON i.id=s.installation_id WHERE s.id=$1 AND s.ended_at IS NULL AND s.expires_at>$2 AND i.revoked_at IS NULL AND (i.expires_at IS NULL OR i.expires_at>$2) FOR SHARE OF s,i`, p.Session.ID, s.now()).Scan(&expiry, &inspectAllowed, &draftAllowed)
 	if err != nil {
 		return WorkerToken{}, ErrUnauthorized
+	}
+	if !inspectAllowed || (in.Draft && !draftAllowed) {
+		return WorkerToken{}, ErrForbidden
 	}
 	id, err := newID("ass_")
 	if err != nil {

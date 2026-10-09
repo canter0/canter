@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/canter0/canter/internal/fileinput"
 	"github.com/canter0/canter/sdk/remote"
 )
 
@@ -33,6 +34,8 @@ common environment inputs (never written automatically):
   CANTER_API_URL
   CANTER_AGENT_ACCESS_TOKEN
   CANTER_AGENT_REFRESH_TOKEN`
+
+const maxAgentEnvFileBytes = 1 << 20
 
 func agentCommand(args []string) error {
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
@@ -315,15 +318,14 @@ func explicitEnvValues(path string) (map[string]string, error) {
 	if path == "" {
 		return values, nil
 	}
-	file, err := os.Open(path)
+	raw, err := fileinput.ReadRegular(path, maxAgentEnvFileBytes)
 	if errors.Is(err, os.ErrNotExist) {
 		return values, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
-	scanner := bufio.NewScanner(file)
+	scanner := bufio.NewScanner(strings.NewReader(string(raw)))
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" || strings.HasPrefix(line, "#") {
@@ -362,6 +364,8 @@ func persistAgentEnv(path string, values map[string]string) error {
 	}
 	if info, err := os.Lstat(path); err == nil && info.Mode()&os.ModeSymlink != 0 {
 		return errors.New("refusing to write credentials through a symbolic link")
+	} else if err == nil && !info.Mode().IsRegular() {
+		return errors.New("credential env destination must be a regular file")
 	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
@@ -369,7 +373,7 @@ func persistAgentEnv(path string, values map[string]string) error {
 		return err
 	}
 	var retained []string
-	if raw, err := os.ReadFile(path); err == nil {
+	if raw, err := fileinput.ReadRegularNoFollow(path, maxAgentEnvFileBytes); err == nil {
 		for _, line := range strings.Split(strings.TrimSuffix(string(raw), "\n"), "\n") {
 			trimmed := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "export "))
 			key, _, ok := strings.Cut(trimmed, "=")

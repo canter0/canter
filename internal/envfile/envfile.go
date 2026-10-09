@@ -6,7 +6,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/canter0/canter/internal/fileinput"
 )
+
+const maxEnvFileSize = 1 << 20
 
 func Load() (string, error) {
 	if explicit := os.Getenv("CANTER_ENV_FILE"); explicit != "" {
@@ -31,12 +35,11 @@ func Load() (string, error) {
 }
 
 func loadFile(path string) error {
-	f, err := os.Open(path)
+	raw, err := fileinput.ReadRegular(path, maxEnvFileSize)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-	s := bufio.NewScanner(f)
+	s := bufio.NewScanner(strings.NewReader(string(raw)))
 	for s.Scan() {
 		line := strings.TrimSpace(s.Text())
 		if line == "" || strings.HasPrefix(line, "#") {
@@ -49,10 +52,16 @@ func loadFile(path string) error {
 		}
 		key = strings.TrimSpace(key)
 		value = strings.TrimSpace(value)
-		if len(value) >= 2 && ((value[0] == '\'' && value[len(value)-1] == '\'') || (value[0] == '"' && value[len(value)-1] == '"')) {
+		quoted := len(value) >= 2 && ((value[0] == '\'' && value[len(value)-1] == '\'') || (value[0] == '"' && value[len(value)-1] == '"'))
+		singleQuoted := quoted && value[0] == '\''
+		if quoted {
 			value = value[1 : len(value)-1]
 		}
-		value = os.ExpandEnv(value)
+		// Single-quoted values are literal. This preserves common credentials
+		// containing dollar signs while preserving interpolation elsewhere.
+		if !singleQuoted {
+			value = os.ExpandEnv(value)
+		}
 		if _, exists := os.LookupEnv(key); !exists {
 			if err := os.Setenv(key, value); err != nil {
 				return err

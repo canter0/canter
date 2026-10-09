@@ -38,11 +38,20 @@ type HTTPServer struct {
 	config   HTTPConfig
 	limits   *requestLimiter
 	oauth    map[string]*oauthProvider
+	// artifactUploads bounds request bodies retained while validating and staging.
+	// At two slots, retained compressed request data is capped at 128 MiB; gzip
+	// validation streams the separately bounded expanded data. Other routes do
+	// not acquire these slots.
+	artifactUploads chan struct{}
+	// MCP has a small parsing budget for discovery calls and a single slot for
+	// requests that may carry an artifact encoded as base64.
+	mcpRequests    chan struct{}
+	mcpLargeBodies chan struct{}
 }
 
 func NewHTTPServer(service *Service, config HTTPConfig) http.Handler {
 	passkeys, _ := newPasskeys(config.PublicURL)
-	return &HTTPServer{passkeys: passkeys, service: service, config: config, limits: newRequestLimiter(), oauth: newOAuthProviders(config)}
+	return &HTTPServer{passkeys: passkeys, service: service, config: config, limits: newRequestLimiter(), oauth: newOAuthProviders(config), artifactUploads: make(chan struct{}, 2), mcpRequests: make(chan struct{}, 8), mcpLargeBodies: make(chan struct{}, 1)}
 }
 
 func (h *HTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -566,7 +575,7 @@ func (h *HTTPServer) changeApprovals(w http.ResponseWriter, r *http.Request, par
 		review.Capability.ExecutionID = execution.ID
 		_ = h.service.Store.Audit(r.Context(), review.Capability.WorkspaceID, p.Actor, "change.approval-capability.consumed", review.Capability.ID, map[string]any{"changeId": review.Capability.ChangeID, "digest": review.Capability.Digest, "executionId": execution.ID, "requestedBy": review.Capability.RequestedBy.ID})
 		_ = h.service.Store.Audit(r.Context(), review.Capability.WorkspaceID, p.Actor, "execution.queued", execution.ID, map[string]any{"changeId": review.Capability.ChangeID, "approvalCapabilityId": review.Capability.ID})
-		writeJSON(w, http.StatusAccepted, ChangeApprovalResult{Capability: review.Capability, Change: publicChange(change), Execution: execution})
+		writeJSON(w, http.StatusAccepted, ChangeApprovalResult{Capability: review.Capability, Change: publicChange(change), Execution: publicExecution(execution)})
 		return
 	}
 	writeError(w, http.StatusNotFound, ErrNotFound)
@@ -663,8 +672,18 @@ func (h *HTTPServer) workspaces(w http.ResponseWriter, r *http.Request, parts []
 			writeStoreError(w, ErrForbidden)
 			return
 		}
+		// Reject excess uploads before reading or retaining their bodies. A
+		// nonblocking gate avoids tying up handlers waiting for memory capacity.
+		select {
+		case h.artifactUploads <- struct{}{}:
+			defer func() { <-h.artifactUploads }()
+		default:
+			writeError(w, http.StatusServiceUnavailable, fmt.Errorf("artifact upload capacity is full; retry shortly"))
+			return
+		}
 		const maxArtifact = 64 << 20
 		r.Body = http.MaxBytesReader(w, r.Body, maxArtifact)
+		defer r.Body.Close()
 		data, readErr := io.ReadAll(r.Body)
 		if readErr != nil {
 			writeError(w, http.StatusRequestEntityTooLarge, fmt.Errorf("artifact exceeds 64 MiB or could not be read: %w", readErr))
@@ -789,6 +808,10 @@ func (h *HTTPServer) workspaces(w http.ResponseWriter, r *http.Request, parts []
 			return
 		}
 		if len(parts) == 4 && parts[3] == "changes" && r.Method == http.MethodPost {
+			if err = h.allowWorkspace(r, p, workspaceID, true); err != nil {
+				writeStoreError(w, err)
+				return
+			}
 			if p.Installation != nil && !p.Installation.Authority.Draft {
 				writeStoreError(w, ErrForbidden)
 				return
@@ -822,7 +845,7 @@ func (h *HTTPServer) workspaces(w http.ResponseWriter, r *http.Request, parts []
 					writeStoreError(w, err)
 					return
 				}
-				writeJSON(w, http.StatusOK, execution)
+				writeJSON(w, http.StatusOK, publicExecution(execution))
 				return
 			}
 			if len(parts) == 6 && parts[5] == "approval-links" && r.Method == http.MethodPost {
@@ -923,7 +946,7 @@ func (h *HTTPServer) workspaces(w http.ResponseWriter, r *http.Request, parts []
 					return
 				}
 				_ = h.service.Store.Audit(r.Context(), workspaceID, p.Actor, "execution.queued", execution.ID, map[string]any{"changeId": changeID})
-				writeJSON(w, http.StatusAccepted, execution)
+				writeJSON(w, http.StatusAccepted, publicExecution(execution))
 				return
 			}
 		}
@@ -1009,7 +1032,7 @@ func (h *HTTPServer) initialDeployments(w http.ResponseWriter, r *http.Request, 
 			return
 		}
 		_ = h.service.Store.Audit(r.Context(), workspaceID, p.Actor, "initial-deployment.queued", execution.ID, map[string]any{"deploymentId": parts[0]})
-		writeJSON(w, http.StatusAccepted, execution)
+		writeJSON(w, http.StatusAccepted, publicInitialDeploymentExecution(execution))
 		return
 	}
 	writeError(w, http.StatusNotFound, ErrNotFound)
@@ -1034,7 +1057,7 @@ func (h *HTTPServer) executions(w http.ResponseWriter, r *http.Request, parts []
 		writeStoreError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, execution)
+	writeJSON(w, http.StatusOK, publicExecution(execution))
 }
 
 func (h *HTTPServer) initialDeploymentExecutions(w http.ResponseWriter, r *http.Request, parts []string) {
@@ -1056,7 +1079,7 @@ func (h *HTTPServer) initialDeploymentExecutions(w http.ResponseWriter, r *http.
 		writeStoreError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, execution)
+	writeJSON(w, http.StatusOK, publicInitialDeploymentExecution(execution))
 }
 
 func (h *HTTPServer) principal(r *http.Request) (Principal, error) {

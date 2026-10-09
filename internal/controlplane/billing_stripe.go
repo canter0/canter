@@ -33,7 +33,12 @@ type BillingGateway struct {
 }
 
 func NewBillingGateway(config BillingConfig) *BillingGateway {
-	return &BillingGateway{Config: config, client: &http.Client{Timeout: 15 * time.Second}, baseURL: "https://api.stripe.com"}
+	return &BillingGateway{Config: config, client: &http.Client{
+		Timeout: 15 * time.Second,
+		// Never replay billing credentials or mutation parameters to a redirect
+		// target. Stripe API calls are made only against the configured API host.
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}, baseURL: "https://api.stripe.com"}
 }
 func (b *BillingGateway) Ready() bool {
 	return b != nil && b.Config.Enabled && b.Config.SecretKey != "" && b.Config.WebhookSecret != "" && len(b.Config.IngestToken) >= 32 && b.Config.PaygPriceID != "" && b.Config.MeterID != "" && b.Config.MeterEventName != "" && b.Config.PortalConfigurationID != ""

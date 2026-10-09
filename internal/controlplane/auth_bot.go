@@ -10,6 +10,13 @@ import (
 	"time"
 )
 
+var turnstileHTTPClient = &http.Client{
+	Timeout: 10 * time.Second,
+	CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	},
+}
+
 func (h *HTTPServer) verifyBot(w http.ResponseWriter, r *http.Request, token string) bool {
 	if h.config.Auth.TurnstileSecret == "" {
 		return true
@@ -25,7 +32,7 @@ func (h *HTTPServer) verifyBot(w http.ResponseWriter, r *http.Request, token str
 		return false
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	res, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
+	res, err := credentialHTTPClient(turnstileHTTPClient).Do(req)
 	if err != nil {
 		writeError(w, http.StatusServiceUnavailable, errors.New("security check temporarily unavailable"))
 		return false

@@ -8,11 +8,11 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"path"
 	"strings"
 	"time"
 
+	"github.com/canter0/canter/internal/fileinput"
 	"github.com/canter0/canter/sdk"
 )
 
@@ -30,6 +30,14 @@ func NewWithHTTPClient(gatewayURL, tokenFile string, httpClient *http.Client) (*
 	return newClient(gatewayURL, tokenFile, httpClient)
 }
 
+func credentialHTTPClient(client *http.Client) *http.Client {
+	clone := *client
+	clone.CheckRedirect = func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
+	return &clone
+}
+
 func newClient(gatewayURL, tokenFile string, httpClient *http.Client) (*Client, error) {
 	u, err := url.Parse(strings.TrimSpace(gatewayURL))
 	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
@@ -42,11 +50,11 @@ func newClient(gatewayURL, tokenFile string, httpClient *http.Client) (*Client, 
 		return nil, fmt.Errorf("HTTP client is required")
 	}
 	u.Path = strings.TrimRight(u.Path, "/")
-	return &Client{base: u, tokenFile: tokenFile, http: httpClient}, nil
+	return &Client{base: u, tokenFile: tokenFile, http: credentialHTTPClient(httpClient)}, nil
 }
 
 func (c *Client) token() (string, error) {
-	b, err := os.ReadFile(c.tokenFile)
+	b, err := fileinput.ReadRegularNoFollow(c.tokenFile, 4096)
 	if err != nil {
 		return "", fmt.Errorf("read node credential: %w", err)
 	}
@@ -138,13 +146,17 @@ type ExchangeResponse struct {
 
 func ExchangeEnrollment(ctx context.Context, gatewayURL, enrollmentID, enrollmentToken string, httpClient *http.Client) (ExchangeResponse, error) {
 	u, err := url.Parse(strings.TrimSpace(gatewayURL))
-	if err != nil || u.Scheme != "https" || u.Host == "" {
+	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
 		return ExchangeResponse{}, fmt.Errorf("node gateway URL must be an absolute HTTPS URL")
+	}
+	if enrollmentID == "" || strings.ContainsAny(enrollmentID, "/\\?#") || enrollmentID == "." || enrollmentID == ".." {
+		return ExchangeResponse{}, fmt.Errorf("node enrollment ID is invalid")
 	}
 	u.Path = path.Join(strings.TrimRight(u.Path, "/"), "v1", "node", "enrollments", enrollmentID, "exchange")
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 30 * time.Second}
 	}
+	httpClient = credentialHTTPClient(httpClient)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u.String(), nil)
 	if err != nil {
 		return ExchangeResponse{}, err
@@ -159,7 +171,14 @@ func ExchangeEnrollment(ctx context.Context, gatewayURL, enrollmentID, enrollmen
 		return ExchangeResponse{}, fmt.Errorf("node enrollment returned HTTP %d", resp.StatusCode)
 	}
 	var out ExchangeResponse
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 64<<10)).Decode(&out); err != nil {
+	b, err := io.ReadAll(io.LimitReader(resp.Body, (64<<10)+1))
+	if err != nil {
+		return out, err
+	}
+	if len(b) > 64<<10 {
+		return out, fmt.Errorf("node enrollment response exceeds limit")
+	}
+	if err := json.Unmarshal(b, &out); err != nil {
 		return out, err
 	}
 	if !strings.HasPrefix(out.NodeToken, "cn_") {
