@@ -328,6 +328,12 @@ def activate(release, sha):
     backup = release / 'database.dump'
     with backup.open('wb') as output:
         subprocess.run(['sudo', '-u', 'postgres', 'pg_dump', '-Fc', 'canter'], stdout=output, check=True)
+    digest = hashlib.sha256()
+    with backup.open('rb') as source:
+        while chunk := source.read(DOWNLOAD_CHUNK_SIZE):
+            digest.update(chunk)
+    key = f'deployments/{sha}/{digest.hexdigest()}.dump'
+    run(str(ROOT / 'deploy/postgres-backup.sh'), str(backup), key)
     run('pg_restore', '--list', str(backup))
     database = 'canter_deploy_verify_' + sha[:12]
     run('sudo', '-u', 'postgres', 'createdb', database)
@@ -336,6 +342,8 @@ def activate(release, sha):
             subprocess.run(['sudo', '-u', 'postgres', 'pg_restore', '--exit-on-error', '-d', database], stdin=source, check=True)
     finally:
         run('sudo', '-u', 'postgres', 'dropdb', database)
+    backup.with_suffix('.r2-key').write_text('ops/control-plane/postgres/' + key + '\n')
+    backup.unlink()
     runtime = runtime_snapshot(release)
     prepare_web_tree(release / 'web')
     allow_web_path_traversal()

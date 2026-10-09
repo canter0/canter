@@ -4,8 +4,10 @@ import hashlib
 import importlib.util
 import io
 import json
+import os
 import pwd
 from pathlib import Path
+import subprocess
 import tempfile
 import tarfile
 import unittest
@@ -14,6 +16,48 @@ from unittest.mock import call, patch
 spec = importlib.util.spec_from_file_location('release', Path(__file__).with_name('pull-release.py'))
 release = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(release)
+
+
+class R2BackupTests(unittest.TestCase):
+    def test_round_trip_and_failures_preserve_the_supplied_archive(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            binary = root / 'bin'
+            binary.mkdir()
+            aws = binary / 'aws'
+            aws.write_text('''#!/usr/bin/env python3
+import os, pathlib, sys
+source, target = sys.argv[5:7]
+stored = pathlib.Path(os.environ['BACKUP_TEST_OBJECT'])
+if source.startswith('s3://'):
+    pathlib.Path(target).write_bytes(b'corrupt' if os.environ['BACKUP_TEST_MODE'] == 'corrupt' else stored.read_bytes())
+else:
+    if os.environ['BACKUP_TEST_MODE'] == 'upload-failure': sys.exit(1)
+    stored.write_bytes(pathlib.Path(source).read_bytes())
+''')
+            restore = binary / 'pg_restore'
+            restore.write_text('#!/bin/sh\ntest "$1" = --list && test -s "$2"\n')
+            for executable in (aws, restore):
+                executable.chmod(0o755)
+            archive = root / 'database.dump'
+            content = b'original database archive'
+            environment = dict(os.environ, PATH=str(binary) + os.pathsep + os.environ['PATH'],
+                               CANTER_M1_ACCESS_KEY='test', CANTER_M1_SECRET_KEY='test',
+                               CANTER_M1_REGION='auto', CANTER_M1_BUCKET='private-backups',
+                               CANTER_M1_ENDPOINT='https://example.invalid',
+                               BACKUP_TEST_OBJECT=str(root / 'object'))
+            for mode in ('success', 'upload-failure', 'corrupt'):
+                with self.subTest(mode=mode):
+                    archive.write_bytes(content)
+                    result = subprocess.run(['sh', str(Path(__file__).with_name('postgres-backup.sh')),
+                                             str(archive), 'deployments/test.dump'],
+                                            env=dict(environment, BACKUP_TEST_MODE=mode), capture_output=True)
+                    self.assertEqual(result.returncode == 0, mode == 'success', result.stderr.decode())
+                    self.assertEqual(archive.read_bytes(), content)
+                    self.assertFalse(list(root.glob('*.verify.*')))
+                    if mode == 'success':
+                        self.assertEqual(result.stdout.decode().strip(),
+                                         's3://private-backups/ops/control-plane/postgres/deployments/test.dump')
 
 
 class RetentionTests(unittest.TestCase):
@@ -294,7 +338,7 @@ class ActivationTests(unittest.TestCase):
     @patch.object(release.subprocess, 'run')
     @patch.object(release, 'run')
     @patch.object(release, 'healthy', return_value=True)
-    def test_success_retains_backup_and_records_commit(self, health, run, subprocess):
+    def test_success_retains_r2_backup_receipt_and_records_commit(self, health, run, subprocess):
         self.assertEqual((self.systemd / 'canter-web.service').read_text(), 'User=canter\nGroup=canter\n')
         self.assertEqual(self.root.stat().st_mode & 0o777, 0o750)
         release.activate(self.next, self.sha)
@@ -308,6 +352,10 @@ class ActivationTests(unittest.TestCase):
         run.assert_any_call('systemctl', 'enable', '--now', 'canter-harness.socket')
         self.assertNotIn(('systemctl', 'stop', 'canter-harness.socket'), [c.args for c in run.call_args_list])
         self.assertTrue(any('pg_restore' in call.args[0] for call in subprocess.call_args_list))
+        self.assertFalse((self.next / 'database.dump').exists())
+        key = f'deployments/{self.sha}/{hashlib.sha256(b"").hexdigest()}.dump'
+        self.assertEqual((self.next / 'database.r2-key').read_text(), 'ops/control-plane/postgres/' + key + '\n')
+        run.assert_any_call(str(self.root / 'deploy/postgres-backup.sh'), str(self.next / 'database.dump'), key)
         self.ensure_web_account.assert_called_once_with()
         self.assertEqual((self.root / 'web/.next/cache').stat().st_mode & 0o700, 0o700)
         self.assertEqual(sum(c.args[:3] == ('chown', '-R', 'canter-web:canter-web') for c in run.call_args_list), 2)
@@ -317,6 +365,29 @@ class ActivationTests(unittest.TestCase):
         calls = [item.args for item in run.call_args_list]
         self.assertLess(calls.index(('systemctl', 'daemon-reload')),
                         calls.index(('systemctl', 'restart', 'canter-controlplane', 'canter-web')))
+        self.assertLess(calls.index((str(self.root / 'deploy/postgres-backup.sh'), str(self.next / 'database.dump'), key)),
+                        calls.index(('sudo', '-u', 'postgres', 'createdb', 'canter_deploy_verify_' + self.sha[:12])))
+
+    def test_r2_or_restore_failure_keeps_local_backup_and_live_application(self):
+        for stage in ('r2', 'restore'):
+            with self.subTest(stage=stage):
+                def command(*args):
+                    if stage == 'r2' and args[0].endswith('postgres-backup.sh'):
+                        raise RuntimeError('R2 failed')
+
+                def database_command(args, **kwargs):
+                    if stage == 'restore' and 'pg_restore' in args:
+                        raise RuntimeError('restore failed')
+
+                with patch.object(release, 'run', side_effect=command) as commands, \
+                        patch.object(release.subprocess, 'run', side_effect=database_command):
+                    with self.assertRaisesRegex(RuntimeError, 'failed'):
+                        release.activate(self.next, self.sha)
+                self.assertTrue((self.next / 'database.dump').exists())
+                self.assertFalse((self.next / 'database.r2-key').exists())
+                self.assertEqual((self.root / 'web/page').read_text(), 'old-web')
+                self.assertFalse((self.state / 'current').exists())
+                self.assertFalse(any(item.args[:2] == ('systemctl', 'stop') for item in commands.call_args_list))
 
     @patch.object(release.time, 'sleep')
     @patch.object(release.subprocess, 'run')

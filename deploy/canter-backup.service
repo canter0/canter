@@ -1,5 +1,5 @@
 [Unit]
-Description=Back up Canter PostgreSQL to m1
+Description=Back up Canter PostgreSQL to R2
 After=postgresql.service network-online.target
 
 [Service]
