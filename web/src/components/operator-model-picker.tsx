@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
+import { createPortal } from "react-dom";
 import { operatorModelChoice, operatorModels, operatorModelOptions, reasoningLabels, type OperatorModelChoice, type OperatorModelOptions } from "@/lib/operator-models";
 import { useHoverPreview } from "./use-hover-preview";
 import { WorkspaceIcon } from "./workspace-icon";
@@ -63,7 +64,7 @@ export function OperatorModelPicker({ model, onChange, options, onOptionsChange,
   useEffect(() => {
     if (!open) return;
     search.current?.focus();
-    const outside = (event: PointerEvent) => { if (event.target instanceof Node && !root.current?.contains(event.target)) onOpenChange(false); };
+    const outside = (event: PointerEvent) => { if (event.target instanceof Node && !root.current?.contains(event.target) && !panel.current?.contains(event.target)) onOpenChange(false); };
     document.addEventListener("pointerdown", outside);
     return () => document.removeEventListener("pointerdown", outside);
   }, [open, onOpenChange]);
@@ -86,9 +87,10 @@ export function OperatorModelPicker({ model, onChange, options, onOptionsChange,
     }
   }
 
-  return <div ref={root} className={styles.root} onBlur={event => { if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget)) onOpenChange(false); }}>
+  return <div ref={root} className={styles.root} onBlur={event => { if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget) && !panel.current?.contains(event.relatedTarget)) onOpenChange(false); }}>
     <button ref={trigger} type="button" className={shared.modelTrigger} aria-label={`Model: ${current?.name ?? "Connecting"}`} aria-haspopup="dialog" aria-controls={open ? id : undefined} aria-expanded={open} disabled={disabled || !model} onClick={() => { setQuery(""); setPreview(null); onOpenChange(!open); }}>{current ? <ModelLogo brand={current.logo} /> : null}<span className={styles.triggerLabel}><MorphLabel text={current?.name ?? "Connecting…"} /></span><WorkspaceIcon name="down" width="12" height="12" /></button>
-    <MotionPresence open={open}><div ref={panel} id={id} role="dialog" aria-label="Choose a model" className={styles.picker} data-stacked={position.stacked} data-side={position.side} data-below={position.below} style={{ left: position.left, bottom: position.bottom, "--picker-max-height": `${position.maxHeight}px` } as CSSProperties} onKeyDown={keyboard}>
+    {/* Viewport coordinates must escape transformed onboarding/composer ancestors. */}
+    {typeof document !== "undefined" ? createPortal(<MotionPresence open={open}><div ref={panel} id={id} role="dialog" aria-label="Choose a model" className={styles.picker} data-stacked={position.stacked} data-side={position.side} data-below={position.below} style={{ left: position.left, bottom: position.bottom, "--picker-max-height": `${position.maxHeight}px` } as CSSProperties} onKeyDown={keyboard}>
       <div className={styles.menu}>
         <div className={styles.search}><WorkspaceIcon name="search" width="16" height="16" /><input ref={search} aria-label="Search models" placeholder="Search models" value={query} onChange={event => { setQuery(event.target.value); setPreview(null); }} aria-controls={`${id}-options`} onFocus={() => setPreview(null)} /></div>
         <div className={styles.list} role="listbox" id={`${id}-options`} aria-label="Models">
@@ -104,6 +106,6 @@ export function OperatorModelPicker({ model, onChange, options, onOptionsChange,
         </div> : null}
         {position.stacked ? <button type="button" className={styles.choose} onClick={() => choose(inspected)}>Use {inspected.name}</button> : null}
       </aside> : null}
-    </div></MotionPresence>
+    </div></MotionPresence>, document.body) : null}
   </div>;
 }

@@ -169,7 +169,7 @@ func main() {
 		operator.BaseURL = "https://openrouter.ai/api/v1"
 	}
 	if operator.Model == "" {
-		operator.Model = "openai/gpt-5.6-luna"
+		operator.Model = controlplane.DefaultOperatorModel
 	}
 	var vault *controlplane.SecretVault
 	if keyFile := os.Getenv("CANTER_SECRETS_KEY_FILE"); keyFile != "" {
