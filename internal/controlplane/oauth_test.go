@@ -8,7 +8,9 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -33,14 +35,15 @@ func TestOAuthRedirectSafety(t *testing.T) {
 	}
 }
 
-func TestGoogleIdentityValidatesSignedClaims(t *testing.T) {
+func testGoogleSigner(t *testing.T) (*rsa.PublicKey, func(map[string]any) string) {
+	t.Helper()
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		t.Fatal(err)
 	}
-	verifier := oidc.NewVerifier("https://accounts.google.com", &oidc.StaticKeySet{PublicKeys: []crypto.PublicKey{&key.PublicKey}}, &oidc.Config{ClientID: "canter-client"})
 	sign := func(claims map[string]any) string {
-		header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256","typ":"JWT"}`))
+		t.Helper()
+		header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256","typ":"JWT","kid":"test-key"}`))
 		raw, _ := json.Marshal(claims)
 		body := header + "." + base64.RawURLEncoding.EncodeToString(raw)
 		hash := sha256.Sum256([]byte(body))
@@ -50,12 +53,33 @@ func TestGoogleIdentityValidatesSignedClaims(t *testing.T) {
 		}
 		return body + "." + base64.RawURLEncoding.EncodeToString(sig)
 	}
+	return &key.PublicKey, sign
+}
+
+func TestGoogleIdentityValidatesSignedClaims(t *testing.T) {
+	key, sign := testGoogleSigner(t)
+	verifier := oidc.NewVerifier("https://accounts.google.com", &oidc.StaticKeySet{PublicKeys: []crypto.PublicKey{key}}, &oidc.Config{ClientID: "canter-client"})
 	for _, tc := range []struct {
 		name, key string
 		value     any
 		valid     bool
 	}{
-		{name: "valid", valid: true}, {name: "wrong audience", key: "aud", value: "another-client"}, {name: "wrong issuer", key: "iss", value: "https://evil.test"}, {name: "expired", key: "exp", value: time.Now().Add(-time.Hour).Unix()}, {name: "wrong nonce", key: "nonce", value: "other-browser"}, {name: "unverified email", key: "email_verified", value: false}, {name: "missing subject", key: "sub", value: ""},
+		{name: "valid", valid: true},
+		{name: "Google bare issuer", key: "iss", value: "accounts.google.com", valid: true},
+		{name: "Google string verified claim", key: "email_verified", value: "true", valid: true},
+		{name: "wrong audience", key: "aud", value: "another-client"},
+		{name: "wrong issuer", key: "iss", value: "https://evil.test"},
+		{name: "expired", key: "exp", value: time.Now().Add(-time.Hour).Unix()},
+		{name: "wrong nonce", key: "nonce", value: "other-browser"},
+		{name: "missing nonce", key: "nonce", value: ""},
+		{name: "unverified email", key: "email_verified", value: false},
+		{name: "string unverified email", key: "email_verified", value: "false"},
+		{name: "missing verification", key: "email_verified", value: nil},
+		{name: "truthy string", key: "email_verified", value: "TRUE"},
+		{name: "truthy number", key: "email_verified", value: 1},
+		{name: "missing email", key: "email", value: ""},
+		{name: "malformed email", key: "email", value: 1},
+		{name: "missing subject", key: "sub", value: ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			claims := map[string]any{"iss": "https://accounts.google.com", "aud": "canter-client", "sub": "stable-subject", "email": "user@example.com", "email_verified": true, "nonce": "browser-nonce", "exp": time.Now().Add(time.Hour).Unix()}
@@ -68,10 +92,52 @@ func TestGoogleIdentityValidatesSignedClaims(t *testing.T) {
 				if err != nil || identity.Subject != "stable-subject" {
 					t.Fatalf("%+v %v", identity, err)
 				}
-			} else if err == nil {
-				t.Fatal("invalid claims accepted")
+			} else if !errors.Is(err, ErrUnauthorized) {
+				t.Fatalf("invalid claims accepted or unexpected error: %v", err)
 			}
 		})
+	}
+}
+
+func TestGoogleSigningKeyHTTPClientUsesIPv4AndRejectsRedirects(t *testing.T) {
+	collectorCalls := 0
+	collector := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		collectorCalls++
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer collector.Close()
+	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/redirect" {
+			http.Redirect(w, r, collector.URL, http.StatusFound)
+			return
+		}
+		fmt.Fprint(w, `{"keys":[]}`)
+	}))
+	defer source.Close()
+	client := newGoogleSigningKeyHTTPClient()
+	defer client.CloseIdleConnections()
+	response, err := client.Get(source.URL + "/redirect")
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if response.StatusCode != http.StatusFound || collectorCalls != 0 {
+		t.Fatal("signing key fetch followed a redirect")
+	}
+	response, err = client.Get(source.URL)
+	if err != nil {
+		t.Fatal("IPv4 key endpoint is unavailable", err)
+	}
+	response.Body.Close()
+	listener, err := net.Listen("tcp6", "[::1]:0")
+	if err != nil {
+		t.Skip("IPv6 loopback is unavailable")
+	}
+	defer listener.Close()
+	// The key client must not dial the IPv6 route that returns 403 in production.
+	if conn, err := client.Transport.(*http.Transport).DialContext(context.Background(), "tcp", listener.Addr().String()); err == nil {
+		conn.Close()
+		t.Fatal("signing key client dialed IPv6")
 	}
 }
 

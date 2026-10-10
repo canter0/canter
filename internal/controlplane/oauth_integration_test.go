@@ -1,18 +1,132 @@
 package controlplane
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/go-jose/go-jose/v4"
 	"golang.org/x/oauth2"
 )
+
+func TestGoogleSignupVerifiesRemoteKeysAndPreservesOnboarding(t *testing.T) {
+	key, sign := testGoogleSigner(t)
+	_, forgedSign := testGoogleSigner(t)
+	for _, tc := range []struct {
+		name, reason, errorCode string
+		verified                any
+		keysStatus              int
+		wrongNonce, forged      bool
+	}{
+		{name: "verified", verified: true, keysStatus: http.StatusOK},
+		{name: "verified string", verified: "true", keysStatus: http.StatusOK},
+		{name: "unverified", verified: false, keysStatus: http.StatusOK, reason: "unverified_email", errorCode: "unverified_email"},
+		{name: "key endpoint forbidden", verified: true, keysStatus: http.StatusForbidden, reason: "token_verification", errorCode: "sign_in_failed"},
+		{name: "nonce mismatch", verified: true, keysStatus: http.StatusOK, wrongNonce: true, reason: "nonce_mismatch", errorCode: "sign_in_failed"},
+		{name: "forged token", verified: true, keysStatus: http.StatusOK, forged: true, reason: "token_verification", errorCode: "sign_in_failed"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := integrationStore(t)
+			var nonce string
+			keyRequests := 0
+			provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				if r.URL.Path == "/keys" {
+					keyRequests++
+					if tc.keysStatus != http.StatusOK {
+						w.WriteHeader(tc.keysStatus)
+						fmt.Fprint(w, "private-provider-error-body")
+						return
+					}
+					json.NewEncoder(w).Encode(jose.JSONWebKeySet{Keys: []jose.JSONWebKey{{Key: key, KeyID: "test-key", Algorithm: "RS256", Use: "sig"}}})
+					return
+				}
+				if err := r.ParseForm(); err != nil || r.Form.Get("code") != "authorization-code" {
+					t.Error("invalid code exchange", err)
+				}
+				claims := map[string]any{"iss": "https://accounts.google.com", "aud": "canter-client", "sub": "new-google-owner", "email": "new-owner@example.com", "email_verified": tc.verified, "nonce": nonce, "exp": time.Now().Add(time.Hour).Unix()}
+				if tc.wrongNonce {
+					claims["nonce"] = "another-browser"
+				}
+				signer := sign
+				if tc.forged {
+					signer = forgedSign
+				}
+				json.NewEncoder(w).Encode(map[string]string{"access_token": "private-access-token", "token_type": "Bearer", "id_token": signer(claims)})
+			}))
+			defer provider.Close()
+			oldClient := googleSigningKeyHTTPClient
+			defer func() { googleSigningKeyHTTPClient = oldClient }()
+			googleSigningKeyHTTPClient = &http.Client{Timeout: time.Second, Transport: authRoundTripper(func(r *http.Request) (*http.Response, error) {
+				if r.URL.String() != "https://www.googleapis.com/oauth2/v3/certs" || r.Header.Get("Authorization") != "" {
+					t.Error("unexpected signing key request")
+				}
+				copy := r.Clone(r.Context())
+				copy.URL, _ = url.Parse(provider.URL + "/keys")
+				return provider.Client().Transport.RoundTrip(copy)
+			})}
+			h := NewHTTPServer(&Service{Store: s}, HTTPConfig{PublicURL: "http://canter.test", GoogleOAuth: OAuthCredentials{ClientID: "canter-client", ClientSecret: "private-client-secret"}}).(*HTTPServer)
+			h.oauth["google"].config.Endpoint = oauth2.Endpoint{AuthURL: provider.URL + "/authorize", TokenURL: provider.URL, AuthStyle: oauth2.AuthStyleInParams}
+			start := httptest.NewRecorder()
+			h.ServeHTTP(start, httptest.NewRequest(http.MethodGet, "http://canter.test/v1/auth/oauth/google?mode=create-account", nil))
+			requireStatus(t, start, http.StatusSeeOther)
+			location, err := url.Parse(start.Header().Get("Location"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			nonce = location.Query().Get("nonce")
+			request := httptest.NewRequest(http.MethodGet, "http://canter.test/v1/auth/oauth/google/callback?code=authorization-code&state="+location.Query().Get("state"), nil)
+			for _, cookie := range start.Result().Cookies() {
+				request.AddCookie(cookie)
+			}
+			var logs bytes.Buffer
+			oldLog := log.Writer()
+			defer log.SetOutput(oldLog)
+			log.SetOutput(&logs)
+			response := httptest.NewRecorder()
+			h.ServeHTTP(response, request)
+			requireStatus(t, response, http.StatusSeeOther)
+			if keyRequests == 0 {
+				t.Fatal("did not use the configured signing key client")
+			}
+			if tc.errorCode == "" {
+				if response.Header().Get("Location") != "http://canter.test/onboarding/agent" {
+					t.Fatal("lost onboarding destination", response.Header().Get("Location"))
+				}
+				if _, err := s.ResolveHuman(context.Background(), authCookie(t, h, response, "session").Value); err != nil {
+					t.Fatal("missing authenticated session", err)
+				}
+			} else {
+				if response.Header().Get("Location") != "http://canter.test/create-account?error="+tc.errorCode+"&next=%2Fonboarding%2Fagent" || !strings.Contains(logs.String(), "reason="+tc.reason) {
+					t.Fatal("incorrect failure classification", response.Header().Get("Location"), logs.String())
+				}
+				var accounts, sessions int
+				if err := s.pool.QueryRow(context.Background(), `SELECT (SELECT count(*) FROM accounts),(SELECT count(*) FROM human_sessions)`).Scan(&accounts, &sessions); err != nil || accounts != 0 || sessions != 0 {
+					t.Fatal("invalid identity created an account or session", accounts, sessions, err)
+				}
+			}
+			for _, sensitive := range []string{"new-owner@example.com", "private-access-token", "private-client-secret", "private-provider-error-body", nonce, "authorization-code"} {
+				if sensitive != "" && strings.Contains(logs.String(), sensitive) {
+					t.Fatal("identity diagnostics exposed private data")
+				}
+			}
+			replay := httptest.NewRecorder()
+			h.ServeHTTP(replay, request)
+			if replay.Header().Get("Location") != "http://canter.test/sign-in?error=session_expired" {
+				t.Fatal("OAuth callback replay accepted")
+			}
+		})
+	}
+}
 
 func TestOAuthStateBindingExpiryAndReplay(t *testing.T) {
 	s := integrationStore(t)
