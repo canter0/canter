@@ -61,6 +61,8 @@ type OperatorConfig struct {
 	APIKey          string
 	ExaAPIKey       string
 	exaTransport    http.RoundTripper // Test seam; the production destination is fixed.
+	modelTimeout    time.Duration     // Test seam; production defaults to three minutes.
+	modelRetryDelay time.Duration     // Test seam; production starts at one second.
 	BaseURL         string
 	Model           string
 	TitleModel      string
@@ -78,7 +80,7 @@ func (c OperatorConfig) complete(ctx context.Context, messages []modelMessage, t
 	if c.modelReasoningEffort() != "none" {
 		maxTokens = 16384
 	}
-	return c.completeWithLimit(ctx, messages, tools, maxTokens, onText)
+	return c.completeWithRetries(ctx, messages, tools, maxTokens, onText)
 }
 
 func (c OperatorConfig) completeWithLimit(ctx context.Context, messages []modelMessage, tools []mcpTool, maxTokens int, onText func(string) error) (out modelMessage, err error) {
@@ -107,17 +109,21 @@ func (c OperatorConfig) completeWithLimit(ctx context.Context, messages []modelM
 	req.Header.Set("Authorization", "Bearer "+c.APIKey)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Title", "Canter workspace operator")
-	client := &http.Client{Timeout: 3 * time.Minute, CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}
+	timeout := c.modelTimeout
+	if timeout <= 0 {
+		timeout = 3 * time.Minute
+	}
+	client := &http.Client{Timeout: timeout, CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}
 	response, err := client.Do(req)
 	if err != nil {
 		if ctx.Err() != nil {
 			return modelMessage{}, ctx.Err()
 		}
-		return modelMessage{}, fmt.Errorf("could not reach the agent model provider")
+		return modelMessage{}, operatorModelConnectionError(err)
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return modelMessage{}, fmt.Errorf("model provider returned HTTP %d; check the configured model and provider account", response.StatusCode)
+		return modelMessage{}, operatorModelHTTPError(response.StatusCode, response.Header.Get("Retry-After"))
 	}
 	out = modelMessage{Role: "assistant"}
 	var contentParts []string
@@ -163,10 +169,16 @@ func (c OperatorConfig) completeWithLimit(ctx context.Context, messages []modelM
 			} `json:"choices"`
 		}
 		if err = json.Unmarshal([]byte(data), &chunk); err != nil {
-			return out, fmt.Errorf("invalid model stream")
+			return out, &operatorModelError{kind: "invalid_stream", message: "invalid model stream", cause: err}
 		}
 		if len(chunk.Error) > 0 && string(chunk.Error) != "null" {
-			return out, fmt.Errorf("the model provider interrupted the response; please retry")
+			// Provider messages can contain request data. Retain only the status
+			// code, never the response body, in diagnostics.
+			var providerError struct {
+				Code int `json:"code"`
+			}
+			_ = json.Unmarshal(chunk.Error, &providerError)
+			return out, &operatorModelError{kind: "provider", message: "the model provider interrupted the response; please retry", retryable: operatorModelRetryableStatus(providerError.Code), cause: fmt.Errorf("stream provider status %d", providerError.Code)}
 		}
 		if chunk.Usage != nil {
 			out.Usage = chunk.Usage
@@ -182,7 +194,7 @@ func (c OperatorConfig) completeWithLimit(ctx context.Context, messages []modelM
 			if len(choice.Delta.ReasoningDetails) > 0 && string(choice.Delta.ReasoningDetails) != "null" {
 				var parts []json.RawMessage
 				if err = json.Unmarshal(choice.Delta.ReasoningDetails, &parts); err != nil {
-					return out, fmt.Errorf("invalid model reasoning stream")
+					return out, &operatorModelError{kind: "invalid_stream", message: "invalid model reasoning stream", cause: err}
 				}
 				// Keep every block in order, including signatures for parallel tool
 				// calls. Replacing this array loses earlier streamed reasoning.
@@ -214,10 +226,19 @@ func (c OperatorConfig) completeWithLimit(ctx context.Context, messages []modelM
 		}
 	}
 	if err = scanner.Err(); err != nil {
-		return out, fmt.Errorf("model response connection ended unexpectedly")
+		if ctx.Err() != nil {
+			return out, ctx.Err()
+		}
+		if err == bufio.ErrTooLong {
+			return out, &operatorModelError{kind: "stream_limit", message: "The model response exceeded its streaming limit. Try a smaller request.", cause: err}
+		}
+		return out, operatorModelConnectionError(err)
 	}
 	if !done {
-		return out, fmt.Errorf("model response was incomplete; please retry")
+		if ctx.Err() != nil {
+			return out, ctx.Err()
+		}
+		return out, &operatorModelError{kind: "incomplete", message: "model response was incomplete; please retry", retryable: true, cause: io.ErrUnexpectedEOF}
 	}
 	if sentContentParts < len(contentParts) {
 		if err = onText(strings.Join(contentParts[sentContentParts:], "")); err != nil {
