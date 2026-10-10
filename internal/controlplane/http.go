@@ -105,7 +105,13 @@ func (h *HTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.auth(w, r, parts[2:])
 		return
 	case "me":
-		h.me(w, r)
+		if len(parts) == 2 {
+			h.me(w, r)
+		} else if len(parts) == 3 && parts[2] == "onboarding" {
+			h.completeOnboarding(w, r)
+		} else {
+			writeError(w, http.StatusNotFound, ErrNotFound)
+		}
 		return
 	case "agent-pairings":
 		h.agentPairings(w, r, parts[2:])
@@ -302,7 +308,12 @@ func (h *HTTPServer) me(w http.ResponseWriter, r *http.Request) {
 		writeStoreError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"account": p.Account, "workspaces": workspaces})
+	complete, err := h.service.Store.onboardingComplete(r.Context(), p.Account.ID)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"account": p.Account, "workspaces": workspaces, "onboardingComplete": complete})
 }
 
 func (h *HTTPServer) device(w http.ResponseWriter, r *http.Request, parts []string) {

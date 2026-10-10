@@ -30,7 +30,7 @@ func TestOAuthRedirectSafety(t *testing.T) {
 	if got := safeOAuthNext("/onboarding/authorize?code=ABCD-EFGH", "sign-in"); got != "/onboarding/authorize?code=ABCD-EFGH" {
 		t.Fatal(got)
 	}
-	if got := safeOAuthNext("", "create-account"); got != "/onboarding/agent" {
+	if got := safeOAuthNext("", "create-account"); got != "/app?welcome=1" {
 		t.Fatal(got)
 	}
 }

@@ -99,14 +99,14 @@ func TestGoogleSignupVerifiesRemoteKeysAndPreservesOnboarding(t *testing.T) {
 				t.Fatal("did not use the configured signing key client")
 			}
 			if tc.errorCode == "" {
-				if response.Header().Get("Location") != "http://canter.test/onboarding/agent" {
+				if response.Header().Get("Location") != "http://canter.test/app?welcome=1" {
 					t.Fatal("lost onboarding destination", response.Header().Get("Location"))
 				}
 				if _, err := s.ResolveHuman(context.Background(), authCookie(t, h, response, "session").Value); err != nil {
 					t.Fatal("missing authenticated session", err)
 				}
 			} else {
-				if response.Header().Get("Location") != "http://canter.test/create-account?error="+tc.errorCode+"&next=%2Fonboarding%2Fagent" || !strings.Contains(logs.String(), "reason="+tc.reason) {
+				if response.Header().Get("Location") != "http://canter.test/create-account?error="+tc.errorCode+"&next=%2Fapp%3Fwelcome%3D1" || !strings.Contains(logs.String(), "reason="+tc.reason) {
 					t.Fatal("incorrect failure classification", response.Header().Get("Location"), logs.String())
 				}
 				var accounts, sessions int
