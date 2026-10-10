@@ -85,7 +85,7 @@ func (o *OperatorRuntime) execute(parent context.Context, run OperatorRun) {
 		endCtx, endCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer endCancel()
 		message := err.Error()
-		if errors.Is(err, context.DeadlineExceeded) {
+		if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == context.DeadlineExceeded {
 			message = "This response reached its time limit. Your conversation and completed operations are saved."
 		}
 		_ = s.finishOperator(endCtx, run, "failed", message)
