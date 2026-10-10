@@ -43,7 +43,6 @@ const restoredSurfaces = (events: OperatorEvent[]) => [...new Map(events.filter(
 
 export function OperatorWorkspace({ id: initialId, githubResult, focusComposer, initialDetail = null, initialLoadedAt, welcome = false }: { id?: string; githubResult?: string; focusComposer?: boolean; initialDetail?: ConversationDetail | null; initialLoadedAt?: number; welcome?: boolean }) {
   const router = useRouter();
-  const previewGitHubReturn = process.env.NODE_ENV === "development" && githubResult === "preview";
   const [id, setId] = useState(initialId);
   const [welcomeStage, setWelcomeStage] = useState<"arrival" | "welcome" | "leaving" | "done">(welcome && !initialId ? "arrival" : "done");
   const onboarding = welcomeStage === "arrival" || welcomeStage === "welcome";
@@ -120,11 +119,6 @@ export function OperatorWorkspace({ id: initialId, githubResult, focusComposer, 
       const connected = github.status === "fulfilled" ? github.value : null;
       setWelcomeGitHub(connected);
       setWelcomeGitHubChecked(true);
-      if (previewGitHubReturn && !connected?.connection.connected) {
-        setProjectWelcome("We can start with a project you already have, or make room for a new idea. What would you like to work on?");
-        setWelcomeReady(true);
-        return;
-      }
       if (!connected?.connection.connected) return;
       try {
         const response = await canterFetch<{ text: string }>(`${base}/welcome?stage=projects`, { method: "POST", signal: controller.signal });
@@ -137,7 +131,7 @@ export function OperatorWorkspace({ id: initialId, githubResult, focusComposer, 
     // Strict Mode's setup/cleanup probe must not consume a generation budget.
     const timer = window.setTimeout(() => void introduce(), 0);
     return () => { window.clearTimeout(timer); controller.abort(); };
-  }, [welcome, onboarding, initialId, workspace, previewGitHubReturn]);
+  }, [welcome, onboarding, initialId, workspace]);
   const overlayPanel = useMediaQuery("(max-width: 1100px)");
   const surfacePanel = useRef<HTMLElement>(null);
   const panelTrigger = useRef<HTMLButtonElement>(null);
@@ -318,6 +312,8 @@ export function OperatorWorkspace({ id: initialId, githubResult, focusComposer, 
     const position = intro.current?.getBoundingClientRect();
     if (position) setIntroPosition({ left: position.left, top: position.top, width: position.width });
     welcomeController.current?.abort();
+    // Keep the transition immediate and let the write finish across navigation.
+    void canterFetch<void>("/me/onboarding", { method: "POST", keepalive: true }).catch(() => { /* A later welcome can retry completion. */ });
     window.history.replaceState(null, "", "/app?compose=1");
     const composerBox = composer.current?.closest<HTMLElement>("[data-operator-composer]")?.getBoundingClientRect();
     composerOrigin.current = composerBox?.width ? composerBox : null;
@@ -510,9 +506,9 @@ export function OperatorWorkspace({ id: initialId, githubResult, focusComposer, 
               <div className={styles.onboardingIdentity}><span className={`wordmark ${styles.onboardingWordmark}`}>canter</span>{introPending ? <span className={styles.onboardingThinking} role="status">Thinking</span> : null}</div>
               {welcomeText ? <div className={styles.onboardingGreeting}><ResponseText text={welcomeText} /></div> : null}
               {welcomeText && welcomeGitHubChecked && !welcomeReady && !welcomeGitHub?.connection.connected ? <div className={styles.onboardingGitHub}>
-                {(process.env.NODE_ENV === "development" || welcomeGitHub?.connection.enabled) && workspace ? <a className={styles.onboardingConnect} href={process.env.NODE_ENV === "development" ? "/app?welcome=1&github=preview" : githubConnectURL(welcomeGitHub?.connection, workspace, "/app?welcome=1")}><ProviderIcon provider="github" />{welcomeGitHub?.connection.reconnect ? "Reconnect GitHub" : "Connect GitHub"}<WorkspaceIcon name="external" width="14" height="14" /></a> : <button className={styles.onboardingConnect} disabled><ProviderIcon provider="github" />Connect GitHub</button>}
-                <p>{process.env.NODE_ENV === "development" ? "Continue to the next step." : welcomeGitHub?.connection.enabled ? welcomeGitHub.connection.appEnabled ? "Choose which repositories to share with Canter. Access is read-only." : "GitHub requests repository access, including write permission. Canter uses this connection to read source." : "GitHub connection isn’t available in this environment yet. You can skip and start with an idea."}</p>
-                {githubResult && githubResult !== "connected" && !previewGitHubReturn ? <p>You can try connecting again, or skip for now.</p> : null}
+                {welcomeGitHub?.connection.enabled && workspace ? <a className={styles.onboardingConnect} href={githubConnectURL(welcomeGitHub.connection, workspace, "/app?welcome=1")}><ProviderIcon provider="github" />{welcomeGitHub.connection.reconnect ? "Reconnect GitHub" : "Connect GitHub"}<WorkspaceIcon name="external" width="14" height="14" /></a> : <button className={styles.onboardingConnect} disabled><ProviderIcon provider="github" />Connect GitHub</button>}
+                <p>{welcomeGitHub?.connection.enabled ? welcomeGitHub.connection.appEnabled ? "Choose which repositories to share with Canter. Access is read-only." : "GitHub requests repository access, including write permission. Canter uses this connection to read source." : "GitHub connection isn’t available in this environment yet. You can skip and start with an idea."}</p>
+                {githubResult && githubResult !== "connected" ? <p>You can try connecting again, or skip for now.</p> : null}
               </div> : null}
               {projectWelcome ? <div className={`${styles.onboardingGreeting} ${styles.onboardingProjects}`}><ResponseText text={projectWelcome} /></div> : null}
             </div> : null}

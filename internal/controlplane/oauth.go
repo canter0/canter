@@ -180,7 +180,7 @@ func safeOAuthNext(next, mode string) string {
 		return u.RequestURI()
 	}
 	if mode == "create-account" {
-		return "/onboarding/agent"
+		return "/app?welcome=1"
 	}
 	if mode == "link" {
 		return "/app/account"
@@ -251,6 +251,22 @@ func (h *HTTPServer) oauthFailure(w http.ResponseWriter, r *http.Request, code, 
 	http.Redirect(w, r, strings.TrimRight(h.config.PublicURL, "/")+path+"?"+query.Encode(), http.StatusSeeOther)
 }
 
+// OAuth entry points are browser navigations. Send an expired identity proof
+// through sign-in and resume the exact connection, rather than returning JSON.
+func (h *HTTPServer) oauthReauthenticate(w http.ResponseWriter, r *http.Request, name string, login oauthLoginState, expired bool) {
+	resume := url.Values{"mode": {login.Mode}, "next": {login.Next}}
+	if login.Mode == "repository" {
+		resume.Set("workspace", r.URL.Query().Get("workspace"))
+	}
+	next := "/api/canter/auth/oauth/" + name + "?" + resume.Encode()
+	query := url.Values{"reauth": {"1"}, "next": {next}}
+	if expired {
+		query.Set("error", "session_expired")
+	}
+	w.Header().Del("Content-Type")
+	http.Redirect(w, r, strings.TrimRight(h.config.PublicURL, "/")+"/sign-in?"+query.Encode(), http.StatusSeeOther)
+}
+
 func (h *HTTPServer) oauthAuth(w http.ResponseWriter, r *http.Request, parts []string) {
 	if r.Method != http.MethodGet {
 		methodNotAllowed(w)
@@ -309,10 +325,11 @@ func (h *HTTPServer) oauthAuth(w http.ResponseWriter, r *http.Request, parts []s
 	if mode == "link" || mode == "repository" {
 		principal, err := h.human(r)
 		if err != nil {
-			h.oauthFailure(w, r, "session_expired", "sign-in", "/app/account")
+			h.oauthReauthenticate(w, r, name, login, true)
 			return
 		}
-		if !h.requireRecent(w, r, principal) {
+		if !h.recentAuth(r.Context(), principal) {
+			h.oauthReauthenticate(w, r, name, login, false)
 			return
 		}
 		login.LinkAccountID = &principal.Actor.ID

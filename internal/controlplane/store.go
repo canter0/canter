@@ -116,6 +116,9 @@ var executionClaimFencingMigration string
 //go:embed migrations/033_workspace_index_paging.sql
 var workspaceIndexPagingMigration string
 
+//go:embed migrations/034_account_onboarding.sql
+var accountOnboardingMigration string
+
 var (
 	ErrNotFound      = errors.New("not found")
 	ErrUnauthorized  = errors.New("unauthorized")
@@ -364,6 +367,13 @@ func (s *Store) Migrate(ctx context.Context) error {
 		return fmt.Errorf("apply workspace index paging migration: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('033_workspace_index_paging') ON CONFLICT DO NOTHING`); err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(ctx, accountOnboardingMigration); err != nil {
+		return fmt.Errorf("apply account onboarding migration: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('034_account_onboarding') ON CONFLICT DO NOTHING`); err != nil {
 		return err
 	}
 

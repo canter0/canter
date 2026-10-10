@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { type FormEvent, useEffect, useId, useRef, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useId, useRef, useState } from "react";
 import { canterFetch } from "@/lib/canter-api";
 import { authDestination, authError, type AuthProviders } from "@/lib/auth";
 import { ProviderIcon } from "./provider-icon";
@@ -57,6 +57,14 @@ export function AuthForm({
   const create = mode === "create-account",
     reset = mode === "reset-password";
   const destination = authDestination(next, create ? "/app?welcome=1" : "/app");
+  const finishSignIn = useCallback(() => {
+    if (destination.startsWith("/api/canter/auth/oauth/")) {
+      window.location.assign(destination);
+      return;
+    }
+    router.push(destination);
+    router.refresh();
+  }, [destination, router]);
   useEffect(() => {
     let cancelled = false;
     Promise.all([
@@ -123,15 +131,14 @@ export function AuthForm({
       try {
         await authenticatePasskey("login", controller.signal, true);
         if (!controller.signal.aborted && !busy.current) {
-          router.push(destination);
-          router.refresh();
+          finishSignIn();
         }
       } catch {
         /* Autofill is optional; explicit login remains available. */
       }
     })();
     return () => controller.abort();
-  }, [create, reset, stage, config?.passkeys, destination, router]);
+  }, [create, reset, stage, config?.passkeys, finishSignIn]);
   function startBusy() {
     if (busy.current) return false;
     busy.current = true;
@@ -193,8 +200,7 @@ export function AuthForm({
         }),
       });
       if (result.stage === "complete") {
-        router.push(destination);
-        router.refresh();
+        finishSignIn();
       } else {
         setStage(result.stage);
         if (result.email) setEmail(result.email);
@@ -216,8 +222,7 @@ export function AuthForm({
     try {
       await finishAcquisition();
       await authenticatePasskey("login");
-      router.push(destination);
-      router.refresh();
+      finishSignIn();
     } catch (cause) {
       setError(
         cause instanceof DOMException &&

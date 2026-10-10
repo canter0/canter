@@ -81,6 +81,7 @@ export type DeviceAuthorization = {
 export type Me = {
   account: Account;
   workspaces: Workspace[];
+  onboardingComplete?: boolean;
 };
 
 export type SystemRecord = {
