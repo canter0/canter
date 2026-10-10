@@ -7,6 +7,8 @@ import (
 	"slices"
 )
 
+const DefaultOperatorModel = "openai/gpt-6.1-sol"
+
 // Shared with the web picker so its choices and the server allowlist stay aligned.
 //
 //go:embed operator_models.json
