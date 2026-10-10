@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -32,6 +34,32 @@ var oauthHTTPClient = &http.Client{
 	},
 }
 
+var googleSigningKeyHTTPClient = newGoogleSigningKeyHTTPClient()
+
+func newGoogleSigningKeyHTTPClient() *http.Client {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	dialer := &net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}
+	transport.DialContext = func(ctx context.Context, _ string, address string) (net.Conn, error) {
+		// Google's certificate endpoint rejects this host's IPv6 egress with
+		// HTTP 403. Keep this routing choice limited to public signing keys.
+		return dialer.DialContext(ctx, "tcp4", address)
+	}
+	return &http.Client{
+		Transport: transport,
+		Timeout:   15 * time.Second,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+}
+
+type googleIdentityError struct{ reason string }
+
+func (e *googleIdentityError) Error() string {
+	return "Google identity verification failed: " + e.reason
+}
+func (e *googleIdentityError) Unwrap() error { return ErrUnauthorized }
+
 // credentialHTTPClient preserves the configured transport and timeout while
 // preventing a redirect from replaying an OAuth credential or request body.
 func credentialHTTPClient(client *http.Client) *http.Client {
@@ -46,7 +74,7 @@ func newOAuthProviders(config HTTPConfig) map[string]*oauthProvider {
 		return strings.TrimRight(config.PublicURL, "/") + "/api/canter/auth/oauth/" + provider + "/callback"
 	}
 	if c := config.GoogleOAuth; c.ClientID != "" && c.ClientSecret != "" {
-		keys := oidc.NewRemoteKeySet(context.Background(), "https://www.googleapis.com/oauth2/v3/certs")
+		keys := oidc.NewRemoteKeySet(oidc.ClientContext(context.Background(), googleSigningKeyHTTPClient), "https://www.googleapis.com/oauth2/v3/certs")
 		verifier := oidc.NewVerifier("https://accounts.google.com", keys, &oidc.Config{ClientID: c.ClientID})
 		providers["google"] = &oauthProvider{
 			config: oauth2.Config{ClientID: c.ClientID, ClientSecret: c.ClientSecret, RedirectURL: callback("google"), Scopes: []string{"openid", "email", "profile"}, Endpoint: oauth2.Endpoint{AuthURL: "https://accounts.google.com/o/oauth2/v2/auth", TokenURL: "https://oauth2.googleapis.com/token", AuthStyle: oauth2.AuthStyleInParams}},
@@ -74,19 +102,29 @@ func newOAuthProviders(config HTTPConfig) map[string]*oauthProvider {
 
 func googleIdentity(ctx context.Context, verifier *oidc.IDTokenVerifier, token *oauth2.Token, nonce string) (oauthIdentity, error) {
 	raw, ok := token.Extra("id_token").(string)
-	if !ok || nonce == "" {
-		return oauthIdentity{}, ErrUnauthorized
+	if !ok || raw == "" || nonce == "" {
+		return oauthIdentity{}, &googleIdentityError{reason: "missing_token_or_nonce"}
 	}
 	id, err := verifier.Verify(ctx, raw)
-	if err != nil || subtle.ConstantTimeCompare([]byte(id.Nonce), []byte(nonce)) != 1 {
-		return oauthIdentity{}, ErrUnauthorized
+	if err != nil {
+		// The verifier's error may contain token claims or an HTTP response
+		// body. Retain only the stage for safe production diagnostics.
+		return oauthIdentity{}, &googleIdentityError{reason: "token_verification"}
+	}
+	if subtle.ConstantTimeCompare([]byte(id.Nonce), []byte(nonce)) != 1 {
+		return oauthIdentity{}, &googleIdentityError{reason: "nonce_mismatch"}
 	}
 	var claims struct {
-		Email    string `json:"email"`
-		Verified bool   `json:"email_verified"`
+		Email    string          `json:"email"`
+		Verified json.RawMessage `json:"email_verified"`
 	}
-	if err = id.Claims(&claims); err != nil || !claims.Verified || id.Subject == "" {
-		return oauthIdentity{}, ErrUnauthorized
+	if err = id.Claims(&claims); err != nil || id.Subject == "" {
+		return oauthIdentity{}, &googleIdentityError{reason: "invalid_claims"}
+	}
+	// Google documents both a boolean and the string "true" for this claim.
+	// Accept only these explicit verified values after token verification.
+	if (string(claims.Verified) != "true" && string(claims.Verified) != `"true"`) || strings.TrimSpace(claims.Email) == "" {
+		return oauthIdentity{}, &googleIdentityError{reason: "unverified_email"}
 	}
 	return oauthIdentity{Provider: "google", Subject: id.Subject, Email: claims.Email}, nil
 }
@@ -351,6 +389,21 @@ func (h *HTTPServer) oauthCallback(w http.ResponseWriter, r *http.Request, name 
 	}
 	identity, err := provider.identity(ctx, token, login.Nonce)
 	if err != nil || identity.Provider != name {
+		if name == "google" {
+			reason := "provider_mismatch"
+			if err != nil {
+				reason = "identity_request"
+				var failure *googleIdentityError
+				if errors.As(err, &failure) {
+					reason = failure.reason
+				}
+			}
+			log.Printf("OAuth identity rejected: provider=google reason=%s", reason)
+			if reason != "unverified_email" {
+				fail("sign_in_failed")
+				return
+			}
+		}
 		fail("unverified_email")
 		return
 	}
