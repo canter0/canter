@@ -111,6 +111,9 @@ func TestOperatorModelSettingsProviderPayload(t *testing.T) {
 		model, effort, want string
 	}{
 		{"openai/gpt-6-luna", "none", "none"},
+		{"openai/gpt-6.1-sol", "", "low"},
+		// Persisted runs and configured defaults may still disable reasoning.
+		{"openai/gpt-6.1-sol", "none", "low"},
 		{"openai/gpt-6.1-sol", "high", "high"},
 		{"z-ai/glm-5.3-flash", "", "low"},
 		{"google/gemini-3.8-flash", "medium", "medium"},
@@ -162,7 +165,7 @@ func TestOperatorModelSettingsProviderPayload(t *testing.T) {
 			}
 		})
 	}
-	for _, tc := range []struct{ model, effort string }{{"google/gemini-3.8-flash", "none"}, {"z-ai/glm-5.3-flash", "medium"}, {"qwen/qwen3.8-flash", "high"}, {"openai/gpt-6-luna", "invalid"}} {
+	for _, tc := range []struct{ model, effort string }{{"openai/gpt-6.1-sol", "none"}, {"google/gemini-3.8-flash", "none"}, {"z-ai/glm-5.3-flash", "medium"}, {"qwen/qwen3.8-flash", "high"}, {"openai/gpt-6-luna", "invalid"}} {
 		if validateOperatorModelOptions(tc.model, OperatorModelOptions{ReasoningEffort: tc.effort}) == nil {
 			t.Fatalf("accepted unsupported settings: %+v", tc)
 		}

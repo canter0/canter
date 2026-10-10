@@ -17,19 +17,19 @@
   },
   {
     "id": "openai/gpt-6.1-sol",
+    "reasoningRequired": true,
     "name": "GPT-6.1 Sol",
     "provider": "OpenAI",
     "logo": "openai",
     "contextTokens": 1050000,
     "reasoningEfforts": [
-      "none",
       "low",
       "medium",
       "high",
       "xhigh",
       "max"
     ],
-    "defaultReasoningEffort": "none"
+    "defaultReasoningEffort": "low"
   },
   {
     "id": "z-ai/glm-5.3-flash",
