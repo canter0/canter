@@ -139,9 +139,9 @@ export function AppShell({ active, context, children, onNewInstruction, agentVie
           <span className={styles.profileAvatar} aria-hidden="true">{accountName.slice(0, 1).toUpperCase()}</span>
         </button><MotionPresence open={accountOpen}><div id={accountId} className={styles.accountMenu} role="menu" aria-label="Account" onKeyDown={moveMenuFocus}>
           <p className={styles.menuLabel}>{data?.account.email ?? accountName}</p>
-          <Link role="menuitem" tabIndex={-1} prefetch={true} href="/app/account" onNavigate={closeAccount}><WorkspaceIcon name="agent" />Profile</Link>
+          <Link role="menuitem" tabIndex={-1} prefetch={true} href="/app/account" onNavigate={closeAccount}><WorkspaceIcon name="profile" />Profile</Link>
           <Link role="menuitem" tabIndex={-1} prefetch={true} href="/app/settings" onNavigate={closeAccount}><WorkspaceIcon name="settings" />Workspace settings</Link>
-          <Link role="menuitem" tabIndex={-1} prefetch={true} href="/app/billing" onNavigate={closeAccount}><WorkspaceIcon name="file" />Billing</Link>
+          <Link role="menuitem" tabIndex={-1} prefetch={true} href="/app/billing" onNavigate={closeAccount}><WorkspaceIcon name="invoice" />Billing</Link>
         </div></MotionPresence></div>
       </nav>
       <header className={styles.topBar} data-conversation={agentView || undefined} data-update-available={!!releaseUpdate.available || undefined} inert={navigationModal || onboarding}>
