@@ -1,0 +1,340 @@
+.filterBar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 30px;
+}
+.filterBar > nav {
+  margin-bottom: 0;
+}
+.appSelect {
+  height: 31px;
+  padding: 0 28px 0 12px;
+  color: #c5c5c5;
+  background: #1b1b1b url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23868686' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat right 10px center;
+  border: 1px solid #303030;
+  border-radius: 7px;
+  font-size: 12px;
+  appearance: none;
+  cursor: pointer;
+}
+.appSelect:hover {
+  border-color: #454545;
+}
+.readToggle {
+  padding: 6px 12px;
+  border: 1px solid #303030;
+  border-radius: 7px;
+  color: #999;
+  font-size: 12px;
+  background: transparent;
+}
+.readToggle[aria-pressed="true"] {
+  background: #282828;
+  color: #e5e5e5;
+  border-color: #454545;
+}
+.section {
+  margin-top: 34px;
+}
+.sectionHeading {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  margin-bottom: 12px;
+  padding: 0 2px;
+}
+.sectionHeading h2 {
+  font-size: 13px;
+  font-weight: 500;
+  color: #c1c1c1;
+}
+.sectionHeading small {
+  color: #767676;
+  font-size: 11px;
+}
+
+.reviewList {
+  display: grid;
+  gap: 10px;
+}
+.reviewCard {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+  padding: 16px 18px;
+  background: #1a1a1a;
+  border: 1px solid #303030;
+  border-left: 3px solid #d4b97e;
+  border-radius: 11px;
+}
+.reviewBody {
+  flex: 1;
+  min-width: 0;
+}
+.reviewBody h3 {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #e2e2e2;
+  font-size: 14px;
+  font-weight: 500;
+}
+.reviewBody p {
+  margin-top: 4px;
+  color: #8a8a8a;
+  font-size: 12px;
+}
+.reviewButton {
+  flex-shrink: 0;
+}
+
+.progressList {
+  display: grid;
+}
+.progressRow {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 60px;
+  padding: 12px;
+  border-bottom: 1px solid #282828;
+  border-radius: 7px;
+  color: #c7c7c7;
+}
+.progressRow:hover {
+  background: #1b1b1b;
+}
+.pulseDot {
+  position: relative;
+  width: 8px;
+  height: 8px;
+  margin: 0 10px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: #a5b9d1;
+}
+.pulseDot::after {
+  content: "";
+  position: absolute;
+  inset: -5px;
+  border: 1px solid #a5b9d1;
+  border-radius: 50%;
+  animation: activityPulse 2.2s ease-out infinite;
+}
+@keyframes activityPulse {
+  from { transform: scale(.45); opacity: .9; }
+  to { transform: scale(1.35); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pulseDot::after { animation: none; display: none; }
+}
+.progressBody {
+  flex: 1;
+  min-width: 0;
+}
+.progressBody > span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+.progressBody small {
+  display: block;
+  margin-top: 3px;
+  color: #868686;
+  font-size: 11px;
+}
+
+.dayHeading {
+  margin: 24px 0 2px;
+  padding: 0 2px;
+  color: #8c8c8c;
+  font-size: 12px;
+  font-weight: 400;
+}
+.dayGroup:first-child .dayHeading {
+  margin-top: 0;
+}
+.historyRow {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 11px 12px;
+  border-bottom: 1px solid #282828;
+  border-radius: 7px;
+  color: #c7c7c7;
+}
+.historyRow:hover {
+  background: #1b1b1b;
+}
+.historyRow > svg {
+  color: #898989;
+  flex-shrink: 0;
+}
+.historyBody {
+  flex: 1;
+  min-width: 0;
+}
+.historySummary {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #d0d0d0;
+  font-size: 13px;
+}
+.historySummary:hover {
+  color: #fff;
+}
+.historyMeta {
+  display: block;
+  margin-top: 3px;
+  color: #868686;
+  font-size: 11px;
+}
+.historyTime {
+  color: #878787;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.expandButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #8a8a8a;
+}
+.expandButton:hover {
+  background: #262626;
+  color: #ddd;
+}
+.expandButton svg {
+  transition: transform .15s;
+}
+.expandButton[aria-expanded="true"] svg {
+  transform: rotate(90deg);
+}
+.timeline {
+  display: grid;
+  gap: 1px;
+  margin: 2px 0 8px 23px;
+  padding: 6px 0 6px 17px;
+  border-left: 1px solid #2e2e2e;
+}
+.timelineEvent {
+  position: relative;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 5px 0;
+  font-size: 12px;
+}
+.timelineEvent::before {
+  content: "";
+  position: absolute;
+  left: -20px;
+  top: 11px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #555;
+}
+.timelineEvent[data-failed="true"]::before {
+  background: #da9b9b;
+}
+.timelineTitle {
+  color: #b9b9b9;
+}
+.timelineActor {
+  color: #767676;
+  font-size: 11px;
+}
+.timelineTime {
+  margin-left: auto;
+  color: #787878;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.eventLine {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px 8px 20px;
+  border-radius: 7px;
+  color: #9a9a9a;
+  font-size: 12px;
+}
+a.eventLine:hover {
+  background: #1b1b1b;
+  color: #c2c2c2;
+}
+.eventDot {
+  width: 5px;
+  height: 5px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: #555;
+}
+.eventLine > div {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.eventActor {
+  color: #747474;
+  font-size: 11px;
+}
+.eventLine time {
+  color: #787878;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+@media (max-width: 600px) {
+  .filterBar {
+    gap: 8px;
+  }
+  .reviewCard {
+    flex-wrap: wrap;
+    gap: 8px 14px;
+    padding: 14px;
+  }
+  .reviewBody {
+    flex-basis: 100%;
+    min-width: 0;
+  }
+  .reviewButton {
+    margin-left: auto;
+  }
+  .progressRow, .historyRow {
+    flex-wrap: wrap;
+    gap: 7px 12px;
+  }
+  .progressBody {
+    min-width: 140px;
+  }
+  .historyBody {
+    flex: 1 1 calc(100% - 34px);
+    min-width: 0;
+  }
+  .historyStatus {
+    margin-left: 30px;
+  }
+  .historyTime {
+    margin-left: auto;
+  }
+  .timeline {
+    margin-left: 11px;
+  }
+}

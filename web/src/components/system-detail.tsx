@@ -1,10 +1,11 @@
 "use client";
+import {getSelectedWorkspace} from "@/lib/workspace-selection";
 
 import { useEffect, useState } from "react";
 import { useSurfaceWorkspace } from "./embedded-app-surface";
 import Link from "next/link";
 import { AppShell, Metric, SectionHeader } from "@/components/app-shell";
-import { canterFetch, type Me, type SystemView } from "@/lib/canter-api";
+import { canterFetch, type SystemView } from "@/lib/canter-api";
 
 export function SystemDetail({ name }: { name: string }) {
   const scopedWorkspace = useSurfaceWorkspace();
@@ -16,7 +17,7 @@ export function SystemDetail({ name }: { name: string }) {
     let cancelled = false;
     void (async () => {
       try {
-        const workspace = scopedWorkspace ? { id: scopedWorkspace } : (await canterFetch<Me>("/me")).workspaces[0];
+        const workspace = scopedWorkspace ? { id: scopedWorkspace } : (await getSelectedWorkspace()).workspace;
         if (!workspace) throw new Error("No workspace is available.");
         const result = await canterFetch<SystemView>(`/workspaces/${workspace.id}/systems/${encodeURIComponent(name)}`);
         if (!cancelled) { setView(result); setError(""); }

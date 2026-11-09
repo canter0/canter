@@ -14,6 +14,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Vendored third-party PDF.js viewer; not our code.
+    "public/pdfjs/**",
   ]),
 ]);
 

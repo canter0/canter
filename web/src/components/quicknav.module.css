@@ -1,0 +1,5 @@
+.rail { display:flex;flex-direction:column;align-items:center;gap:6px;width:56px;flex:none;height:100dvh;padding:12px 8px;border-right:1px solid rgb(var(--ui-border-secondary));background:rgb(var(--ui-bg-wash)); }
+.rail a { display:grid;place-items:center;flex-shrink:0;width:40px;height:40px;border-radius:12px;color:#aaa;text-decoration:none;transition:background var(--motion-fast),color var(--motion-fast); }
+.rail a:hover,.rail a[aria-current="location"] { color:#eee;background:#272727; }
+.rail a:focus-visible { outline:2px solid var(--focus);outline-offset:3px; }
+@media(pointer:coarse) { .rail { padding-inline:6px; }.rail a { width:44px;height:44px; } }

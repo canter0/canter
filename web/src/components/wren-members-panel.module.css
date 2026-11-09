@@ -1,0 +1,18 @@
+.panel { color:rgb(var(--ui-text-primary));padding:24px var(--wren-panel-inset,24px);max-width:620px;margin:0 auto;font-size:13px; }
+.panel h2 { font-size:16px;font-weight:500;margin:0 0 10px; }
+.panel p,.panel small { color:var(--muted);line-height:1.6; }
+.panel details { margin:14px 0; }
+.panel summary { cursor:pointer;padding:5px 0; }
+.panel form { display:grid;gap:12px;padding:12px 0; }
+.panel label { display:grid;gap:6px; }
+.panel input,.panel select { width:100%;padding:9px;border:1px solid var(--rule);border-radius:8px;background:transparent;color:inherit; }
+.panel button { border:1px solid var(--rule);border-radius:7px;padding:7px 10px;background:transparent;color:inherit;cursor:pointer;justify-self:start; }
+.panel button:disabled { opacity:.45;cursor:default; }
+.person { border-bottom:1px solid var(--rule);padding:14px 0;display:grid;gap:5px; }
+.person strong { font-weight:500;overflow-wrap:anywhere; }
+.person span { color:var(--muted); }
+.checkbox { display:flex!important;align-items:center;gap:8px!important; }
+.checkbox input { width:auto; }
+.join { width:min(440px,calc(100vw - 40px));margin:12vh auto; }
+
+.panel button.changeAccount { border:0;padding:0;background:transparent;color:var(--text-secondary);text-decoration:underline;text-underline-offset:3px; }

@@ -1,4 +1,5 @@
 "use client";
+import {getSelectedWorkspace} from "@/lib/workspace-selection";
 
 import { useEffect } from "react";
 import { canterFetch, type ChangeDetail, type InitialDeploymentDetail, type InitialDeploymentSummary, type Installation, type Me, type StandingPolicy, type SystemRecord } from "@/lib/canter-api";
@@ -26,15 +27,16 @@ declare global {
 const workspaceInput = {
   type: "object",
   properties: {
-    workspaceId: { type: "string", description: "Canter workspace ID. Omit to use the first workspace available to the signed-in account." },
+    workspaceId: { type: "string", description: "Canter workspace ID. Omit to use the signed-in account’s selected workspace." },
   },
   additionalProperties: false,
 } as const;
 
 async function resolveWorkspace(input: Record<string, unknown>): Promise<{ me: Me; workspaceId: string }> {
-  const me = await canterFetch<Me>("/me");
+  const selection=await getSelectedWorkspace();
+  const me=selection;
   const requested = typeof input.workspaceId === "string" ? input.workspaceId : "";
-  const workspace = requested ? me.workspaces.find((item) => item.id === requested) : me.workspaces[0];
+  const workspace = requested ? me.workspaces.find((item) => item.id === requested) : selection.workspace;
   if (!workspace) throw new Error("The signed-in account has no accessible Canter workspace.");
   return { me, workspaceId: workspace.id };
 }

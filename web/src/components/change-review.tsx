@@ -1,11 +1,12 @@
 "use client";
+import {getSelectedWorkspace} from "@/lib/workspace-selection";
 
 import { useEffect, useState } from "react";
 import { useSurfaceWorkspace } from "./embedded-app-surface";
 import Link from "next/link";
 import { AppShell, SectionHeader } from "@/components/app-shell";
 import { activityLabel } from "@/lib/workspace-overview";
-import { canterFetch, relativeTime, type ChangeDetail, type Me } from "@/lib/canter-api";
+import { canterFetch, relativeTime, type ChangeDetail } from "@/lib/canter-api";
 
 export function ChangeReview({ id, system }: { id: string; system: string }) {
   const scopedWorkspace = useSurfaceWorkspace();
@@ -16,8 +17,8 @@ export function ChangeReview({ id, system }: { id: string; system: string }) {
   const [error, setError] = useState("");
 
   async function load(cancelled?: () => boolean) {
-    const workspace = scopedWorkspace ? { id: scopedWorkspace } : (await canterFetch<Me>("/me")).workspaces[0];
-    if (!workspace) throw new Error("No workspace is available.");
+    const workspace = scopedWorkspace ? { id: scopedWorkspace } : (await getSelectedWorkspace()).workspace;
+    if (!workspace) throw new Error("No organization is available.");
     const result = await canterFetch<ChangeDetail>(`/workspaces/${workspace.id}/systems/${encodeURIComponent(system)}/changes/${encodeURIComponent(id)}`);
     if (cancelled?.()) return;
     setWorkspaceId(workspace.id);
@@ -28,8 +29,8 @@ export function ChangeReview({ id, system }: { id: string; system: string }) {
     let cancelled = false;
     void (async () => {
       try {
-        const workspace = scopedWorkspace ? { id: scopedWorkspace } : (await canterFetch<Me>("/me")).workspaces[0];
-        if (!workspace) throw new Error("No workspace is available.");
+        const workspace = scopedWorkspace ? { id: scopedWorkspace } : (await getSelectedWorkspace()).workspace;
+        if (!workspace) throw new Error("No organization is available.");
         const result = await canterFetch<ChangeDetail>(`/workspaces/${workspace.id}/systems/${encodeURIComponent(system)}/changes/${encodeURIComponent(id)}`);
         if (cancelled) return;
         setWorkspaceId(workspace.id);

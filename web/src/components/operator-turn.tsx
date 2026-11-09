@@ -1,13 +1,17 @@
 "use client";
+import { WrenActionReview } from "./wren-action-review";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { MorphLabel, ResponseText } from "./conversation-motion";
 export { ResponseText } from "./conversation-motion";
+import { surfaceResultName } from "@/lib/surface-result-name";
 import { operatorActivity, operatorToolLabel } from "@/lib/operator-activity";
 import { operatorWebSources } from "@/lib/operator-web-sources";
 import { OperatorSources } from "./operator-sources";
 import { turnTimeline } from "@/lib/operator-timeline";
 import { isSurface, surfaceKey, surfaceLabels, type Conversation, type OperatorEvent, type OperatorMessage, type OperatorSurface } from "@/lib/operator-api";
+import { WrenAppsCard } from "./wren-apps-card";
+import { appDiscoverySnapshot } from "@/lib/wren-app-status";
 import { OperatorAttachments } from "./operator-attachments";
 import { WorkspaceIcon } from "./workspace-icon";
 import styles from "./operator-workspace.module.css";
@@ -19,7 +23,7 @@ export function OperatorMessageContext({ surface, conversations }: { surface?: O
   const content = <><WorkspaceIcon name={surface.kind === "conversation" ? "message" : surface.kind === "repository" || surface.kind === "github" ? "folder" : surface.kind === "apps" || surface.kind === "app" ? "apps" : "file"} width="13" height="13" /><span>Context</span><strong title={title}>{title}</strong></>;
   return surface.kind === "conversation" && surface.id ? <Link className={styles.messageContext} href={`/app/conversations/${encodeURIComponent(surface.id)}`} aria-label={`Open referenced conversation: ${title}`}>{content}</Link> : <span className={styles.messageContext} aria-label={`Context: ${title}`}>{content}</span>;
 }
-export function OperatorTurn({ message, answer, events, running, onSelect, conversations, inline }: { message: OperatorMessage; answer?: OperatorMessage; events: OperatorEvent[]; running: boolean; onSelect: (surface: OperatorSurface) => void; conversations: Conversation[]; inline?: ReactNode }) {
+export function OperatorTurn({ message, answer, events, running, onSelect, conversations, inline, hidePrompt, userOnly, speaker, resultEvents }: { resultEvents?: OperatorEvent[]; hidePrompt?: boolean; userOnly?: boolean; speaker?: ReactNode; message: OperatorMessage; answer?: OperatorMessage; events: OperatorEvent[]; running: boolean; onSelect: (surface: OperatorSurface) => void; conversations: Conversation[]; inline?: ReactNode }) {
   const [expanded, setExpanded] = useState(false);
   const timeline = turnTimeline(events);
   const webSources = operatorWebSources(events);
@@ -27,8 +31,9 @@ export function OperatorTurn({ message, answer, events, running, onSelect, conve
   const label = useActivityLabel(activity.label, running);
   const surfaces = [...new Map(events.filter(event => event.kind === "surface" && isSurface(event.data) && !["github", "compute", "storage"].includes(String(event.data.kind))).map(event => [surfaceKey(event.data as OperatorSurface), event.data as OperatorSurface])).values()];
   return <section className={styles.turn} aria-label="Conversation turn" data-live={running}>
-    <article className={styles.message} data-role="user"><div className={styles.messageText}>{message.content}</div><OperatorMessageContext surface={message.surface} conversations={conversations} />{message.attachments?.length ? <OperatorAttachments items={message.attachments} /> : null}</article>
-    <div className={styles.agentTurn}>
+    {!hidePrompt ? <article className={styles.message} data-role="user">{message.senderName ? <span className={styles.messageSender}>{message.senderName}</span> : null}<div className={styles.messageText}>{message.content}</div><OperatorMessageContext surface={message.surface} conversations={conversations} />{message.attachments?.length ? <OperatorAttachments items={message.attachments} /> : null}</article> : null}
+    {!userOnly ? <div className={styles.agentTurn}>
+      {speaker}
       <div className={styles.operations} data-visible={running || activity.count > 0} aria-hidden={!running && !activity.count}>
         <div className={styles.activityLine} role="status" aria-live="polite">
           <button type="button" className={styles.workToggle} disabled={!activity.count} aria-expanded={activity.count ? expanded : undefined} aria-label={activity.count ? `${label}. ${expanded ? "Hide" : "Show"} action details` : undefined} onClick={() => setExpanded(value => !value)}>
@@ -39,16 +44,18 @@ export function OperatorTurn({ message, answer, events, running, onSelect, conve
         <div className={styles.workLogReveal} data-open={expanded} aria-hidden={!expanded} inert={!expanded}><div className={styles.workLogClip}><div className={styles.workLog}>
           {timeline.work.map(event => event.kind === "text" ? <ResponseText key={event.sequence} text={event.data.content} /> : <div key={String(event.data.callId)} className={styles.toolRow}>
             <span className={styles.toolIcon}>{event.data.status === "completed" ? <WorkspaceIcon name="check" width="12" height="12" /> : event.data.status === "failed" ? "!" : event.data.status === "running" && running ? <WorkspaceIcon name="activity" width="12" height="12" /> : "–"}</span>
-            <span>{operatorToolLabel(event.data.name)}{event.data.status === "failed" ? <small> · Failed</small> : null}</span>
+            <span title={typeof event.data.name === "string" ? event.data.name : undefined}>{event.data.status === "handed_over" ? "Control handed over" : operatorToolLabel(event.data.name)}{event.data.status === "failed" ? <small> · Failed</small> : null}</span>
           </div>)}
         </div></div></div>
       </div>
-      <ResponseText streaming={running} text={timeline.preamble?.data.content} />
+      {!speaker || running || !answer?.content ? <ResponseText streaming={running} text={timeline.preamble?.data.content} /> : null}
       <ResponseText streaming={running} text={answer?.content ?? timeline.tail?.data.content} />
       {webSources.length ? <OperatorSources sources={webSources} /> : null}
       {inline}
-      {surfaces.length ? <div className={styles.surfaces} aria-label="Results">{surfaces.map(surface => <button key={surfaceKey(surface)} onClick={() => onSelect(surface)}><WorkspaceIcon name={surface.kind === "file" || surface.kind === "repository-changes" ? "file" : "panel"} width="15" height="15" />{surface.path ?? surface.system ?? surfaceLabels[surface.kind]}</button>)}</div> : null}
-    </div>
+      {[...new Set(events.filter(event=>event.kind==="extension_review"&&typeof event.data.reviewId==="string").map(event=>String(event.data.reviewId)))].map(id=><WrenActionReview key={id} id={id}/>)}
+      {surfaces.some(surface=>surface.kind==="wren-extensions")?<WrenAppsCard discovery={appDiscoverySnapshot(events)} onOpen={(id,catalogSlug)=>onSelect({kind:"wren-extensions",id,catalogSlug})}/>:null}
+      {surfaces.some(surface=>surface.kind!=="wren-extensions") ? <div className={styles.surfaces} aria-label="Results">{surfaces.filter(surface=>surface.kind!=="wren-extensions").map(surface => <button key={surfaceKey(surface)} onClick={() => onSelect(surface)}><WorkspaceIcon name={surface.kind === "file" || surface.kind === "repository-changes" ? "file" : "panel"} width="15" height="15" />{surfaceResultName(surface, resultEvents ?? events) ?? surface.path ?? surface.system ?? surfaceLabels[surface.kind]}</button>)}</div> : null}
+    </div> : null}
   </section>;
 }
 

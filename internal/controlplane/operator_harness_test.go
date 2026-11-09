@@ -2,6 +2,7 @@ package controlplane
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -253,6 +254,9 @@ func TestOperatorInboxYieldsBeforePendingMutation(t *testing.T) {
 	}
 	principal, err := s.operatorPrincipal(ctx, c, next.ID)
 	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.pool.Exec(ctx, `INSERT INTO agent_installations(id,workspace_id,name,harness,created_by) VALUES('external_handoff_fixture',$1,'External fixture','codex',$2)`, c.WorkspaceID, c.AccountID); err != nil {
 		t.Fatal(err)
 	}
 	call := operatorTestCall("canter_create_task", `{"prompt":"Integrate uploads in the flight planner; verify permissions and upload/download behavior."}`)
@@ -511,4 +515,32 @@ func TestOperatorHarnessLiveModel(t *testing.T) {
 		t.Fatalf("follow-up lost project identity: %v", err)
 	}
 	t.Logf("verified model %s across two turns: context saved, commands executed, files resumed", config.Model)
+}
+
+func TestOperatorSandboxScreenshotObservation(t *testing.T) {
+	s, c, _ := operatorFixture(t)
+	ctx := context.Background()
+	_, err := s.EnqueueOperator(ctx, c, "obs_request", "take a sandbox screenshot", "test", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, ok, err := s.claimOperator(ctx)
+	if err != nil || !ok {
+		t.Fatal(err)
+	}
+	png := []byte("not-a-real-png-but-bytes")
+	result, _ := json.Marshal(map[string]any{
+		"computerId": "sbx_1", "sandboxId": "sbx_1", "generation": 3, "width": 4, "height": 4,
+		"capture": map[string]any{"id": "capture_1", "name": "Sandbox screenshot", "mediaType": "image/png", "size": len(png), "dataBase64": base64.StdEncoding.EncodeToString(png)},
+	})
+	if _, err = s.pool.Exec(ctx, `INSERT INTO operator_tool_calls(run_id,call_id,name,arguments,result) VALUES($1,$2,$3,$4,$5)`, run.ID, "call_obs", "canter_sandbox_screenshot", `{}`, result); err != nil {
+		t.Fatal(err)
+	}
+	capture, err := s.computerObservation(ctx, run, "call_obs")
+	if err != nil {
+		t.Fatalf("computerObservation: %v", err)
+	}
+	if capture == nil || capture.MediaType != "image/png" || capture.DataBase64 != base64.StdEncoding.EncodeToString(png) || capture.Name != "Sandbox screenshot" {
+		t.Fatalf("capture: %+v", capture)
+	}
 }

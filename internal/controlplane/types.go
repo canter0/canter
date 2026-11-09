@@ -97,6 +97,7 @@ type Bootstrap struct {
 	InitialDeploymentsHasMore bool                     `json:"initialDeploymentsHasMore"`
 	InitialDeploymentsCursor  string                   `json:"initialDeploymentsNextCursor,omitempty"`
 	Tasks                     []WorkspaceTask          `json:"tasks"`
+	OrganizationMemory        []WorkspaceMemoryEntry   `json:"organizationMemory,omitempty"`
 	Capabilities              map[string]any           `json:"capabilities"`
 	Incidents                 []any                    `json:"incidents"`
 }

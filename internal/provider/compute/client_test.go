@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -371,5 +372,71 @@ func TestResolveSizeUsesAllDimensionsAndPreservesClassResolution(t *testing.T) {
 	shape, _, _, err = client.Resolve(context.Background(), "c1", "ubuntu-24.04")
 	if err != nil || shape.ID != "small" {
 		t.Fatalf("existing class mapping changed: %+v %v", shape, err)
+	}
+}
+
+func waitClient(server *httptest.Server) *Client {
+	return &Client{http: providerHTTPClient(300 * time.Millisecond), session: session{Token: "t", ComputeURL: server.URL, Expires: time.Now().Add(time.Hour)}}
+}
+
+func TestWaitActiveRetriesTransientErrors(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch calls.Add(1) {
+		case 1:
+			w.WriteHeader(http.StatusServiceUnavailable)
+		case 2:
+			w.WriteHeader(http.StatusTooManyRequests)
+		default:
+			fmt.Fprintf(w, `{"server":{"id":"s1","status":"ACTIVE","name":"vm"}}`)
+		}
+	}))
+	defer server.Close()
+	got, err := waitClient(server).WaitActive(context.Background(), "s1")
+	if err != nil || got.Status != "ACTIVE" {
+		t.Fatalf("transient errors must be retried: %v %v", got, err)
+	}
+	if calls.Load() < 3 {
+		t.Fatalf("expected retries, got %d calls", calls.Load())
+	}
+}
+
+func TestWaitActiveReturnsImmediatelyOnNotFound(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+	_, err := waitClient(server).WaitActive(context.Background(), "s1")
+	if !IsNotFound(err) || calls.Load() != 1 {
+		t.Fatalf("404 must return immediately: %v calls=%d", err, calls.Load())
+	}
+}
+
+func TestWaitActiveReturnsImmediatelyOnErrorStatus(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		fmt.Fprintf(w, `{"server":{"id":"s1","status":"ERROR","name":"vm","fault":{"code":500,"message":"spawn failed"}}}`)
+	}))
+	defer server.Close()
+	_, err := waitClient(server).WaitActive(context.Background(), "s1")
+	if err == nil || !strings.Contains(err.Error(), "spawn failed") || calls.Load() != 1 {
+		t.Fatalf("ERROR must return immediately: %v calls=%d", err, calls.Load())
+	}
+}
+
+func TestWaitActiveContextDeadlineWrapsTransient(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+	defer server.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
+	defer cancel()
+	_, err := waitClient(server).WaitActive(ctx, "s1")
+	var responseErr *HTTPError
+	if !errors.As(err, &responseErr) || responseErr.StatusCode != http.StatusBadGateway {
+		t.Fatalf("deadline during transients must wrap the cause: %v", err)
 	}
 }

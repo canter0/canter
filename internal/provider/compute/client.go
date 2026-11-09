@@ -364,6 +364,83 @@ func (c *Client) resolveShape(ctx context.Context, imageAlias string, selectShap
 	return shape, imageID, networkIDs, nil
 }
 
+// ResolveImageID validates a pinned image: it must exist and be usable.
+func (c *Client) ResolveImageID(ctx context.Context, imageID string) error {
+	s, err := c.authenticate(ctx)
+	if err != nil {
+		return err
+	}
+	var out image
+	if err := c.get(ctx, s.ImageURL+"/v2/images/"+imageID, &out); err != nil {
+		return err
+	}
+	if out.Status != "active" {
+		return fmt.Errorf("compute image %s is %q, not active", imageID, out.Status)
+	}
+	return nil
+}
+
+// CreateImage snapshots a server into a private image and returns its id.
+func (c *Client) CreateImage(ctx context.Context, serverID, name string, metadata map[string]string) (string, error) {
+	s, err := c.authenticate(ctx)
+	if err != nil {
+		return "", err
+	}
+	payload := map[string]any{"createImage": map[string]any{"name": name, "metadata": metadata}}
+	b, _ := json.Marshal(payload)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.ComputeURL+"/servers/"+serverID+"/action", bytes.NewReader(b))
+	if err != nil {
+		return "", privateTransportError(http.MethodPost, err)
+	}
+	req.Header.Set("X-Auth-Token", s.Token)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return "", privateTransportError(http.MethodPost, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		return "", &HTTPError{StatusCode: resp.StatusCode, Body: strings.TrimSpace(string(body))}
+	}
+	var out struct {
+		ImageID string `json:"image_id"`
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxProviderJSONBody+1))
+	_ = json.Unmarshal(body, &out)
+	if out.ImageID != "" {
+		return out.ImageID, nil
+	}
+	// Older nova returns the image only through the Location header.
+	location := resp.Header.Get("Location")
+	if idx := strings.LastIndex(location, "/"); idx >= 0 && idx+1 < len(location) {
+		return location[idx+1:], nil
+	}
+	return "", fmt.Errorf("compute image creation returned no image id")
+}
+
+// ImageStatus reports a glance image's status (active, saving, queued, ...).
+func (c *Client) ImageStatus(ctx context.Context, imageID string) (string, error) {
+	s, err := c.authenticate(ctx)
+	if err != nil {
+		return "", err
+	}
+	var out image
+	if err := c.get(ctx, s.ImageURL+"/v2/images/"+imageID, &out); err != nil {
+		return "", err
+	}
+	return out.Status, nil
+}
+
+// DeleteImage removes a private image (used for build cleanup).
+func (c *Client) DeleteImage(ctx context.Context, imageID string) error {
+	s, err := c.authenticate(ctx)
+	if err != nil {
+		return err
+	}
+	return c.request(ctx, http.MethodDelete, s.ImageURL+"/v2/images/"+imageID, nil, nil)
+}
+
 func normalizeImage(value string) string {
 	return strings.NewReplacer("-", "", ".", "", "_", "", "amd64", "").Replace(strings.ToLower(value))
 }
@@ -437,13 +514,31 @@ func (c *Client) Server(ctx context.Context, id string) (Server, error) {
 }
 
 func (c *Client) WaitActive(ctx context.Context, id string) (Server, error) {
-	tick := time.NewTicker(2 * time.Second)
-	defer tick.Stop()
+	// One slow or rate-limited poll must not kill an allocation. Transient
+	// failures back off 2s→4s→8s (cap 10s) and reset on the next success.
+	delay := 2 * time.Second
+	var lastTransient error
 	for {
 		server, err := c.Server(ctx, id)
 		if err != nil {
-			return Server{}, err
+			if !transientServerError(err) {
+				return Server{}, err
+			}
+			lastTransient = err
+			select {
+			case <-ctx.Done():
+				return Server{}, fmt.Errorf("wait for compute %s: %w", id, lastTransient)
+			case <-time.After(delay):
+			}
+			if delay < 10*time.Second {
+				delay *= 2
+				if delay > 10*time.Second {
+					delay = 10 * time.Second
+				}
+			}
+			continue
 		}
+		delay = 2 * time.Second
 		switch server.Status {
 		case "ACTIVE":
 			return server, nil
@@ -456,9 +551,24 @@ func (c *Client) WaitActive(ctx context.Context, id string) (Server, error) {
 		select {
 		case <-ctx.Done():
 			return Server{}, ctx.Err()
-		case <-tick.C:
+		case <-time.After(delay):
 		}
 	}
+}
+
+// transientServerError classifies poll failures that an in-flight boot can
+// outlive: transport errors (timeouts included), 429, and 5xx. Everything
+// else (404, other 4xx) is definitive and ends the wait immediately.
+func transientServerError(err error) bool {
+	var transport *TransportError
+	if errors.As(err, &transport) {
+		return true
+	}
+	var responseErr *HTTPError
+	if errors.As(err, &responseErr) {
+		return responseErr.StatusCode == http.StatusTooManyRequests || responseErr.StatusCode >= 500
+	}
+	return false
 }
 
 func IsNetworkExhausted(err error) bool {

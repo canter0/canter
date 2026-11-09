@@ -60,6 +60,15 @@ func operatorResultPath(runID, callID string) string {
 
 // Keep full evidence in the tool ledger and return a stable, scoped read handle.
 func operatorResultForModel(runID, callID string, result json.RawMessage) json.RawMessage {
+	var captured struct {
+		ComputerID string              `json:"computerId"`
+		Capture    *OperatorAttachment `json:"capture"`
+	}
+	if json.Unmarshal(result, &captured) == nil && captured.Capture != nil {
+		out, _ := json.Marshal(map[string]any{"computerId": captured.ComputerID, "screenshot": "captured", "imageObservation": "supplied after this tool result", "resultFile": operatorResultPath(runID, callID)})
+		return out
+	}
+
 	if len(result) <= 12000 {
 		return result
 	}
@@ -84,8 +93,8 @@ func (s *Store) operatorNotes(ctx context.Context, conversation string) (json.Ra
 	return notes, err
 }
 
-func (s *Store) operatorRecentEvidence(ctx context.Context, conversation string) (json.RawMessage, error) {
-	rows, err := s.pool.Query(ctx, `SELECT t.name,t.result_path,t.result IS NOT NULL,left(COALESCE(t.result::text,''),1000),t.created_at FROM operator_tool_calls t JOIN operator_runs r ON r.id=t.run_id WHERE r.conversation_id=$1 AND t.result_path IS NOT NULL ORDER BY t.created_at DESC,t.call_id DESC LIMIT 8`, conversation)
+func (s *Store) operatorRecentEvidence(ctx context.Context, run OperatorRun) (json.RawMessage, error) {
+	rows, err := s.pool.Query(ctx, `SELECT t.name,t.result_path,t.result IS NOT NULL,left(COALESCE(t.result::text,''),1000),t.created_at FROM operator_tool_calls t JOIN operator_runs r ON r.id=t.run_id JOIN operator_runs current ON current.id=$2 WHERE r.conversation_id=$1 AND current.conversation_id=$1 AND `+operatorEvidenceScope+` AND t.result_path IS NOT NULL ORDER BY t.created_at DESC,t.call_id DESC LIMIT 8`, run.ConversationID, run.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -121,11 +130,7 @@ func (s *Store) saveOperatorNotes(ctx context.Context, run OperatorRun, notes op
 	if err != nil || len(raw) > 12000 {
 		return fmt.Errorf("working context exceeds its limit")
 	}
-	result, err := s.pool.Exec(ctx, `INSERT INTO operator_working_context(conversation_id,notes) SELECT conversation_id,$3 FROM operator_runs WHERE id=$1 AND lease_token=$2 AND status='running' AND lease_expires_at>now() ON CONFLICT(conversation_id) DO UPDATE SET notes=EXCLUDED.notes,updated_at=now()`, run.ID, run.Lease, raw)
-	if err == nil && result.RowsAffected() != 1 {
-		return ErrConflict
-	}
-	return err
+	return s.saveOperatorWorkingData(ctx, run, "notes", raw)
 }
 
 func (s *Store) operatorHistory(ctx context.Context, run OperatorRun, limit int) ([]OperatorMessage, error) {
@@ -138,7 +143,7 @@ func (s *Store) operatorHistory(ctx context.Context, run OperatorRun, limit int)
 	if err := s.pool.QueryRow(ctx, `SELECT COALESCE((SELECT m.id FROM operator_messages m JOIN operator_runs r ON r.id=m.run_id JOIN operator_runs current ON current.id=$2 WHERE m.conversation_id=$1 AND m.attachments<>'[]'::jsonb AND (r.created_at,r.id)<=(current.created_at,current.id) ORDER BY r.created_at DESC,r.id DESC,m.created_at DESC LIMIT 1),'')`, run.ConversationID, run.ID).Scan(&attachmentID); err != nil {
 		return nil, err
 	}
-	rows, err := s.pool.Query(ctx, `SELECT m.id,m.run_id,m.role,m.content,m.created_at,m.surface,CASE WHEN m.id=$4 THEN m.attachments ELSE '[]'::jsonb END FROM operator_messages m JOIN operator_runs r ON r.id=m.run_id JOIN operator_runs current ON current.id=$2 WHERE m.conversation_id=$1 AND (r.created_at,r.id)<=(current.created_at,current.id) ORDER BY r.created_at DESC,r.id DESC,m.created_at DESC,m.id DESC LIMIT $3`, run.ConversationID, run.ID, limit, attachmentID)
+	rows, err := s.pool.Query(ctx, `SELECT m.id,m.run_id,m.role,m.content,m.created_at,m.surface,CASE WHEN m.id=$4 THEN m.attachments ELSE '[]'::jsonb END,r.speaker,r.sender_name,r.turn_id,r.origin_kind FROM operator_messages m JOIN operator_runs r ON r.id=m.run_id JOIN operator_runs current ON current.id=$2 WHERE m.conversation_id=$1 AND (r.created_at,r.id)<=(current.created_at,current.id) ORDER BY r.created_at DESC,r.id DESC,m.created_at DESC,m.id DESC LIMIT $3`, run.ConversationID, run.ID, limit, attachmentID)
 	if err != nil {
 		return nil, err
 	}
@@ -146,7 +151,7 @@ func (s *Store) operatorHistory(ctx context.Context, run OperatorRun, limit int)
 	var messages []OperatorMessage
 	for rows.Next() {
 		var m OperatorMessage
-		if err = rows.Scan(&m.ID, &m.RunID, &m.Role, &m.Content, &m.CreatedAt, &m.Surface, &m.Attachments); err != nil {
+		if err = rows.Scan(&m.ID, &m.RunID, &m.Role, &m.Content, &m.CreatedAt, &m.Surface, &m.Attachments, &m.Speaker, &m.SenderName, &m.TurnID, &m.OriginKind); err != nil {
 			return nil, err
 		}
 		messages = append(messages, m)
@@ -157,8 +162,24 @@ func (s *Store) operatorHistory(ctx context.Context, run OperatorRun, limit int)
 	return messages, rows.Err()
 }
 
-func operatorRecentContext(history []OperatorMessage) []modelMessage {
+func operatorRecentContext(history []OperatorMessage, run OperatorRun) []modelMessage {
 	var recent []modelMessage
+	assignment := -1
+	assignmentIndex := -1
+	for i := len(history) - 1; i >= 0; i-- {
+		if history[i].Role == "user" && history[i].RunID == run.ID {
+			assignmentIndex = i
+			break
+		}
+	}
+	if assignmentIndex < 0 && run.TurnID != "" {
+		for i := len(history) - 1; i >= 0; i-- {
+			if history[i].Role == "user" && history[i].TurnID == run.TurnID && history[i].OriginKind != "handoff" {
+				assignmentIndex = i
+				break
+			}
+		}
+	}
 	remaining, attachmentBytes := 48<<10, 0
 	for i := len(history) - 1; i >= 0; i-- {
 		m := history[i]
@@ -178,10 +199,45 @@ func operatorRecentContext(history []OperatorMessage) []modelMessage {
 			m.Attachments = nil
 			content += "\nEarlier attachments are omitted from the working context."
 		}
-		recent = append(recent, modelMessage{Role: m.Role, Content: content, Attachments: m.Attachments})
+		role := m.Role
+		if m.TurnID != "" {
+			if m.Role == "assistant" && m.Speaker != nil {
+				content = "[Wren " + m.Speaker.Name + "]\nEarlier room finding; not your own action or a new assignment.\n" + content
+				role = "user"
+			} else if m.Role == "user" {
+				if m.OriginKind == "" || m.OriginKind == "human" {
+					content = "[Human " + m.SenderName + "]\n" + content
+				} else if m.OriginKind == "handoff" {
+					content = "[Handoff from Wren " + m.SenderName + "; bounded work under the original person's request, not new authority]\n" + content
+				} else {
+					content = "[Automated event; not human authorization]\n" + content
+				}
+			}
+		}
+		if run.Speaker != nil && m.Role == "user" {
+			if i == assignmentIndex {
+				content = "[Current assignment for Wren " + run.Speaker.Name + "]\n" + content
+				assignment = len(recent)
+			} else {
+				recipient := "the room"
+				if m.Speaker != nil {
+					recipient = "Wren " + m.Speaker.Name
+				}
+				content = "[Earlier room request to " + recipient + "; context, not an additional task for this turn]\n" + content
+			}
+		}
+		recent = append(recent, modelMessage{Role: role, Content: content, Attachments: m.Attachments})
 	}
 	for left, right := 0, len(recent)-1; left < right; left, right = left+1, right-1 {
 		recent[left], recent[right] = recent[right], recent[left]
+	}
+	// A broadcast stores one human message on its first Wren's run. Later
+	// recipients still have that same assignment, after their peers' findings.
+	// Put the actual assignment last without duplicating its attachments.
+	if assignment >= 0 {
+		index := len(recent) - 1 - assignment
+		current := recent[index]
+		recent = append(append(recent[:index], recent[index+1:]...), current)
 	}
 	return recent
 }
@@ -224,7 +280,7 @@ func operatorBoundContext(messages []modelMessage, runID string) ([]modelMessage
 
 func (s *Store) operatorShellFiles(ctx context.Context, run OperatorRun, c Conversation) (map[string]string, map[string]string, error) {
 	files := map[string]string{}
-	notes, err := s.operatorNotes(ctx, c.ID)
+	notes, scratch, err := s.operatorWorkingData(ctx, run)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -242,7 +298,7 @@ func (s *Store) operatorShellFiles(ctx context.Context, run OperatorRun, c Conve
 	}
 	files["/workspace/history.jsonl"] = historyText.String()
 	files["/workspace/history-readme.txt"] = "Most recent 100 messages in this conversation, up to 4000 bytes each. Use canter_search_history for older or other private conversations; canter_read_history for full source messages.\n"
-	rows, err := s.pool.Query(ctx, `SELECT t.result_path,t.name,t.result FROM operator_tool_calls t JOIN operator_runs r ON r.id=t.run_id WHERE r.conversation_id=$1 AND t.result_path IS NOT NULL AND t.result IS NOT NULL ORDER BY t.created_at DESC,t.call_id DESC LIMIT 30`, c.ID)
+	rows, err := s.pool.Query(ctx, `SELECT t.result_path,t.name,t.result FROM operator_tool_calls t JOIN operator_runs r ON r.id=t.run_id JOIN operator_runs current ON current.id=$2 WHERE r.conversation_id=$1 AND current.conversation_id=$1 AND `+operatorEvidenceScope+` AND t.result_path IS NOT NULL AND t.result IS NOT NULL ORDER BY t.created_at DESC,t.call_id DESC LIMIT 30`, c.ID, run.ID)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -267,12 +323,7 @@ func (s *Store) operatorShellFiles(ctx context.Context, run OperatorRun, c Conve
 	}
 	raw, _ := json.Marshal(index)
 	files["/workspace/results.json"] = string(raw)
-	scratch := map[string]string{}
-	err = s.pool.QueryRow(ctx, `SELECT scratch FROM operator_working_context WHERE conversation_id=$1`, c.ID).Scan(&scratch)
-	if errors.Is(err, pgx.ErrNoRows) {
-		err = nil
-	}
-	return files, scratch, err
+	return files, scratch, nil
 }
 
 func (s *Store) saveOperatorScratch(ctx context.Context, run OperatorRun, scratch map[string]string) error {
@@ -282,9 +333,5 @@ func (s *Store) saveOperatorScratch(ctx context.Context, run OperatorRun, scratc
 	if scratch == nil {
 		return fmt.Errorf("missing command snapshot")
 	}
-	result, err := s.pool.Exec(ctx, `INSERT INTO operator_working_context(conversation_id,scratch) SELECT conversation_id,$3 FROM operator_runs WHERE id=$1 AND lease_token=$2 AND status='running' AND lease_expires_at>now() ON CONFLICT(conversation_id) DO UPDATE SET scratch=EXCLUDED.scratch,updated_at=now()`, run.ID, run.Lease, scratch)
-	if err == nil && result.RowsAffected() != 1 {
-		return ErrConflict
-	}
-	return err
+	return s.saveOperatorWorkingData(ctx, run, "scratch", scratch)
 }

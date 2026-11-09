@@ -1,0 +1,7 @@
+.controls { border-top:1px solid var(--rule);padding-top:12px;margin-top:20px;font-size:12px; }
+.controls details { margin:12px 0; }
+.controls summary { cursor:pointer; }
+.controls p { color:var(--muted);line-height:1.6; }
+.controls button,.controls a { display:inline-block;border:1px solid var(--rule);border-radius:7px;padding:7px 10px;background:transparent;color:inherit;font-size:12px;cursor:pointer;text-decoration:none; }
+.controls button:disabled { opacity:.45;cursor:default; }
+.actions { display:flex;gap:8px;flex-wrap:wrap;margin:10px 0; }

@@ -129,6 +129,45 @@ func (s *Store) collectWorkspaceUsage(ctx context.Context, source BillingResourc
 			resources = append(resources, resource)
 		}
 	}
+	computerPlans, err := s.WrenComputerPlans(ctx, workspace)
+	if err != nil {
+		return err
+	}
+	sandboxPlans, err := s.SandboxPlans(ctx, workspace)
+	if err != nil {
+		return err
+	}
+	computerPlans = append(computerPlans, sandboxPlans...)
+	for _, plan := range computerPlans {
+		meter, ok := source.(interface {
+			VPSBillingResources(context.Context, sdk.VPSPlan) ([]sdk.BillingResource, error)
+		})
+		if !ok {
+			return fmt.Errorf("computer metering unavailable")
+		}
+		items, err := meter.VPSBillingResources(ctx, plan)
+		if err != nil {
+			return err
+		}
+		for _, resource := range items {
+			if resource.ID == "" || resource.Kind != "compute" || resource.Units < 1 || resource.Units > 1<<50 || seen[resource.ID] {
+				return fmt.Errorf("invalid computer metering snapshot")
+			}
+			seen[resource.ID] = true
+			resources = append(resources, resource)
+		}
+	}
+	saved, err := s.sandboxStorageResources(ctx, workspace)
+	if err != nil {
+		return err
+	}
+	for _, resource := range saved {
+		if seen[resource.ID] {
+			return fmt.Errorf("duplicate sandbox storage observation")
+		}
+		seen[resource.ID] = true
+		resources = append(resources, resource)
+	}
 	return s.recordResourceSnapshot(ctx, workspace, resources, s.now().UTC().Truncate(time.Second))
 }
 
@@ -165,8 +204,8 @@ func (s *Store) recordResourceSnapshot(ctx context.Context, workspace string, re
 			// SQL numeric arithmetic retains exact fractional cents, including bytes.
 			numerator, denominator := pricing.ComputeCentsPerUnitPer720Hours, int64(pricing.HoursPerResourceMonth*3600)
 			if r.Kind == "storage" {
-				numerator = 14
-				denominator = 25920000000000000
+				numerator = storageCentsNumerator
+				denominator = storageByteSecondsDenominator
 			} // 1.4 cents per decimal GB / 720h
 			seconds := int64(at.Sub(previous) / time.Second)
 			var cents int64
@@ -191,6 +230,13 @@ func (s *Store) recordResourceSnapshot(ctx context.Context, workspace string, re
 		if err != nil {
 			return err
 		}
+	}
+	pooled, err := s.poolSandboxStorageRemainders(ctx, tx, workspace, customer, subscription, *start, at)
+	if err != nil {
+		return err
+	}
+	if pooled {
+		ids = append(ids, sandboxStorageRoundingID)
 	}
 	_, err = tx.Exec(ctx, `DELETE FROM billing_resource_samples WHERE workspace_id=$1 AND NOT(resource_id=ANY($2::text[]))`, workspace, ids)
 	if err != nil {

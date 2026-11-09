@@ -1,15 +1,17 @@
 "use client";
+import {getSelectedWorkspace} from "@/lib/workspace-selection";
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { AuthTitle } from "@/components/auth-shell";
-import { canterFetch, CanterAPIError, type DeviceAuthorization, type Me } from "@/lib/canter-api";
+import { canterFetch, CanterAPIError, type DeviceAuthorization } from "@/lib/canter-api";
 
 export function AuthorizeAgent({ code }: { code: string }) {
   const router = useRouter();
   const [request, setRequest] = useState<DeviceAuthorization | null>(null);
   const [workspaceId, setWorkspaceId] = useState("");
+  const [workspaceName,setWorkspaceName]=useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const [signInRequired, setSignInRequired] = useState(false);
@@ -18,11 +20,12 @@ export function AuthorizeAgent({ code }: { code: string }) {
     let cancelled = false;
     void Promise.all([
       canterFetch<DeviceAuthorization>(`/device/authorizations/${encodeURIComponent(code)}`),
-      canterFetch<Me>("/me"),
+      getSelectedWorkspace(),
     ]).then(([authorization, me]) => {
       if (cancelled) return;
       setRequest(authorization);
-      setWorkspaceId(me.workspaces[0]?.id ?? "");
+      setWorkspaceId(me.workspace.id);
+      setWorkspaceName(me.workspace.name);
     }).catch((cause) => {
       if (cancelled) return;
       if (cause instanceof CanterAPIError && cause.status === 401) {
@@ -73,7 +76,7 @@ export function AuthorizeAgent({ code }: { code: string }) {
 
   return (
     <>
-      <AuthTitle title={`Authorize ${request?.name ?? "agent"}.`} description={request ? `${request.name} (${request.harness}) is asking to operate Canter for you.` : "Loading the agent's request."} />
+      <AuthTitle title={`Authorize ${request?.name ?? "agent"}.`} description={request ? `${request.name} (${request.harness}) is asking to operate Canter in ${workspaceName}.` : "Loading the agent's request."} />
       {error ? <p role="alert" className="mt-8 border-l-2 border-[var(--ink)] pl-4 leading-5">{error}</p> : null}
       <div className="mt-10 border-t border-[var(--ink)]">
         {authority.map(([permission, value]) => <div key={permission} className="flex h-14 items-center justify-between border-b border-[var(--rule)]"><span>{permission}</span><span className="text-[var(--muted)]">{value}</span></div>)}

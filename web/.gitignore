@@ -42,3 +42,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Reproduced from the locked PDF.js dependency by install/dev/build.
+/public/pdfjs/

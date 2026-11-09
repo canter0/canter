@@ -12,6 +12,17 @@ export function moveMenuFocus(event: KeyboardEvent<HTMLElement>) {
 }
 
 export function focusableElements(container: HTMLElement) {
-  return Array.from(container.querySelectorAll<HTMLElement>('a[href], button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex="0"]'))
-    .filter(element => !element.closest('[inert], [hidden]') && element.getClientRects().length > 0);
+  return Array.from(container.querySelectorAll<HTMLElement>('a[href], button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), summary, [tabindex="0"]'))
+    .filter(element => {
+      if (element.closest('[inert], [hidden]') || !element.getClientRects().length) return false;
+      // Closed details can still report layout boxes for their descendants.
+      // Only the disclosure summary participates in keyboard navigation.
+      for (let parent = element.parentElement; parent && container.contains(parent); parent = parent.parentElement) {
+        if (parent instanceof HTMLDetailsElement && !parent.open) {
+          const summary = Array.from(parent.children).find(child => child.tagName === "SUMMARY");
+          if (!summary?.contains(element)) return false;
+        }
+      }
+      return true;
+    });
 }

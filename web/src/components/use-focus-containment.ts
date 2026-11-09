@@ -3,7 +3,7 @@
 import { useEffect, type RefObject } from "react";
 import { focusableElements } from "@/lib/interaction";
 
-export function useFocusContainment(open: boolean, root: RefObject<HTMLElement | null>, close: () => void, returnFocus?: RefObject<HTMLElement | null>) {
+export function useFocusContainment(open: boolean, root: RefObject<HTMLElement | null>, close: () => void, returnFocus?: RefObject<HTMLElement | null>, dismissBackdrop?: RefObject<HTMLElement | null>) {
   useEffect(() => {
     const element = root.current;
     if (!open || !element) return;
@@ -12,11 +12,12 @@ export function useFocusContainment(open: boolean, root: RefObject<HTMLElement |
     document.body.style.overflow = "hidden";
     // Make the entire background unavailable, including navigation outside the
     // panel's immediate parent. Only restore attributes owned by this effect.
+    // The explicit, non-focusable dismiss backdrop must remain pointer-active.
     const background: HTMLElement[] = [];
     let branch: HTMLElement | null = element;
     while (branch?.parentElement) {
       for (const sibling of Array.from(branch.parentElement.children)) {
-        if (sibling instanceof HTMLElement && sibling !== branch && !sibling.inert) { sibling.inert = true; background.push(sibling); }
+        if (sibling instanceof HTMLElement && sibling !== branch && sibling !== dismissBackdrop?.current && !sibling.inert) { sibling.inert = true; background.push(sibling); }
       }
       if (branch.parentElement === document.body) break;
       branch = branch.parentElement;
@@ -48,5 +49,5 @@ export function useFocusContainment(open: boolean, root: RefObject<HTMLElement |
       for (const sibling of background) sibling.inert = false;
       requestAnimationFrame(() => { if (previous?.isConnected && !previous.closest("[inert]")) previous.focus({ preventScroll: true }); });
     };
-  }, [open, root, close, returnFocus]);
+  }, [open, root, close, returnFocus, dismissBackdrop]);
 }

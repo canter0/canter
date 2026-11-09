@@ -24,10 +24,38 @@ func operatorPolicy(name string) (operatorToolPolicy, bool) {
 	case "canter_search_web", "canter_open_web":
 		// Read-only, but a request may have been billed before interruption.
 		return operatorToolPolicy{Effect: "web", RetrySafe: false}, true
-	case "canter_read_web":
+	case "canter_computer_import_artifact", "canter_computer_import_attachment", "canter_computer_run", "canter_computer_write", "canter_computer_stop":
+		return operatorToolPolicy{Effect: "computer", RetrySafe: true, RequireDraft: true}, true
+	case "canter_computer_input":
+		return operatorToolPolicy{Effect: "computer", RequireDraft: true}, true
+	case "canter_prepare_message":
+		return operatorToolPolicy{Effect: "correspondence_draft", RetrySafe: true}, true
+	case "canter_list_message_connections", "canter_list_message_drafts", "canter_read_inbox":
+		return operatorToolPolicy{Effect: "read", RetrySafe: true}, true
+	case "canter_generate_image":
+		return operatorToolPolicy{Effect: "media", RetrySafe: true}, true
+	case "canter_image_status":
+		return operatorToolPolicy{Effect: "read", RetrySafe: true}, true
+	case "canter_publish_artifact":
+		return operatorToolPolicy{Effect: "artifact", RetrySafe: true}, true
+	case "canter_open_artifact":
+		return operatorToolPolicy{Effect: "view", RetrySafe: true}, true
+	case "canter_computer_status", "canter_computer_job", "canter_computer_read", "canter_computer_files", "canter_computer_screenshot", "canter_list_artifacts", "canter_read_artifact":
+		return operatorToolPolicy{Effect: "read", RetrySafe: true}, true
+	case "canter_finish_quiet", "canter_finish_blocked", "canter_finish_report":
+		return operatorToolPolicy{Effect: "outcome", RetrySafe: true}, true
+	case "canter_save_memory", "canter_forget_memory", "canter_save_responsibility":
+		return operatorToolPolicy{Effect: "standing", RetrySafe: false}, true
+	case "canter_list_memory", "canter_list_responsibilities", "canter_list_app_actions":
+		return operatorToolPolicy{Effect: "read", RetrySafe: true}, true
+	case "canter_delegate_job", "canter_cancel_job", "canter_steer_job", "canter_ask_room_wren":
+		return operatorToolPolicy{Effect: "delegation", RetrySafe: true}, true
+	case "canter_inspect_job", "canter_list_jobs", "canter_read_web":
 		return operatorToolPolicy{Effect: "read", RetrySafe: true}, true
 	case "canter_list_vps", "canter_capabilities", "canter_show_compute", "canter_show_storage", "canter_estimate_compute_cost", "canter_list_changes", "canter_inspect_change_execution", "canter_list_standing_policies", "canter_list_initial_deployments", "canter_inspect_initial_deployment_execution", "canter_list_tasks", "canter_inspect_task", "canter_read_task_context", "canter_search_history", "canter_read_history", "canter_read_result":
 		return operatorToolPolicy{Effect: "read", RetrySafe: true}, true
+	case "canter_show_connections":
+		return operatorToolPolicy{Effect: "view", RetrySafe: true}, true
 	case "canter_inspect_vps", "canter_show_apps", "canter_show_deployments", "canter_show_billing", "canter_show_activity", "canter_show_agents", "canter_show_repositories", "canter_inspect_repository", "canter_show_repository_changes", "canter_read_repository_file", "canter_inspect_system", "canter_inspect_change", "canter_inspect_initial_deployment":
 		return operatorToolPolicy{Effect: "view", RetrySafe: true}, true
 	case "canter_save_context":
@@ -39,6 +67,18 @@ func operatorPolicy(name string) (operatorToolPolicy, bool) {
 		return operatorToolPolicy{Effect: "task", RetrySafe: true, RequireDraft: true}, true
 	case "canter_prepare_vps", "canter_draft_change", "canter_prepare_repository_deployment":
 		return operatorToolPolicy{Effect: "draft", RequireDraft: true}, true
+	case "canter_list_products", "canter_sandbox_list", "canter_sandbox_job", "canter_sandbox_read_file", "canter_sandbox_metrics", "canter_sandbox_preview_list",
+		"canter_sandbox_snapshots", "canter_sandbox_snapshot_get", "canter_sandbox_templates", "canter_sandbox_screenshot":
+		return operatorToolPolicy{Effect: "read", RetrySafe: true}, true
+	case "canter_enable_product", "canter_sandbox_create", "canter_sandbox_sleep", "canter_sandbox_wake", "canter_sandbox_delete", "canter_sandbox_write_file", "canter_sandbox_preview_create", "canter_sandbox_preview_revoke", "canter_sandbox_update",
+		"canter_sandbox_snapshot_update", "canter_sandbox_template_create", "canter_sandbox_template_version_add",
+		"canter_sandbox_template_delete", "canter_sandbox_template_version_delete", "canter_sandbox_restore", "canter_sandbox_input":
+		return operatorToolPolicy{Effect: "sandbox", RequireDraft: true}, true
+	case "canter_sandbox_run", "canter_sandbox_start", "canter_sandbox_stop":
+		// A command may have side effects before an interruption is recorded.
+		return operatorToolPolicy{Effect: "sandbox", RequireDraft: true}, true
+	case "canter_sandbox_logs":
+		return operatorToolPolicy{Effect: "read", RetrySafe: true}, true
 	case "canter_apply_change_under_policy":
 		return operatorToolPolicy{Effect: "apply", RequireDraft: true}, true
 	default:
@@ -63,7 +103,7 @@ func (o *OperatorRuntime) harnessTools() []mcpTool {
 	if o.Config.shellReady() {
 		out = append(out, tool("canter_bash", "Execute a bounded Bash command in this conversation's private virtual workspace. Use rg/grep, jq, sed, awk, pipes, loops, and text files to inspect context and saved evidence. /workspace/context.json contains working notes; history.jsonl has recent messages; results.json lists recent tool-result files under /results. Only text files under /scratch persist across calls and restarts (64 files, 256 KiB). Variables/cwd reset; start in /workspace. No host filesystem, network, secrets, native programs, package installs, Python/JS, or infrastructure mutation. Use actual Canter tools for live operations. Do not run a shell command when a direct answer/tool suffices.", map[string]any{"command": str}, "command"))
 	}
-	return append(out, o.webTools()...)
+	return append(append(append(append(out, o.webTools()...), wrenJobTools()...), wrenComputerTools()...), append(append(wrenStandingTools(), wrenOutcomeTools()...), append(wrenMediaTools(), wrenMessagingTools()...)...)...)
 }
 
 func (o *OperatorRuntime) harnessTool(ctx context.Context, run OperatorRun, c Conversation, p Principal, name string, raw json.RawMessage) (any, bool, error) {
@@ -157,7 +197,7 @@ func (o *OperatorRuntime) harnessTool(ctx context.Context, run OperatorRun, c Co
 			input.Limit = 6000
 		}
 		var result json.RawMessage
-		err := s.pool.QueryRow(ctx, `SELECT t.result FROM operator_tool_calls t JOIN operator_runs r ON r.id=t.run_id WHERE t.result_path=$1 AND r.conversation_id=$2 AND t.result IS NOT NULL`, input.Path, c.ID).Scan(&result)
+		err := s.pool.QueryRow(ctx, `SELECT t.result FROM operator_tool_calls t JOIN operator_runs r ON r.id=t.run_id JOIN operator_runs current ON current.id=$3 WHERE t.result_path=$1 AND r.conversation_id=$2 AND current.conversation_id=$2 AND `+operatorEvidenceScope+` AND t.result IS NOT NULL`, input.Path, c.ID, run.ID).Scan(&result)
 		if errors.Is(err, pgx.ErrNoRows) {
 			err = ErrNotFound
 		}
@@ -188,18 +228,23 @@ func (o *OperatorRuntime) harnessTool(ctx context.Context, run OperatorRun, c Co
 		if input.OperationKey == "" {
 			return nil, true, fmt.Errorf("missing task operation identity")
 		}
-		if input.Target != "" {
-			var external bool
-			if err := s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM agent_installations WHERE id=$1 AND workspace_id=$2 AND harness<>'canter-hosted')`, input.Target, c.WorkspaceID).Scan(&external); err != nil {
-				return nil, true, err
-			}
-			if !external {
-				return nil, true, fmt.Errorf("choose a connected external agent, or leave the target empty")
-			}
+		external, err := s.hasExternalTaskAgent(ctx, c.WorkspaceID, input.Target)
+		if err != nil {
+			return nil, true, err
 		}
+		if !external {
+			return nil, true, fmt.Errorf("no eligible external agent is connected for this task; canter_delegate_job is the separate Wren-worker path, and its advertised executors are the available choices")
+		}
+
 		task, err := s.createWorkspaceTask(ctx, c.WorkspaceID, c.AccountID, TaskInput{Prompt: input.Prompt, TargetInstallationID: input.Target}, input.OperationKey)
 		return map[string]any{"task": task, "executorStarted": false, "next": "An eligible connected agent can claim this task. Inspect task status for progress; do not claim an offline agent was started."}, true, err
 	default:
 		return nil, false, nil
 	}
+}
+
+func (s *Store) hasExternalTaskAgent(ctx context.Context, workspace, target string) (bool, error) {
+	var exists bool
+	err := s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM agent_installations WHERE workspace_id=$1 AND harness<>'canter-hosted' AND revoked_at IS NULL AND inspect_allowed AND ($2='' OR id=$2))`, workspace, target).Scan(&exists)
+	return exists, err
 }

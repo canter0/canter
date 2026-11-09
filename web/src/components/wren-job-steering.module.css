@@ -1,0 +1,10 @@
+.root { margin-top: 16px; color: rgb(var(--ui-text-secondary)); font-size: 12px; }
+.root summary { cursor: pointer; padding: 8px 0; }
+.root textarea { box-sizing: border-box; width: 100%; resize: vertical; padding: 10px; border: 1px solid rgb(var(--ui-border-secondary)); border-radius: 10px; background: rgb(var(--ui-tint-tertiary)); color: rgb(var(--ui-text-primary)); font: inherit; }
+.root textarea:focus-visible,.root button:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+.root button { padding: 7px 10px; border: 1px solid rgb(var(--ui-border-secondary)); border-radius: 8px; background: transparent; color: rgb(var(--ui-text-primary)); cursor: pointer; font: inherit; }
+.root button:disabled { opacity: .45; cursor: default; }
+.note { font-size: 11px; line-height: 1.6; }
+.receipt { margin: 10px 0; padding-left: 10px; border-left: 2px solid rgb(var(--ui-border-secondary)); }
+.receipt p { white-space: pre-wrap; margin-bottom: 5px; }
+.receipt small { font-size: 10px; }

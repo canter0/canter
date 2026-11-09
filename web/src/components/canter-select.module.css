@@ -1,0 +1,19 @@
+.root { display:inline-flex;position:relative;min-width:0;max-width:100%;vertical-align:middle; }
+.root button.trigger { display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;min-width:0;min-height:32px;padding:7px 9px;border:1px solid rgb(var(--ui-border-primary));border-radius:var(--radius-control,6px);background:transparent;color:var(--ink);font:inherit;font-size:12px;text-align:start;cursor:pointer; }
+.trigger>span { overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.trigger>svg { flex-shrink:0;color:var(--text-secondary); }
+.root button.trigger:hover:not(:disabled) { background:rgb(var(--ui-tint-secondary)); }
+.root button.trigger:disabled { opacity:.5;cursor:default; }
+.menu { position:absolute;z-index:100;top:calc(100% + 5px);left:0;display:block;min-width:100%;width:max-content;max-width:min(360px,calc(100vw - 40px));padding:var(--menu-inset,5px);overflow-y:auto;border:1px solid rgb(var(--ui-border-primary));border-radius:var(--radius-menu,10px);background:var(--surface-raised);box-shadow:none; }
+.menu[data-above=true] { top:auto;bottom:calc(100% + 5px); }
+.root .menu>button { display:flex;align-items:center;justify-content:space-between;gap:14px;width:100%;min-height:32px;padding:7px 9px;border:0;border-radius:var(--radius-menu-item,5px);background:transparent;color:var(--ink);font:inherit;font-size:12px;line-height:1.5;text-align:start;cursor:pointer; }
+.menu>button>span { min-width:0;white-space:normal; }
+.menu>button>svg { flex-shrink:0;color:var(--text-secondary); }
+.root .menu>button:hover:not(:disabled),.root .menu>button:focus-visible { background:rgb(var(--ui-tint-secondary));outline:none; }
+.root .menu>button:disabled { opacity:.4;cursor:default; }
+.validation { position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:0!important;border:0!important;opacity:0;pointer-events:none; }
+.root:global(.canter-select-compact) button.trigger { min-height:24px;padding:3px 0;border:0;font-size:11px; }
+.root:global(.canter-select-compact) .menu { left:auto;right:0; }
+
+.menu[data-align-right=true] { left:auto;right:0; }
+.root:global(.canter-select-compact) { max-width:140px; }

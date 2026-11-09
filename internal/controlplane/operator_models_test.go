@@ -28,11 +28,11 @@ func TestSelectedOperatorModel(t *testing.T) {
 	}
 }
 
-func TestOperatorHTTPModelSelectionPersistsAndRejectsUnknown(t *testing.T) {
-	s, existing, token := operatorFixture(t)
-	h := NewHTTPServer(&Service{Store: s}, HTTPConfig{PublicURL: "http://canter.test", Operator: OperatorConfig{APIKey: "test", BaseURL: "http://unused", Model: "configured/default"}})
+func TestOperatorHTTPModelSelectionIsManagedAcrossLegacyRoutes(t *testing.T) {
+	s, c, token := operatorFixture(t)
+	h := NewHTTPServer(&Service{Store: s}, HTTPConfig{PublicURL: "http://canter.test", Operator: OperatorConfig{APIKey: "test", BaseURL: "http://unused", Model: "old/default", WrenModel: "platform/managed"}})
 	request := func(path, body string) *httptest.ResponseRecorder {
-		r := httptest.NewRequest(http.MethodPost, "http://canter.test/v1/workspaces/"+existing.WorkspaceID+"/conversations"+path, strings.NewReader(body))
+		r := httptest.NewRequest(http.MethodPost, "http://canter.test/v1/workspaces/"+c.WorkspaceID+"/conversations"+path, strings.NewReader(body))
 		r.Header.Set("Origin", "http://canter.test")
 		r.Header.Set("Content-Type", "application/json")
 		r.AddCookie(&http.Cookie{Name: "canter_session", Value: token})
@@ -40,69 +40,35 @@ func TestOperatorHTTPModelSelectionPersistsAndRejectsUnknown(t *testing.T) {
 		h.ServeHTTP(w, r)
 		return w
 	}
-	w := request("", `{"id":"conv_model_selection","requestId":"model_new_1","message":"hello","model":"openai/gpt-6.1-sol","modelOptions":{"reasoningEffort":"low"}}`)
-	if w.Code != http.StatusAccepted {
-		t.Fatalf("create: %d %s", w.Code, w.Body.String())
+	created := request("", `{"id":"conv_managed_legacy","requestId":"managed-legacy-new","message":"hello","model":"openai/gpt-6.1-sol","modelOptions":{"reasoningEffort":"max"}}`)
+	if created.Code != 202 {
+		t.Fatalf("create: %d %s", created.Code, created.Body)
 	}
-	var created struct {
+	var initial struct {
 		Run OperatorRun `json:"run"`
 	}
-	if err := json.Unmarshal(w.Body.Bytes(), &created); err != nil {
-		t.Fatal(err)
+	if err := json.Unmarshal(created.Body.Bytes(), &initial); err != nil || initial.Run.Model != "platform/managed" || initial.Run.ModelOptions.ReasoningEffort != "" {
+		t.Fatalf("client model/options escaped policy: %#v %v", initial, err)
 	}
-	if created.Run.Model != "openai/gpt-6.1-sol" || created.Run.ModelOptions.ReasoningEffort != "low" {
-		t.Fatalf("selected model lost: %+v", created.Run)
+	for i, model := range []string{"unlisted/model", "google/gemini-3.8-flash", ""} {
+		body, _ := json.Marshal(map[string]any{"requestId": fmt.Sprintf("managed-followup-%d", i), "message": "continue", "model": model, "modelOptions": OperatorModelOptions{ReasoningEffort: "invalid"}})
+		sent := request("/conv_managed_legacy/messages", string(body))
+		if sent.Code != 202 {
+			t.Fatalf("followup: %d %s", sent.Code, sent.Body)
+		}
+		var run OperatorRun
+		if err := json.Unmarshal(sent.Body.Bytes(), &run); err != nil || run.Model != "platform/managed" || run.ModelOptions.ReasoningEffort != "" {
+			t.Fatalf("followup bypass: %#v %v", run, err)
+		}
 	}
-	w = request("/conv_model_selection/messages", `{"requestId":"model_followup_1","message":"continue","model":"deepseek/deepseek-v4.1-flash"}`)
-	if w.Code != http.StatusAccepted {
-		t.Fatalf("followup: %d %s", w.Code, w.Body.String())
-	}
-	var followup OperatorRun
-	if err := json.Unmarshal(w.Body.Bytes(), &followup); err != nil {
-		t.Fatal(err)
-	}
-	var persistedModel string
-	err := s.pool.QueryRow(context.Background(), `SELECT model FROM operator_runs WHERE id=$1`, followup.ID).Scan(&persistedModel)
-	if err != nil || persistedModel != "deepseek/deepseek-v4.1-flash" || followup.Model != persistedModel {
-		t.Fatalf("followup model lost: %+v, stored %q, %v", followup, persistedModel, err)
-	}
-	w = request("", `{"id":"conv_rejected_model","requestId":"model_invalid_1","message":"hello","model":"unlisted/model"}`)
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("unknown model accepted: %d", w.Code)
-	}
-	if _, err := s.Conversation(context.Background(), existing.WorkspaceID, existing.AccountID, "conv_rejected_model"); err != ErrNotFound {
-		t.Fatalf("invalid model created conversation: %v", err)
-	}
-	w = request("/conv_model_selection/messages", `{"requestId":"model_invalid_2","message":"continue","model":"unlisted/model"}`)
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("unknown followup model accepted: %d", w.Code)
-	}
-
-	w = request("", `{"id":"conv_rejected_options","requestId":"model_invalid_options","message":"hello","model":"google/gemini-3.8-flash","modelOptions":{"reasoningEffort":"none"}}`)
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("unsupported reasoning accepted: %d", w.Code)
-	}
-	if _, err := s.Conversation(context.Background(), existing.WorkspaceID, existing.AccountID, "conv_rejected_options"); err != ErrNotFound {
-		t.Fatal("invalid options created conversation")
+	repeated := request("/conv_managed_legacy/messages", `{"requestId":"managed-legacy-new","message":"hello","model":"another/model"}`)
+	var replay OperatorRun
+	if err := json.Unmarshal(repeated.Body.Bytes(), &replay); repeated.Code != 202 || err != nil || replay.ID != initial.Run.ID || replay.Model != initial.Run.Model {
+		t.Fatalf("retry altered managed run: %d %s", repeated.Code, repeated.Body)
 	}
 	claimed, ok, err := s.claimOperator(context.Background())
-	if err != nil || !ok || claimed.ID != created.Run.ID || claimed.ModelOptions != created.Run.ModelOptions {
-		t.Fatalf("claimed run lost settings: %+v %v", claimed, err)
-	}
-	// Retrying the same request cannot change the model settings of the run.
-	w = request("/conv_model_selection/messages", `{"requestId":"model_new_1","message":"hello","model":"openai/gpt-6.1-sol","modelOptions":{"reasoningEffort":"high"}}`)
-	var repeated OperatorRun
-	if err := json.Unmarshal(w.Body.Bytes(), &repeated); err != nil || w.Code != http.StatusAccepted || repeated.ModelOptions != created.Run.ModelOptions {
-		t.Fatalf("retry altered options: %s", w.Body.String())
-	}
-	// Older clients that omit model still use the server's configured default.
-	w = request("/"+existing.ID+"/messages", `{"requestId":"model_legacy_1","message":"continue"}`)
-	if w.Code != http.StatusAccepted {
-		t.Fatalf("legacy client: %d %s", w.Code, w.Body.String())
-	}
-	run, err := s.LatestOperatorRun(context.Background(), existing.ID)
-	if err != nil || run.Model != "configured/default" {
-		t.Fatalf("configured default lost: %+v %v", run, err)
+	if err != nil || !ok || claimed.ID != initial.Run.ID || claimed.Model != "platform/managed" {
+		t.Fatalf("claim lost policy: %#v %v", claimed, err)
 	}
 }
 

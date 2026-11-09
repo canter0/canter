@@ -20,10 +20,10 @@ export function useWorkspaceOverview(initial: WorkspaceBootstrap) {
     const options = { signal: controller.signal };
     const running = new Set<string>();
     const handleAuth = (cause: unknown) => {
-      if (cause instanceof CanterAPIError && (cause.status === 401 || cause.status === 403)) {
+      if (cause instanceof CanterAPIError && cause.status === 401) {
         // A full navigation disposes of every private in-memory snapshot.
         window.location.replace("/sign-in?next=/app");
-      }
+      } else if(cause instanceof CanterAPIError&&cause.status===403){void refreshAccount();}
     };
     async function refreshResource(resource: WorkspaceResource) {
       if (running.has(resource) || controller.signal.aborted) return;
@@ -46,8 +46,9 @@ export function useWorkspaceOverview(initial: WorkspaceBootstrap) {
       try {
         const me = await canterFetch<Me>("/me", options);
         if (controller.signal.aborted) return;
-        if (me.account.id !== accountId || me.workspaces[0]?.id !== workspaceId) { window.location.reload(); return; }
-        setData(current => ({ ...current, account: me.account, workspace: me.workspaces[0] }));
+        const selected=me.workspaces.find(workspace=>workspace.id===workspaceId);
+        if (me.account.id !== accountId || !selected) { window.location.replace("/app/wrens"); return; }
+        setData(current => ({ ...current, account: me.account, workspace: selected,workspaces:me.workspaces }));
       } catch (cause) { if (!controller.signal.aborted) handleAuth(cause); }
       finally { running.delete("me"); }
     }
@@ -61,9 +62,13 @@ export function useWorkspaceOverview(initial: WorkspaceBootstrap) {
       if (resource !== "conversations" || !initial.conversationsLoaded || attempt > 0) void refreshResource(resource);
     }
     if (attempt > 0) void refreshAccount();
-    const interval = window.setInterval(() => { if (document.visibilityState === "visible") refresh(); }, 5000);
+    const refreshVisible = () => { if (document.visibilityState === "visible") refresh(); };
+    const interval = window.setInterval(refreshVisible, 5000);
     window.addEventListener("focus", refresh);
-    return () => { controller.abort(); window.clearInterval(interval); window.removeEventListener("focus", refresh); };
+    document.addEventListener("visibilitychange", refreshVisible);
+    const switched=(event:StorageEvent)=>{if(event.key!=="canter-workspace-change"||!event.newValue)return;try{const selected=JSON.parse(event.newValue);if(selected.accountId===accountId&&typeof selected.workspaceId==="string"&&selected.workspaceId!==workspaceId)window.location.replace("/app/wrens");}catch{/* Ignore unrelated/malformed storage values. */}};
+    window.addEventListener("storage",switched);
+    return () => { controller.abort(); window.clearInterval(interval); window.removeEventListener("focus", refresh); document.removeEventListener("visibilitychange", refreshVisible);window.removeEventListener("storage",switched); };
   }, [attempt, workspaceId, accountId, initial.conversationsLoaded]);
 
   const required = requiredWorkspaceResources(pathname);

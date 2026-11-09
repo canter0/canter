@@ -42,7 +42,19 @@
     ".next-release/types/**/*.ts",
     ".next-release/dev/types/**/*.ts",
     ".next-conversation/types/**/*.ts",
-    ".next-conversation/dev/types/**/*.ts"
+    ".next-conversation/dev/types/**/*.ts",
+    ".next-auth-local/types/**/*.ts",
+    ".next-auth-local/dev/types/**/*.ts",
+    ".next-ux/types/**/*.ts",
+    ".next-ux/dev/types/**/*.ts",
+    ".next-motion/types/**/*.ts",
+    ".next-motion/dev/types/**/*.ts",
+    ".next-wrens/types/**/*.ts",
+    ".next-wrens/dev/types/**/*.ts",
+    ".next-account-recovery/types/**/*.ts",
+    ".next-account-recovery/dev/types/**/*.ts",
+    ".next-ci-foundation-final/types/**/*.ts",
+    ".next-ci-foundation-final/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules"

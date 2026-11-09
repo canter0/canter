@@ -1209,15 +1209,27 @@ type proofStore interface {
 }
 
 func waitForProof(ctx context.Context, store proofStore, key string) error {
-	tick := time.NewTicker(2 * time.Second)
+	return waitForProofInterval(ctx, store, key, 2*time.Second)
+}
+
+func waitForProofInterval(ctx context.Context, store proofStore, key string, interval time.Duration) error {
+	tick := time.NewTicker(interval)
 	defer tick.Stop()
+	readFailures := 0
 	for {
 		var proof BootProof
 		found, err := store.GetOptional(ctx, key, &proof)
 		if err != nil {
-			return fmt.Errorf("read compute boot proof: %w", err)
+			// A failed read is not a failed guest. Retry briefly before giving up;
+			// only a successfully read receipt can establish boot success.
+			readFailures++
+			if readFailures >= 3 {
+				return fmt.Errorf("read compute boot proof: %w", err)
+			}
+		} else {
+			readFailures = 0
 		}
-		if found {
+		if err == nil && found {
 			if proof.Status != "booted" || proof.ExitCode != 0 {
 				message := "bootstrap reported failure"
 				if decoded, decodeErr := base64.StdEncoding.DecodeString(proof.MessageBase64); decodeErr == nil && strings.TrimSpace(string(decoded)) != "" {

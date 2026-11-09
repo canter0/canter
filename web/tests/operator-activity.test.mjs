@@ -1,8 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { operatorActivity } from '../src/lib/operator-activity.ts';
+import { operatorActivity, operatorToolLabel } from '../src/lib/operator-activity.ts';
 
 const event = (sequence, kind, data) => ({ sequence, kind, data, createdAt: '2026-10-09T12:00:00Z', runId: 'run' });
+
+test('connected app activity hides installation hashes and retains meaningful action names', () => {
+  assert.equal(operatorToolLabel('wext_b575d75074edv2_read_wiki_structure'),'Reading repository documentation');
+  assert.equal(operatorToolLabel('wext_abcdef123456v10_custom_lookup'),'Using custom lookup');
+  assert.equal(operatorToolLabel('canter_list_memory'),'Reading saved memory');
+  assert.equal(operatorActivity([event(1,'tool',{callId:'remote',name:'wext_b575d75074edv2_read_wiki_structure',status:'running'})],true).label,'Reading repository documentation');
+});
 
 test('activity starts quietly and follows the current tool', () => {
   assert.equal(operatorActivity([], true).label, 'Thinking');
@@ -21,6 +28,13 @@ test('a stale running snapshot cannot leave completed activity shimmering', () =
 
 test('failures remain visible in the compact summary', () => {
   assert.deepEqual(operatorActivity([event(1, 'tool', { callId: 'a', status: 'failed' })], false), { count: 1, failed: 1, label: '1 action · 1 failed' });
+});
+
+test('an expected human handoff stays distinct from a failed action', () => {
+  const events = [event(1, 'tool', { callId: 'input', status: 'running' }), event(2, 'tool', { callId: 'input', status: 'handed_over' })];
+  assert.deepEqual(operatorActivity(events, false), { count: 1, failed: 0, label: '1 action · Handed over' });
+  events.push(event(3, 'tool', { callId: 'unrelated', status: 'failed' }));
+  assert.deepEqual(operatorActivity(events, false), { count: 2, failed: 1, label: '2 actions · 1 failed · Handed over' });
 });
 
 test('writing begins after the tool and commentary is not counted as an action', () => {

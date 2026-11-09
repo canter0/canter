@@ -13,7 +13,11 @@ export function MotionPresence({ open, children }: { open: boolean; children: Re
 
   useLayoutEffect(() => {
     const element = root.current?.firstElementChild;
-    if (!(element instanceof HTMLElement)) return;
+    if (!(element instanceof HTMLElement)) {
+      animation.current?.cancel();
+      animation.current = null;
+      return;
+    }
     const token = ++generation.current;
     const previous = animation.current;
     const current = getComputedStyle(element);
@@ -21,18 +25,20 @@ export function MotionPresence({ open, children }: { open: boolean; children: Re
     previous?.cancel();
     const next = playMotion(element, [from, open
       ? { opacity: 1, filter: "none", transform: "none" }
-      : { opacity: 0, filter: "blur(3px)", transform: "translateY(3px) scale(.985)" }], { duration: open ? motion.panel : motion.exit });
+      : { opacity: 0, filter: "blur(3px)", transform: "translateY(3px) scale(.985)" }], { duration: open ? motion.panel : motion.exit, fill: "both" });
     animation.current = next;
     const finish = () => {
       if (token !== generation.current) return;
-      animation.current = null;
+      // Hold the transparent exit frame until React commits removal. Releasing
+      // it here restores the popup's opaque CSS for a frame before unmount.
       if (!open) setPresent(false);
+      else { next?.cancel(); animation.current = null; }
     };
     if (next) next.finished.then(finish, finish);
     else finish();
   }, [open, present]);
 
-  useLayoutEffect(() => () => { generation.current++; animation.current?.cancel(); }, []);
+  useLayoutEffect(() => () => { generation.current++; animation.current?.cancel(); animation.current = null; }, []);
   if (!present && !open) return null;
   return <div ref={root} className="motion-presence" inert={!open} aria-hidden={!open || undefined}>{children}</div>;
 }

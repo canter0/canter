@@ -1,6 +1,6 @@
 import type { OperatorAttachment } from "./operator-api";
 
-export const attachmentAccept = ".png,.jpg,.jpeg,.gif,.webp,image/png,image/jpeg,image/gif,image/webp,.txt,.md,.json,.csv,.ts,.tsx,.js,.jsx,.css,.html,.yaml,.yml,.go,.py,.sh,.log,.xml,.toml";
+export const attachmentAccept = ".pdf,.docx,.xlsx,.png,.jpg,.jpeg,.gif,.webp,image/png,image/jpeg,image/gif,image/webp,.txt,.md,.json,.csv,.ts,.tsx,.js,.jsx,.css,.html,.yaml,.yml,.go,.py,.sh,.log,.xml,.toml";
 export function attachmentURL(item: OperatorAttachment) { return `data:${item.mediaType};base64,${item.dataBase64}`; }
 export function attachmentSize(size: number) { return size < 1024 ? `${size} B` : size < 1048576 ? `${Math.ceil(size / 1024)} KB` : `${(size / 1048576).toFixed(1)} MB`; }
 
@@ -10,8 +10,9 @@ export async function readAttachments(files: File[], current: OperatorAttachment
   if ([...files, ...current].reduce((sum, file) => sum + file.size, 0) > 5 * 1048576) throw new Error("Attachments can total up to 5 MB.");
   return Promise.all(files.map(async file => {
     const image = /^(image\/(png|jpeg|gif|webp))$/.test(file.type);
-    if (!image && !/\.(txt|md|json|csv|tsx?|jsx?|css|html|ya?ml|go|py|sh|log|xml|toml)$/i.test(file.name)) throw new Error("Choose PNG, JPEG, GIF, WebP, or a text/code file.");
-    if (!image) {
+    const office = /\.(pdf|docx|xlsx)$/i.test(file.name);
+    if (!image && !office && !/\.(txt|md|json|csv|tsx?|jsx?|css|html|ya?ml|go|py|sh|log|xml|toml)$/i.test(file.name)) throw new Error("Choose PNG, JPEG, GIF, WebP, PDF, DOCX, XLSX, or a text/code file.");
+    if (!image && !office) {
       if (file.size > 65536) throw new Error("Text and code files must be under 64 KB.");
       const bytes = await file.arrayBuffer();
       const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
@@ -23,7 +24,7 @@ export async function readAttachments(files: File[], current: OperatorAttachment
       reader.onerror = () => reject(new Error(`Could not read ${file.name}.`));
       reader.readAsDataURL(file);
     });
-    return { id: crypto.randomUUID(), name: file.name, mediaType: image ? file.type : "text/plain", dataBase64, size: file.size };
+    return { id: crypto.randomUUID(), name: file.name, mediaType: image ? file.type : office ? (/\.pdf$/i.test(file.name) ? "application/pdf" : /\.docx$/i.test(file.name) ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document" : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet") : "text/plain", dataBase64, size: file.size };
   }));
 }
 

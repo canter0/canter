@@ -2,7 +2,7 @@
 .dialog::backdrop { background: #0006; }
 .dialog button { cursor: pointer; }
 .dialog button:disabled { cursor: default; opacity: .5; }
-.dialog :is(button, input, summary, textarea):focus-visible { outline: 2px solid #aaa; outline-offset: 3px; }
+.dialog :is(button, input, select, summary, textarea):focus-visible { outline: 2px solid #aaa; outline-offset: 3px; }
 .close { position: absolute; top: 12px; right: 12px; display: grid; place-items: center; width: 32px; height: 32px; border-radius: 5px; color: #999; }
 .close:hover { background: #292929; color: #ddd; }
 .icon { display: flex; color: #b8b8b8; margin-bottom: 18px; }
@@ -21,3 +21,6 @@
 .dialog .error { margin: 15px 0 0; color: #e0a5a5; }
 @keyframes breathe { 50% { opacity: .3; } }
 @media (prefers-reduced-motion: reduce) { .waiting > span { animation: none; } }
+.field { display: grid; gap: 6px; margin: 0 0 18px; color: #c4c4c4; font-size: 12px; }
+.field input, .field select { padding: 9px 11px; border: 1px solid #353535; border-radius: 8px; background: #141414; color: #eee; font: inherit; }
+.field input:focus-visible, .field select:focus-visible { outline: 2px solid #aaa; outline-offset: 2px; }

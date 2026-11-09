@@ -251,7 +251,7 @@ func TestOperatorHTTPConversationIsolationAndGrantRevocation(t *testing.T) {
 	if _, err = s.pool.Exec(ctx, `UPDATE memberships SET role='viewer' WHERE workspace_id=$1 AND account_id=$2`, c.WorkspaceID, c.AccountID); err != nil {
 		t.Fatal(err)
 	}
-	if err = runtime.checkPrincipal(ctx, c, p); err != nil || p.Installation.Authority.Draft {
+	if err = runtime.checkPrincipal(ctx, c, p); !errors.Is(err, ErrForbidden) || p.Installation.Authority.Draft {
 		t.Fatalf("role downgrade did not remove draft authority: %v", err)
 	}
 	_, _, err = runtime.localTool(ctx, OperatorRun{}, c, p, "canter_prepare_repository_deployment", json.RawMessage(`{"repository":"mdn/beginner-html-site-styled","commit":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","name":"blocked"}`))
@@ -415,14 +415,20 @@ func TestOperatorRuntimeExecutesToolAndPersistsFollowup(t *testing.T) {
 		if calls == 1 {
 			emit(map[string]any{"tool_calls": []any{map[string]any{"index": 0, "id": "billing_1", "type": "function", "function": map[string]string{"name": "canter_show_billing", "arguments": "{}"}}}})
 		} else {
+			// A runtime system notice may follow the conversation tail; skip it
+			// when locating the messages the model was answering.
+			tail := len(request.Messages)
+			if tail > 0 && request.Messages[tail-1].Role == "system" && tail > 1 {
+				tail--
+			}
 			if calls == 2 {
-				last := request.Messages[len(request.Messages)-1]
+				last := request.Messages[tail-1]
 				if last.Role != "tool" || last.ToolCallID != "billing_1" || !strings.Contains(last.Content, "not_started") {
 					t.Error("actual billing result was not returned to model")
 				}
 			}
 			if calls == 3 {
-				if len(request.Messages) < 4 || request.Messages[len(request.Messages)-2].Content != "Your billing period has not started." {
+				if tail < 4 || request.Messages[tail-2].Content != "Your billing period has not started." {
 					t.Error("follow-up lost conversation history")
 				}
 			}
@@ -452,5 +458,34 @@ func TestOperatorRuntimeExecutesToolAndPersistsFollowup(t *testing.T) {
 	page, err := s.OperatorMessages(ctx, c.ID, "")
 	if err != nil || len(page.Messages) != 4 || calls != 3 {
 		t.Fatalf("conversation not durably continued: messages=%d calls=%d err=%v", len(page.Messages), calls, err)
+	}
+}
+
+func TestOperatorRunFailsWithTypedNoModelOutcome(t *testing.T) {
+	s, c, _ := operatorFixture(t)
+	ctx := context.Background()
+	// Unconfigured model but a secrets vault is present, so a dispatcher
+	// exists and the run must end in a typed, persisted failure — not a
+	// silently queued run.
+	config := OperatorConfig{Model: "test"}
+	vault, err := NewSecretVault([]byte(`{"active":"k1","keys":{"k1":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := NewHTTPServer(&Service{Store: s}, HTTPConfig{Operator: config, Secrets: vault}).(*HTTPServer)
+	runtime := OperatorRuntime{Server: handler, Config: config}
+	if _, err := s.EnqueueOperator(ctx, c, "req_nomodel", "Hello", "test", nil); err != nil {
+		t.Fatal(err)
+	}
+	run, ok, err := s.claimOperator(ctx)
+	if err != nil || !ok {
+		t.Fatalf("claim: ok=%t err=%v", ok, err)
+	}
+	if err = runtime.work(ctx, &run); err != nil {
+		t.Fatal(err)
+	}
+	latest, err := s.LatestOperatorRun(ctx, c.ID)
+	if err != nil || latest.Status != "failed" || !strings.Contains(latest.Failure, "isn't set up") {
+		t.Fatalf("expected typed no-model outcome: %+v err=%v", latest, err)
 	}
 }

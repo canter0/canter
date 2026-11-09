@@ -1,0 +1,27 @@
+.controls { display:inline-flex;align-items:center;gap:2px; }
+.microphone,.cancel { display:grid;place-items:center;width:30px;height:32px;flex:none;padding:0;border:0;border-radius:50%;background:transparent;color:rgb(var(--ui-text-secondary));cursor:pointer; }
+.microphone:hover:not(:disabled),.cancel:hover { color:rgb(var(--ui-text-primary));background:rgb(var(--ui-tint-secondary)); }
+.microphone:disabled { opacity:.4;cursor:default; }
+.microphone[data-recording=true] { color:rgb(var(--ui-text-primary));background:rgb(var(--ui-tint-primary)); }
+.stop { width:10px;height:10px;background:currentColor;border-radius:2px; }
+.spinner { width:14px;height:14px;border:1.5px solid currentColor;border-inline-end-color:transparent;border-radius:50%;animation:spin 1s linear infinite; }
+.feedback { color:rgb(var(--ui-text-secondary));font-size:11px;line-height:1.6; }
+.feedback:empty { display:none; }
+.feedback p { margin:8px 4px 0; }
+.feedback button { padding:0;border:0;background:transparent;color:inherit;text-decoration:underline;text-underline-offset:3px;font:inherit;cursor:pointer; }
+.feedback p button { margin-left:8px; }
+.review { margin:12px 4px 0; }
+.review label { display:grid;gap:5px; }
+.review textarea { width:100%;resize:vertical;border:1px solid rgb(var(--ui-border-primary));border-radius:6px;padding:8px;background:rgb(var(--ui-bg-wash));color:rgb(var(--ui-text-primary));font:inherit; }
+.review>div { display:flex;gap:12px;margin-top:7px; }
+@keyframes spin { to { rotate:360deg; } }
+@media(prefers-reduced-motion:reduce) { .spinner { animation:none; } }
+/* The live meter and stop target share one inset capsule beside Send. */
+.controls[data-active=true] { gap:4px;height:36px;padding:2px 5px;border:1px solid rgb(var(--ui-border-primary));border-radius:999px;background:rgb(var(--ui-tint-tertiary)); }
+.waveform { display:flex;align-items:center;justify-content:center;gap:4px;height:24px;width:54px; }
+.waveform i { display:block;flex:none;width:4px;min-height:4px;border-radius:999px;background:rgb(var(--ui-text-primary));transition:height 80ms linear,opacity 80ms linear; }
+.controls[data-active=true] .microphone { width:28px;height:28px;background:transparent; }
+.controls[data-active=true] .cancel { width:21px;height:28px;color:rgb(var(--ui-text-tertiary)); }
+.controls .stop { width:12px;height:12px;border-radius:2px; }
+.listening { text-align:right;font-variant-numeric:tabular-nums; }
+@media(prefers-reduced-motion:reduce) { .waveform i { transition:none; } }

@@ -84,6 +84,24 @@ export type Me = {
   onboardingComplete?: boolean;
 };
 
+export type WorkspaceInvitation = {
+  id: string;
+  workspaceId: string;
+  workspaceName: string;
+  inviterEmail: string;
+  role: "owner" | "operator" | "viewer" | string;
+  expiresAt: string;
+};
+
+export type Product = {
+  id: string;
+  name: string;
+  description: string;
+  enabled: boolean;
+  alwaysOn: boolean;
+  enabledAt?: string;
+};
+
 export type SystemRecord = {
   workspaceId: string;
   revision: number;
@@ -337,15 +355,19 @@ export type StandingPolicy = {
   revokedByAccount?: string;
 };
 
-type APIErrorBody = { error?: string | { message?: string }; message?: string };
+type APIErrorBody = { error?: string | { message?: string; code?:string; details?:unknown }; message?: string };
 
 export class CanterAPIError extends Error {
   status: number;
+  code?: string;
+  details?: unknown;
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, code?: string, details?: unknown) {
     super(message);
     this.name = "CanterAPIError";
     this.status = status;
+    this.code = code;
+    this.details = details;
   }
 }
 
@@ -366,7 +388,7 @@ export async function canterFetch<T>(path: string, init: RequestInit = {}): Prom
       // The status text is the final fallback for non-JSON failures.
     }
     const message = typeof body.error === "string" ? body.error : body.error?.message;
-    throw new CanterAPIError(response.status, message ?? body.message ?? response.statusText);
+    throw new CanterAPIError(response.status, message ?? body.message ?? response.statusText, typeof body.error==="object"?body.error?.code:undefined, typeof body.error==="object"?body.error?.details:undefined);
   }
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;

@@ -1,0 +1,15 @@
+.dialog { width:min(680px,calc(100vw - 40px)); max-height:min(800px,calc(100dvh - 64px)); padding:0; margin:auto; border:1px solid rgb(var(--ui-border-primary)); border-radius:16px; background:rgb(var(--ui-bg-elevated)); color:var(--ink); font:13px var(--font-interface),sans-serif; overflow:auto; overscroll-behavior:contain; --wren-panel-inset:32px; }
+.dialog::backdrop { background:#0008; backdrop-filter:blur(3px); }
+.dialog[open] { animation:arrive 150ms ease-out; }
+.header { position:sticky; top:0; z-index:4; height:54px; display:flex; align-items:center; justify-content:space-between; padding:0 20px 0 32px; border-bottom:1px solid rgb(var(--ui-border-secondary)); background:rgb(var(--ui-bg-elevated)); color:rgb(var(--ui-text-secondary)); font-size:12px; }
+.header button { display:grid; place-items:center; width:32px; height:32px; border:0; border-radius:7px; background:transparent; color:inherit; cursor:pointer; }
+.header button:hover { background:rgb(var(--ui-tint-secondary)); color:var(--ink); }
+.dialog :global([data-wren-settings-navigation]) { display:none; }
+.dialog :global([data-inspector=true]) { padding-top:24px; }
+.dialog :where(button,a,input,textarea,summary):focus-visible { outline:2px solid var(--focus); outline-offset:3px; }
+@keyframes arrive { from { opacity:0; transform:translateY(6px) scale(.99); } to { opacity:1; transform:none; } }
+@media(max-width:600px) { .dialog { width:calc(100vw - 24px); max-height:calc(100dvh - 32px); --wren-panel-inset:20px; }.header { padding-inline:20px 12px; }.header button { width:40px;height:40px; } }
+@media(prefers-reduced-motion:reduce) { .dialog[open] { animation:none; } }
+
+.dialog[data-wide] { width:min(850px,calc(100vw - 40px)); }
+@media(max-width:600px) { .dialog[data-wide] { width:calc(100vw - 24px); } }

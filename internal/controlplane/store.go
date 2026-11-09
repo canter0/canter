@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"time"
 	"unicode"
 
@@ -119,6 +120,129 @@ var workspaceIndexPagingMigration string
 //go:embed migrations/034_account_onboarding.sql
 var accountOnboardingMigration string
 
+//go:embed migrations/034_wrens.sql
+var wrensMigration string
+
+//go:embed migrations/035_wren_roster.sql
+var wrenRosterMigration string
+
+//go:embed migrations/036_wren_rooms.sql
+var wrenRoomsMigration string
+
+//go:embed migrations/037_wren_jobs.sql
+var wrenJobsMigration string
+
+//go:embed migrations/038_wren_computers.sql
+var wrenComputersMigration string
+
+//go:embed migrations/039_wren_artifacts.sql
+var wrenArtifactsMigration string
+
+//go:embed migrations/040_wren_responsibilities.sql
+var wrenResponsibilitiesMigration string
+
+//go:embed migrations/041_wren_memory_skills.sql
+var wrenMemorySkillsMigration string
+
+//go:embed migrations/042_wren_harness.sql
+var wrenHarnessMigration string
+
+//go:embed migrations/043_wren_multiplayer.sql
+var wrenMultiplayerMigration string
+
+//go:embed migrations/044_wren_outcomes.sql
+var wrenOutcomesMigration string
+
+//go:embed migrations/045_wren_artifact_library.sql
+var wrenArtifactLibraryMigration string
+
+//go:embed migrations/046_wren_lifecycle.sql
+var wrenLifecycleMigration string
+
+//go:embed migrations/047_wren_extensions.sql
+var wrenExtensionsMigration string
+
+//go:embed migrations/050_wren_computer_checkpoints.sql
+var wrenComputerCheckpointsMigration string
+
+//go:embed migrations/051_wren_job_inputs.sql
+var wrenJobInputsMigration string
+
+//go:embed migrations/052_wren_media.sql
+var wrenMediaMigration string
+
+//go:embed migrations/053_wren_ai_usage.sql
+var wrenAIUsageMigration string
+
+//go:embed migrations/054_wren_projects.sql
+var wrenProjectsMigration string
+
+//go:embed migrations/055_wren_messaging.sql
+var wrenMessagingMigration string
+
+//go:embed migrations/057_wren_app_accounts.sql
+var wrenAppAccountsMigration string
+
+//go:embed migrations/058_room_parallel_work.sql
+var roomParallelWorkMigration string
+
+//go:embed migrations/059_wren_extension_reviews.sql
+var wrenExtensionReviewsMigration string
+
+//go:embed migrations/061_wren_computer_commands.sql
+var wrenComputerCommandsMigration string
+
+//go:embed migrations/065_wren_report_outcomes.sql
+var wrenReportOutcomesMigration string
+
+//go:embed migrations/064_wren_report_policy.sql
+var wrenReportPolicyMigration string
+
+//go:embed migrations/063_wren_blocked_outcomes.sql
+var wrenBlockedOutcomesMigration string
+
+//go:embed migrations/062_wren_room_handoffs.sql
+var wrenRoomHandoffsMigration string
+
+//go:embed migrations/060_wren_computer_operations.sql
+var wrenComputerOperationsMigration string
+
+//go:embed migrations/056_wren_messaging_inbound.sql
+var wrenMessagingInboundMigration string
+
+//go:embed migrations/049_wren_computer_leases.sql
+var wrenComputerLeasesMigration string
+
+//go:embed migrations/048_wren_sharing.sql
+var wrenSharingMigration string
+
+//go:embed migrations/066_conversation_shares.sql
+var conversationSharesMigration string
+
+//go:embed migrations/067_workspace_memory.sql
+var workspaceMemoryMigration string
+
+//go:embed migrations/068_workspace_products.sql
+var workspaceProductsMigration string
+
+//go:embed migrations/069_sandboxes.sql
+var sandboxesMigration string
+
+//go:embed migrations/070_sandbox_activity.sql
+var sandboxActivityMigration string
+
+//go:embed migrations/071_sandbox_workflows.sql
+var sandboxWorkflowsMigration string
+
+//go:embed migrations/072_sandbox_snapshots.sql
+var sandboxSnapshotsMigration string
+
+//go:embed migrations/073_sandbox_mutations.sql
+var sandboxMutationsMigration string
+
+//go:embed migrations/078_sandbox_desktops.sql
+var sandboxDesktopMigration string
+
 var (
 	ErrNotFound      = errors.New("not found")
 	ErrUnauthorized  = errors.New("unauthorized")
@@ -131,9 +255,10 @@ var (
 )
 
 type Store struct {
-	billing *BillingGateway
-	pool    *pgxpool.Pool
-	now     func() time.Time
+	initialAIAllowance atomic.Int64
+	billing            *BillingGateway
+	pool               *pgxpool.Pool
+	now                func() time.Time
 }
 
 func Open(ctx context.Context, databaseURL string) (*Store, error) {
@@ -303,8 +428,15 @@ func (s *Store) Migrate(ctx context.Context) error {
 	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('022_conversation_titles') ON CONFLICT DO NOTHING`); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, operatorHarnessMigration); err != nil {
-		return fmt.Errorf("apply operator harness migration: %w", err)
+	var harnessApplied bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version='023_operator_harness')`).Scan(&harnessApplied); err != nil {
+		return err
+	}
+	// Do not recreate the conversation-wide running index after room parallelism.
+	if !harnessApplied {
+		if _, err := tx.Exec(ctx, operatorHarnessMigration); err != nil {
+			return fmt.Errorf("apply operator harness migration: %w", err)
+		}
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('023_operator_harness') ON CONFLICT DO NOTHING`); err != nil {
 		return err
@@ -377,6 +509,270 @@ func (s *Store) Migrate(ctx context.Context) error {
 		return err
 	}
 
+	if _, err := tx.Exec(ctx, wrensMigration); err != nil {
+		return fmt.Errorf("apply Wrens migration: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('034_wrens') ON CONFLICT DO NOTHING`); err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(ctx, wrenRosterMigration); err != nil {
+		return fmt.Errorf("apply Wren roster migration: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('035_wren_roster') ON CONFLICT DO NOTHING`); err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(ctx, wrenRoomsMigration); err != nil {
+		return fmt.Errorf("apply Wren rooms migration: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('036_wren_rooms') ON CONFLICT DO NOTHING`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, wrenJobsMigration); err != nil {
+		return fmt.Errorf("apply Wren jobs migration: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('037_wren_jobs') ON CONFLICT DO NOTHING`); err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(ctx, wrenComputersMigration); err != nil {
+		return fmt.Errorf("apply Wren computers migration: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('038_wren_computers') ON CONFLICT DO NOTHING`); err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(ctx, wrenArtifactsMigration); err != nil {
+		return fmt.Errorf("apply Wren artifacts migration: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('039_wren_artifacts') ON CONFLICT DO NOTHING`); err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(ctx, wrenResponsibilitiesMigration); err != nil {
+		return fmt.Errorf("apply Wren responsibilities migration: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('040_wren_responsibilities') ON CONFLICT DO NOTHING`); err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(ctx, wrenMemorySkillsMigration); err != nil {
+		return fmt.Errorf("apply Wren memory and skills migration: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('041_wren_memory_skills') ON CONFLICT DO NOTHING`); err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(ctx, wrenHarnessMigration); err != nil {
+		return fmt.Errorf("apply Wren harness migration: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('042_wren_harness') ON CONFLICT DO NOTHING`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, wrenMultiplayerMigration); err != nil {
+		return fmt.Errorf("apply Wren multiplayer migration: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('043_wren_multiplayer') ON CONFLICT DO NOTHING`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, wrenOutcomesMigration); err != nil {
+		return fmt.Errorf("apply Wren outcomes migration: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('044_wren_outcomes') ON CONFLICT DO NOTHING`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, wrenArtifactLibraryMigration); err != nil {
+		return fmt.Errorf("apply Wren artifact library migration: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('045_wren_artifact_library') ON CONFLICT DO NOTHING`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, wrenLifecycleMigration); err != nil {
+		return fmt.Errorf("apply Wren lifecycle migration: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('046_wren_lifecycle') ON CONFLICT DO NOTHING`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, wrenExtensionsMigration); err != nil {
+		return fmt.Errorf("apply Wren extensions migration: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('047_wren_extensions') ON CONFLICT DO NOTHING`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, wrenSharingMigration); err != nil {
+		return fmt.Errorf("apply Wren sharing migration: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('048_wren_sharing') ON CONFLICT DO NOTHING`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, wrenComputerLeasesMigration); err != nil {
+		return fmt.Errorf("apply Wren computer leases migration: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('049_wren_computer_leases') ON CONFLICT DO NOTHING`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, wrenComputerCheckpointsMigration); err != nil {
+		return fmt.Errorf("apply Wren computer checkpoints migration: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('050_wren_computer_checkpoints') ON CONFLICT DO NOTHING`); err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(ctx, wrenJobInputsMigration); err != nil {
+		return fmt.Errorf("apply Wren job inputs migration: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('051_wren_job_inputs') ON CONFLICT DO NOTHING`); err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(ctx, wrenMediaMigration); err != nil {
+		return fmt.Errorf("apply Wren media migration: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('052_wren_media') ON CONFLICT DO NOTHING`); err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(ctx, wrenAIUsageMigration); err != nil {
+		return fmt.Errorf("apply Wren AI usage migration: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('053_wren_ai_usage') ON CONFLICT DO NOTHING`); err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(ctx, wrenProjectsMigration); err != nil {
+		return fmt.Errorf("migrate Wren projects: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version)VALUES('054_wren_projects')ON CONFLICT DO NOTHING`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, wrenMessagingMigration); err != nil {
+		return fmt.Errorf("apply Wren correspondence migration: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('055_wren_messaging') ON CONFLICT DO NOTHING`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, wrenMessagingInboundMigration); err != nil {
+		return fmt.Errorf("apply Wren messaging inbound migration: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('056_wren_messaging_inbound') ON CONFLICT DO NOTHING`); err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(ctx, wrenAppAccountsMigration); err != nil {
+		return fmt.Errorf("apply Wren app accounts migration: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('057_wren_app_accounts') ON CONFLICT DO NOTHING`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, roomParallelWorkMigration); err != nil {
+		return fmt.Errorf("apply room parallel work migration: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('058_room_parallel_work') ON CONFLICT DO NOTHING`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, wrenExtensionReviewsMigration); err != nil {
+		return fmt.Errorf("apply extension reviews migration: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('059_wren_extension_reviews') ON CONFLICT DO NOTHING`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, wrenComputerOperationsMigration); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('060_wren_computer_operations') ON CONFLICT DO NOTHING`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, wrenComputerCommandsMigration); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('061_wren_computer_commands') ON CONFLICT DO NOTHING`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, wrenRoomHandoffsMigration); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('062_wren_room_handoffs') ON CONFLICT DO NOTHING`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, wrenBlockedOutcomesMigration); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('063_wren_blocked_outcomes') ON CONFLICT DO NOTHING`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, wrenReportPolicyMigration); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('064_wren_report_policy') ON CONFLICT DO NOTHING`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, wrenReportOutcomesMigration); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('065_wren_report_outcomes') ON CONFLICT DO NOTHING`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, conversationSharesMigration); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('066_conversation_shares') ON CONFLICT DO NOTHING`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, workspaceMemoryMigration); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('067_workspace_memory') ON CONFLICT DO NOTHING`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, workspaceProductsMigration); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('068_workspace_products') ON CONFLICT DO NOTHING`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, sandboxesMigration); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('069_sandboxes') ON CONFLICT DO NOTHING`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, sandboxActivityMigration); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('070_sandbox_activity') ON CONFLICT DO NOTHING`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, sandboxWorkflowsMigration); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('071_sandbox_workflows') ON CONFLICT DO NOTHING`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, sandboxSnapshotsMigration); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('072_sandbox_snapshots') ON CONFLICT DO NOTHING`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, sandboxMutationsMigration); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('073_sandbox_mutations') ON CONFLICT DO NOTHING`); err != nil {
+		return err
+	}
+	var desktopApplied bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version='078_sandbox_desktops')`).Scan(&desktopApplied); err != nil {
+		return err
+	}
+	if !desktopApplied {
+		if _, err := tx.Exec(ctx, sandboxDesktopMigration); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('078_sandbox_desktops') ON CONFLICT DO NOTHING`); err != nil {
+			return err
+		}
+	}
 	return tx.Commit(ctx)
 }
 
@@ -447,20 +843,14 @@ func (s *Store) signupVerifiedTx(ctx context.Context, tx pgx.Tx, email, password
 		}
 		return Account{}, Workspace{}, "", err
 	}
-	var agentAuthority Authority
-	if err := tx.QueryRow(ctx, `INSERT INTO workspaces(id,name,created_at) VALUES($1,'default',$2) RETURNING agent_authority`, workspaceID, now).Scan(&agentAuthority); err != nil {
-		return Account{}, Workspace{}, "", err
-	}
-	if _, err := tx.Exec(ctx, `INSERT INTO workspace_usage_caps(workspace_id,limit_cents,created_at,updated_at) VALUES($1,500,$2,$2)`, workspaceID, now); err != nil {
-		return Account{}, Workspace{}, "", err
-	}
-	if _, err := tx.Exec(ctx, `INSERT INTO memberships(account_id,workspace_id,role) VALUES($1,$2,'owner')`, accountID, workspaceID); err != nil {
+	workspace, err := s.createWorkspaceTx(ctx, tx, workspaceID, "default", accountID)
+	if err != nil {
 		return Account{}, Workspace{}, "", err
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO human_sessions(id,account_id,token_hash,created_at,last_seen_at,expires_at) VALUES($1,$2,$3,$4,$4,$5)`, sessionID, accountID, secretHash(token), now, now.Add(7*24*time.Hour)); err != nil {
 		return Account{}, Workspace{}, "", err
 	}
-	return Account{ID: accountID, Email: email, CreatedAt: now}, Workspace{ID: workspaceID, Name: "default", Revision: 1, Role: "owner", AgentAuthority: agentAuthority}, token, nil
+	return Account{ID: accountID, Email: email, CreatedAt: now}, workspace, token, nil
 }
 
 func (s *Store) Signin(ctx context.Context, email, password string) (Account, []Workspace, string, error) {

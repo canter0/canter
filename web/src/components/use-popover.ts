@@ -16,8 +16,8 @@ export function usePopover(open: boolean, root: RefObject<HTMLElement | null>, c
       if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); close(); trigger?.focus(); }
       if (event.key === "Tab") { close(); trigger?.focus(); }
     };
-    document.addEventListener("pointerdown", outside);
+    document.addEventListener("pointerdown", outside, true);
     element?.addEventListener("keydown", keyboard);
-    return () => { document.removeEventListener("pointerdown", outside); element?.removeEventListener("keydown", keyboard); };
+    return () => { document.removeEventListener("pointerdown", outside, true); element?.removeEventListener("keydown", keyboard); };
   }, [open, root, close]);
 }

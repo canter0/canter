@@ -11,14 +11,24 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/canter0/canter/internal/computeclass"
+	"github.com/canter0/canter/internal/wrencomputer"
 	"github.com/canter0/canter/sdk"
 	"github.com/go-webauthn/webauthn/webauthn"
 )
 
 type HTTPConfig struct {
+	Messaging     WrenMessagingConfig
+	AIUsage       WrenAIUsageConfig
+	Media         WrenMediaConfig
+	Audio         WrenAudioConfig
+	Extensions    WrenExtensionConfig
+	Harnesses     WrenHarnessConfig
+	Computers     WrenComputerConfig
+	Sandboxes     SandboxConfig
 	Auth          AuthConfig
 	Secrets       *SecretVault
 	PublicURL     string
@@ -32,16 +42,31 @@ type HTTPConfig struct {
 	Operator      OperatorConfig
 }
 
+type CIConfig struct {
+	AppID         int64
+	AppSlug       string
+	PrivateKeyPEM []byte
+	WebhookSecret []byte
+	APIBaseURL    string
+	HTTPClient    *http.Client
+}
+
 type HTTPServer struct {
-	passkeys *webauthn.WebAuthn
-	service  *Service
-	config   HTTPConfig
-	limits   *requestLimiter
-	oauth    map[string]*oauthProvider
+	computerClients     wrencomputer.ClientPool
+	sandboxDial         func(wrencomputer.Config) (sandboxAgentClient, error)
+	sandboxTerminalOpen func(context.Context, Sandbox, int, int) (terminalIO, error)
+	terminals           *terminalManager
+	terminalsOnce       sync.Once
+	passkeys            *webauthn.WebAuthn
+	service             *Service
+	config              HTTPConfig
+	limits              *requestLimiter
+	oauth               map[string]*oauthProvider
 	// artifactUploads bounds request bodies retained while validating and staging.
 	// At two slots, retained compressed request data is capped at 128 MiB; gzip
 	// validation streams the separately bounded expanded data. Other routes do
 	// not acquire these slots.
+	audioUploads    chan struct{}
 	artifactUploads chan struct{}
 	// MCP has a small parsing budget for discovery calls and a single slot for
 	// requests that may carry an artifact encoded as base64.
@@ -51,10 +76,15 @@ type HTTPServer struct {
 
 func NewHTTPServer(service *Service, config HTTPConfig) http.Handler {
 	passkeys, _ := newPasskeys(config.PublicURL)
-	return &HTTPServer{passkeys: passkeys, service: service, config: config, limits: newRequestLimiter(), oauth: newOAuthProviders(config), artifactUploads: make(chan struct{}, 2), mcpRequests: make(chan struct{}, 8), mcpLargeBodies: make(chan struct{}, 1)}
+	return &HTTPServer{passkeys: passkeys, service: service, config: config, limits: newRequestLimiter(), oauth: newOAuthProviders(config), artifactUploads: make(chan struct{}, 2), audioUploads: make(chan struct{}, 2), mcpRequests: make(chan struct{}, 8), mcpLargeBodies: make(chan struct{}, 1)}
 }
 
 func (h *HTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Preview hosts are dispatched before any Canter auth/cookie handling.
+	if h.isPreviewHost(r) {
+		h.servePreview(w, r)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -67,8 +97,20 @@ func (h *HTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if r.URL.Path == "/v1/wren-model/chat/completions" {
+		h.wrenModelBroker(w, r)
+		return
+	}
+	if strings.HasPrefix(r.URL.Path, "/v1/wren-message-webhooks/") {
+		h.wrenMessageWebhook(w, r, strings.TrimPrefix(r.URL.Path, "/v1/wren-message-webhooks/"))
+		return
+	}
 	if r.URL.Path == "/mcp" {
 		h.mcp(w, r)
+		return
+	}
+	if r.URL.Path == "/internal/preview-ask" && r.Method == http.MethodGet {
+		h.servePreviewAsk(w, r)
 		return
 	}
 	if r.URL.Path == "/healthz" && r.Method == http.MethodGet {
@@ -95,6 +137,25 @@ func (h *HTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch parts[1] {
+	case "wren-extension-events":
+		if len(parts) != 3 {
+			http.NotFound(w, r)
+			return
+		}
+		h.wrenExtensionEvent(w, r, parts[2])
+		return
+	case "workspace-invites":
+		p, err := h.principal(r)
+		if err != nil {
+			writeStoreError(w, err)
+			return
+		}
+		if len(parts) != 2 {
+			http.NotFound(w, r)
+			return
+		}
+		h.workspaceInviteAccept(w, r, p)
+		return
 	case "acquisition":
 		h.acquisition(w, r)
 		return
@@ -109,6 +170,8 @@ func (h *HTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			h.me(w, r)
 		} else if len(parts) == 3 && parts[2] == "onboarding" {
 			h.completeOnboarding(w, r)
+		} else if len(parts) >= 3 && parts[2] == "invites" {
+			h.meInvites(w, r, parts[3:])
 		} else {
 			writeError(w, http.StatusNotFound, ErrNotFound)
 		}
@@ -259,6 +322,10 @@ func nodeRequestIsHTTPS(r *http.Request) bool {
 }
 
 func (h *HTTPServer) auth(w http.ResponseWriter, r *http.Request, parts []string) {
+	if len(parts) == 2 && parts[0] == "app-oauth" && parts[1] == "callback" {
+		h.appOAuthCallback(w, r)
+		return
+	}
 	if h.securityAuth(w, r, parts) {
 		return
 	}
@@ -392,6 +459,7 @@ func (h *HTTPServer) device(w http.ResponseWriter, r *http.Request, parts []stri
 				return
 			}
 			_ = h.service.Store.Audit(r.Context(), in.WorkspaceID, p.Actor, "agent.authorized", installation.ID, map[string]any{"harness": installation.Harness})
+			h.notifyWorkspaceOwners(r.Context(), in.WorkspaceID, p.Actor, "New agent connected to Canter", installation.Name+" ("+installation.Harness+") was connected to your organization by "+p.Actor.DisplayName+".\n\nManage agent access: "+strings.TrimRight(h.config.PublicURL, "/")+"/app/settings/agent\n")
 			writeJSON(w, http.StatusOK, map[string]any{"installation": installation})
 			return
 		}
@@ -510,12 +578,21 @@ func (h *HTTPServer) installations(w http.ResponseWriter, r *http.Request, parts
 		if !h.requireRecent(w, r, p) {
 			return
 		}
+		previous, err := installationByID(r.Context(), h.service.Store.pool, parts[0])
+		if err != nil {
+			writeStoreError(w, err)
+			return
+		}
 		installation, err := h.service.Store.UpdateAgentAuthority(r.Context(), p.Account.ID, workspaceID, parts[0], in.Authority, in.UseWorkspaceAuthority)
 		if err != nil {
 			writeStoreError(w, err)
 			return
 		}
-		_ = h.service.Store.Audit(r.Context(), workspaceID, p.Actor, "agent.permissions.updated", parts[0], map[string]any{"authority": installation.Authority, "useWorkspaceAuthority": installation.UseWorkspaceAuthority})
+		_ = h.service.Store.Audit(r.Context(), workspaceID, p.Actor, "agent.permissions.updated", parts[0], map[string]any{"authority": installation.Authority, "useWorkspaceAuthority": installation.UseWorkspaceAuthority, "previousAuthority": previous.Authority, "previousUseWorkspaceAuthority": previous.UseWorkspaceAuthority})
+		if authorityRaised(previous.Authority, installation.Authority, previous.UseWorkspaceAuthority, installation.UseWorkspaceAuthority) {
+			actor := p.Actor
+			h.notifyWorkspaceOwners(r.Context(), workspaceID, actor, "Agent permissions raised in Canter", installation.Name+" ("+installation.Harness+") received broader permissions in your organization. Changed by "+actor.DisplayName+".\n\nReview this agent: "+strings.TrimRight(h.config.PublicURL, "/")+"/app/settings/agent\n")
+		}
 		writeJSON(w, http.StatusOK, installation)
 		return
 	}
@@ -593,6 +670,14 @@ func (h *HTTPServer) changeApprovals(w http.ResponseWriter, r *http.Request, par
 }
 
 func (h *HTTPServer) workspaces(w http.ResponseWriter, r *http.Request, parts []string) {
+	if len(parts) == 0 && r.Method == http.MethodPost {
+		h.createWorkspace(w, r)
+		return
+	}
+	if len(parts) == 1 && r.Method == http.MethodPatch {
+		h.renameWorkspace(w, r, parts[0])
+		return
+	}
 	if len(parts) < 2 {
 		writeError(w, http.StatusNotFound, ErrNotFound)
 		return
@@ -605,6 +690,10 @@ func (h *HTTPServer) workspaces(w http.ResponseWriter, r *http.Request, parts []
 	}
 	if err = h.allowWorkspace(r, p, workspaceID, false); err != nil {
 		writeStoreError(w, err)
+		return
+	}
+	if parts[1] == "ai-usage" && len(parts) == 2 {
+		h.workspaceWrenAIUsage(w, r, p, workspaceID)
 		return
 	}
 	if parts[1] == "agent-settings" && len(parts) == 2 {
@@ -646,6 +735,118 @@ func (h *HTTPServer) workspaces(w http.ResponseWriter, r *http.Request, parts []
 	}
 	if parts[1] == "welcome" && len(parts) == 2 {
 		h.operatorWelcome(w, r, p, workspaceID)
+		return
+	}
+	if parts[1] == "wren-members" {
+		h.workspaceWrenMembers(w, r, p, workspaceID, parts[2:])
+		return
+	}
+	if parts[1] == "members" && (len(parts) == 2 || parts[2] != "rooms") {
+		h.workspaceWrenMembers(w, r, p, workspaceID, parts[2:])
+		return
+	}
+	if parts[1] == "memory" {
+		h.workspaceMemory(w, r, p, workspaceID, parts[2:])
+		return
+	}
+	if parts[1] == "audit" && len(parts) == 2 {
+		h.workspaceAudit(w, r, p, workspaceID)
+		return
+	}
+	if parts[1] == "products" {
+		h.workspaceProducts(w, r, p, workspaceID, parts[2:])
+		return
+	}
+	if parts[1] == "sandboxes" {
+		h.workspaceSandboxes(w, r, p, workspaceID, parts[2:])
+		return
+	}
+	if parts[1] == "sandbox-snapshots" {
+		h.workspaceSandboxSnapshots(w, r, p, workspaceID, parts[2:])
+		return
+	}
+	if parts[1] == "sandbox-templates" {
+		h.workspaceSandboxTemplates(w, r, p, workspaceID, parts[2:])
+		return
+	}
+	if parts[1] == "wren-read" {
+		h.workspaceWrenRead(w, r, p, workspaceID, parts[2:])
+		return
+	}
+	if parts[1] == "wren-search" {
+		h.workspaceWrenSearch(w, r, p, workspaceID)
+		return
+	}
+	if parts[1] == "wren-replies" {
+		h.workspaceWrenReplies(w, r, p, workspaceID)
+		return
+	}
+	if parts[1] == "wren-projects" {
+		h.workspaceWrenProjects(w, r, p, workspaceID, parts[2:])
+		return
+	}
+	if parts[1] == "app-accounts" {
+		h.workspaceAppAccounts(w, r, p, workspaceID, parts[2:])
+		return
+	}
+	if parts[1] == "wren-extensions" {
+		h.workspaceWrenExtensions(w, r, p, workspaceID, parts[2:])
+		return
+	}
+	if parts[1] == "wren-messaging" {
+		h.workspaceWrenMessaging(w, r, p, workspaceID, parts[2:])
+		return
+	}
+	if parts[1] == "wren-sharing" {
+		h.workspaceWrenSharing(w, r, p, workspaceID, parts[2:])
+		return
+	}
+	if parts[1] == "wren-templates" {
+		h.workspaceWrenTemplates(w, r, p, workspaceID, parts[2:])
+		return
+	}
+	if parts[1] == "wren-lifecycle" {
+		h.workspaceWrenLifecycle(w, r, p, workspaceID, parts[2:])
+		return
+	}
+	if parts[1] == "wren-media" {
+		h.workspaceWrenMedia(w, r, p, workspaceID, parts[2:])
+		return
+	}
+	if parts[1] == "wren-library" {
+		h.workspaceWrenArtifactLibrary(w, r, p, workspaceID, parts[2:])
+		return
+	}
+	if parts[1] == "wren-memory" {
+		h.workspaceWrenMemory(w, r, p, workspaceID, parts[2:])
+		return
+	}
+	if parts[1] == "wren-skills" {
+		h.workspaceWrenSkills(w, r, p, workspaceID, parts[2:])
+		return
+	}
+	if parts[1] == "wren-responsibilities" {
+		h.workspaceWrenResponsibilities(w, r, p, workspaceID, parts[2:])
+		return
+	}
+	if parts[1] == "wren-artifacts" {
+		h.workspaceWrenArtifacts(w, r, p, workspaceID, parts[2:])
+		return
+	}
+	if parts[1] == "computers" {
+		h.workspaceComputers(w, r, p, workspaceID, parts[2:])
+		return
+	}
+	if parts[1] == "wren-jobs" {
+		h.workspaceWrenJobs(w, r, p, workspaceID, parts[2:])
+		return
+	}
+	if parts[1] == "rooms" {
+		h.workspaceRooms(w, r, p, workspaceID, parts[2:])
+		return
+	}
+	if parts[1] == "wrens" {
+		h.workspaceWrens(w, r, p, workspaceID, parts[2:])
 		return
 	}
 	if parts[1] == "conversations" {
@@ -1241,6 +1442,27 @@ func methodNotAllowed(w http.ResponseWriter) {
 }
 func writeStoreError(w http.ResponseWriter, err error) {
 	status := http.StatusBadRequest
+	// Guest-agent failures carry a stable machine code; map the useful ones to
+	// real 4xx/5xx instead of collapsing to a generic request error.
+	var remote *wrencomputer.Error
+	if errors.As(err, &remote) {
+		switch remote.Code {
+		case "not_found":
+			status = http.StatusNotFound
+		case "conflict":
+			status = http.StatusConflict
+		case "forbidden":
+			status = http.StatusForbidden
+		case "too_large":
+			status = http.StatusRequestEntityTooLarge
+		case "metrics_unavailable":
+			status = http.StatusServiceUnavailable
+		default:
+			status = http.StatusBadRequest
+		}
+		writeError(w, status, err)
+		return
+	}
 	switch {
 	case errors.Is(err, ErrUnauthorized):
 		status = http.StatusUnauthorized

@@ -379,6 +379,7 @@ export function AuthForm({
               spellCheck={false}
               placeholder="you@example.com"
               required
+              disabled={!config}
               value={email}
               onChange={(event) => setEmail(event.target.value)}
               readOnly={pending}

@@ -1,0 +1,111 @@
+.intro { margin-bottom:24px; }
+.intro h2 { margin:0 0 8px;font-size:23px;font-weight:500;letter-spacing:-.5px; }
+.intro p { margin:0;max-width:52ch; }
+.tabs { display:flex;gap:20px;border-bottom:1px solid var(--rule);margin:20px 0 24px; }
+.tabs button { border:0!important;border-radius:0!important;padding:10px 0!important;color:var(--text-secondary)!important;min-height:40px; }
+.tabs button[aria-pressed=true] { color:var(--ink)!important;box-shadow:0 2px 0 var(--ink); }
+.account { padding:20px;border:1px solid var(--rule);border-radius:12px; }
+.account + .account { margin-top:16px; }
+.account > p { margin:12px 0; }
+.accountHeading { display:flex;align-items:center;gap:12px; }
+.accountHeading>div { flex:1;min-width:0; }
+.accountHeading h3 { margin:0;font-size:15px; }
+.accountHeading p { margin:4px 0 0; }
+.appIcon { display:grid;place-items:center;width:40px;height:40px;border-radius:10px;background:rgb(var(--ui-text-primary)/.06);flex:none; }
+.appIcon svg { width:23px;height:23px; }
+.accountLabel { font-size:11px;color:var(--text-secondary);white-space:nowrap; }
+.actions { display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:16px 0 4px; }
+.primary { display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:38px;padding:8px 14px!important;border:0!important;border-radius:8px!important;background:rgb(var(--ui-text-primary))!important;color:rgb(var(--ui-bg-page))!important;text-decoration:none;font-size:13px!important; }
+.footnote { font-size:12px;line-height:1.6;margin-bottom:0; }
+.unavailable { padding:10px 12px;background:rgb(var(--ui-text-primary)/.04);border-radius:8px; }
+.example { display:flex;justify-content:space-between;gap:16px;align-items:center;width:100%;text-align:left;padding:12px!important;margin-top:12px; }
+.repositoryBrowser { border-top:1px solid var(--rule);margin-top:18px;padding-top:18px; }
+.repositories { max-height:280px;overflow:auto;margin:8px 0; }
+.repositories button { display:flex;align-items:center;gap:12px;width:100%;padding:12px 0!important;border:0!important;border-bottom:1px solid var(--rule)!important;border-radius:0!important;text-align:left; }
+.repositories button>span { min-width:0;flex:1; }
+.repositories strong,.repositories small { display:block;overflow-wrap:anywhere; }
+.repositories strong { font-weight:500; }
+.repositories button>small { font-size:11px;flex:none; }
+.disconnect { margin-top:16px;padding:12px;border:1px solid var(--rule);border-radius:8px; }
+.disconnect button+button { margin-left:8px; }
+.account a { color:inherit;text-underline-offset:3px; }
+.account :is(button,a,input):focus-visible { outline:2px solid var(--focus);outline-offset:3px; }
+@media(max-width:600px) { .account { padding:16px; }.accountLabel { display:none; }.intro h2 { font-size:21px; }.tabs { gap:18px; }.account :is(button,a) { min-height:40px; } }
+.intro > h2:first-child { font-size:23px;line-height:1.25;margin:0 0 8px;font-weight:500;letter-spacing:-.5px; }
+.account .accountHeading h3 { margin:0;font-size:15px; }
+.account .accountHeading p { margin:4px 0 0; }
+@media(max-width:600px) { .intro > h2:first-child { font-size:21px; } }
+.chatCard { margin:16px 0;max-width:510px;border:1px solid var(--rule);border-radius:12px;font:13px/1.5 var(--font-interface);background:rgb(var(--ui-bg-elevated));color:rgb(var(--ui-text-primary)); }
+.chatCard header { display:flex;align-items:center;gap:9px;padding:12px 16px;border-bottom:1px solid var(--rule); }
+.chatCard strong { font-weight:500; }
+.chatCard header button { margin-left:auto;color:rgb(var(--ui-text-secondary)); }
+.chatCard button,.chatCard a { display:inline-flex;align-items:center;gap:6px;min-height:32px;padding:6px 9px;border:0;border-radius:6px;background:transparent;color:inherit;font:12px var(--font-interface);text-decoration:none;cursor:pointer; }
+.chatCard button:hover,.chatCard a:hover { background:rgb(var(--ui-tint-secondary)); }
+.chatApp { display:flex;align-items:center;gap:12px;padding:16px; }
+.chatApp>span:nth-child(2) { flex:1;min-width:0; }
+.chatApp strong,.chatApp small { display:block; }
+.chatApp small { color:rgb(var(--ui-text-secondary));font-size:12px;margin-top:3px; }
+.chatApp>a,.chatApp>button { border:1px solid var(--rule);padding-inline:12px; }
+.chatCard footer { padding:0 16px 14px;color:rgb(var(--ui-text-secondary));font-size:11px; }
+.chatCard>p { padding:0 16px; }
+.chatCard :is(button,a):focus-visible { outline:2px solid var(--focus);outline-offset:3px; }
+@media(max-width:600px) { .chatCard button,.chatCard a { min-height:40px; }.chatCard header { padding:8px 12px; }.chatApp { padding:12px; } }
+.savedAccount { margin-block: 18px; padding-block: 14px; border-top: 1px solid var(--rule); }
+.savedAccount > strong,.savedAccount > small { display: block; }
+.savedAccount > small { margin-top: 4px; color: var(--text-secondary); }
+.accountReview { margin-top: 20px; padding-top: 18px; border-top: 1px solid var(--rule); }
+
+.actionReview { overflow-wrap:anywhere; }
+.actionReview>p { margin:12px 0; }
+.actionReview>details,.actionReview>.actions,.actionReview>small { margin:12px 16px; }
+.actionReview>small { display:block;color:rgb(var(--ui-text-secondary)); }
+.actionReview summary { cursor:pointer;font-size:12px; }
+.actionReview dl { margin:12px 0;font-size:13px; }
+.actionReview dl>div { padding:10px 0;border-bottom:1px solid var(--rule); }
+.actionReview dt { font-weight:500;color:rgb(var(--ui-text-secondary)); }
+.actionReview dd { margin:4px 0 0;white-space:pre-wrap; }
+.actionReview pre { max-height:280px;overflow:auto;white-space:pre-wrap;font-size:12px; }
+.actionReview .actions .primary { background:rgb(var(--ui-text-primary));color:rgb(var(--ui-bg-page));border:1px solid var(--rule); }
+.actionReview button:disabled { cursor:default;opacity:.5; }
+
+.accountsList { display:grid;gap:16px;margin-block:20px; }
+.accountsList[hidden] { display:none; }
+.sourceHeading { color:rgb(var(--ui-text-secondary));font-size:12px;margin-top:18px; }
+
+.appsPage { --wren-panel-inset:0px;max-width:760px;margin:0 auto;padding:30px 24px 48px; }
+.pageBack { display:inline-flex;align-items:center;gap:6px;margin-bottom:16px;color:var(--text-secondary);font-size:12px;text-decoration:none; }
+.pageBack:hover { color:rgb(var(--ui-text-primary)); }
+.pageHead { margin-bottom:4px; }
+.pageTitle { margin:0 0 6px;font-size:23px;font-weight:500;letter-spacing:-.5px; }
+.pageHead>p { margin:0;max-width:52ch; }
+.pageSearch { display:flex;align-items:center;gap:9px;margin-top:16px;padding:0 12px;border:1px solid var(--rule);border-radius:9px;color:var(--text-secondary); }
+.pageSearch input { flex:1;min-width:0;min-height:38px;padding:0!important;border:0!important;border-radius:0!important;background:none;color:inherit; }
+.pageSearch input:focus { outline:none; }
+.pageSearch:focus-within { border-color:rgb(var(--ui-text-primary)/.45); }
+.gridHeading { display:flex;align-items:baseline;justify-content:space-between;margin:18px 0 6px; }
+.gridHeading h3 { margin:0;font-size:12px;font-weight:500;color:var(--text-secondary); }
+.appGrid { display:grid;grid-template-columns:1fr 1fr;gap:2px 20px;margin-bottom:16px; }
+.appRow { display:flex;align-items:center;gap:4px;min-width:0; }
+.appRowMain { display:flex;align-items:center;gap:11px;flex:1;min-width:0;padding:9px 8px!important;border:0!important;border-radius:10px!important;background:none;text-align:left; }
+.appRowMain:hover { background:rgb(var(--ui-text-primary)/.05); }
+.appTile { display:grid;place-items:center;width:32px;height:32px;flex:none;border:1px solid var(--rule);border-radius:8px;font-size:11px;font-weight:600;color:var(--text-secondary); }
+.appTile svg { width:17px;height:17px;color:rgb(var(--ui-text-primary)); }
+.appMeta { flex:1;min-width:0;display:grid; }
+.appMeta strong { font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:rgb(var(--ui-text-primary)); }
+.appMeta small { margin-top:2px;font-size:12px;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+.rowStatus { flex:none;padding:0 8px;font-size:11px;color:var(--text-secondary); }
+.rowAdd { display:grid;place-items:center;flex:none;width:30px;height:30px;padding:0!important;border:0!important;border-radius:8px!important;background:none;color:var(--text-secondary); }
+.rowAdd:hover { background:rgb(var(--ui-text-primary)/.07);color:rgb(var(--ui-text-primary)); }
+.detailBack { display:inline-flex;align-items:center;gap:6px;padding:6px 0!important;margin-bottom:18px;border:0!important;color:var(--text-secondary); }
+.detailBack:hover { color:rgb(var(--ui-text-primary)); }
+.detailHeader { display:flex;align-items:center;gap:14px;margin-bottom:22px; }
+.detailHeader>div { flex:1;min-width:0; }
+.detailHeader h2 { margin:0 0 4px; }
+.detailHeader p { margin:0; }
+.detailIcon { display:grid;place-items:center;width:44px;height:44px;flex:none;border:1px solid var(--rule);border-radius:11px;font-size:14px;font-weight:600;color:var(--text-secondary); }
+.detailIcon svg { width:23px;height:23px;color:rgb(var(--ui-text-primary)); }
+:is(.appRowMain,.rowAdd,.detailBack,.pageBack):focus-visible { outline:2px solid rgb(var(--ui-text-primary)/.7);outline-offset:2px; }
+@media(max-width:640px) { .appGrid { grid-template-columns:1fr; }.pageTitle { font-size:21px; } }
+.bareAccount a { color:inherit;text-underline-offset:3px; }
+.bareAccount :is(button,a,input):focus-visible { outline:2px solid rgb(var(--ui-text-primary)/.7);outline-offset:3px; }
+.bareAccount>p { margin:12px 0; }

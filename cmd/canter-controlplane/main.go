@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -141,6 +142,12 @@ func main() {
 		}
 	}()
 	operator := controlplane.OperatorConfig{APIKey: os.Getenv("OPENROUTER_API_KEY"), BaseURL: os.Getenv("CANTER_OPERATOR_BASE_URL"), Model: os.Getenv("CANTER_OPERATOR_MODEL"), TitleModel: os.Getenv("CANTER_OPERATOR_TITLE_MODEL"), StaticBinary: os.Getenv("CANTER_STATIC_SERVER_BINARY"), ShellRunner: os.Getenv("CANTER_OPERATOR_SHELL_RUNNER"), ShellNode: os.Getenv("CANTER_OPERATOR_SHELL_NODE"), ShellSocket: os.Getenv("CANTER_OPERATOR_SHELL_SOCKET"), ReasoningEffort: os.Getenv("CANTER_OPERATOR_REASONING_EFFORT")}
+	operator.WrenModel = os.Getenv("CANTER_WREN_MODEL")
+	if operator.WrenModel == "" {
+		operator.WrenModel = "openai/gpt-6-luna"
+	}
+	operator.Model = operator.WrenModel
+	operator.TitleModel = operator.WrenModel
 	operator.ExaAPIKey = os.Getenv("EXA_API_KEY")
 	if operator.ShellSocket == "" && operator.ShellRunner == "" {
 		if info, err := os.Stat("/run/canter-harness.sock"); err == nil && info.Mode()&os.ModeSocket != 0 {
@@ -212,8 +219,41 @@ func main() {
 		}
 		auth.Mailer = &controlplane.ResendMailer{APIKey: key, From: from}
 	}
-	handler := controlplane.NewHTTPServer(service, controlplane.HTTPConfig{Auth: auth, PublicURL: publicURL, CookieSecure: cookieSecure, RequireInvite: strings.EqualFold(os.Getenv("CANTER_REQUIRE_INVITE"), "true"), GoogleOAuth: googleOAuth, GitHubOAuth: githubOAuth, GitHubApp: githubApp, GitHubAppSlug: os.Getenv("CANTER_GITHUB_APP_SLUG"), Billing: billing, Operator: operator, Secrets: vault})
+	computerLifetime, _ := strconv.Atoi(os.Getenv("CANTER_COMPUTER_MAX_LIFETIME_SECONDS"))
+	computers := controlplane.WrenComputerConfig{SSHSourceCIDR: os.Getenv("CANTER_COMPUTER_SSH_SOURCE_CIDR"), AllowedWorkspaces: strings.FieldsFunc(os.Getenv("CANTER_COMPUTER_ALLOWED_WORKSPACES"), func(r rune) bool { return r == ',' || r == ' ' || r == '\n' }), MaxLifetimeSeconds: computerLifetime}
+	sandboxes := controlplane.SandboxConfig{Enabled: strings.EqualFold(os.Getenv("CANTER_SANDBOXES_ENABLED"), "true"), SSHSourceCIDR: os.Getenv("CANTER_COMPUTER_SSH_SOURCE_CIDR"), PreviewDomain: strings.TrimSpace(os.Getenv("CANTER_SANDBOX_PREVIEW_DOMAIN")), ImageID: strings.TrimSpace(os.Getenv("CANTER_SANDBOX_IMAGE"))}
+	if sandboxes.PreviewDomain != "" {
+		if err := controlplane.ValidatePreviewDomain(sandboxes.PreviewDomain, publicURL); err != nil {
+			log.Fatal(err)
+		}
+	}
+	harnesses := controlplane.WrenHarnessConfig{BrokerBaseURL: os.Getenv("CANTER_WREN_BROKER_BASE_URL")}
+	aiUsage := controlplane.WrenAIUsageConfigFromEnv()
+	if err := store.SetInitialWrenAIAllowanceMicroUSD(aiUsage.InitialAllowanceMicroUSD); err != nil {
+		log.Fatal("invalid initial AI allowance policy")
+	}
+	handler := controlplane.NewHTTPServer(service, controlplane.HTTPConfig{AIUsage: aiUsage, Media: controlplane.WrenMediaConfig{Model: os.Getenv("CANTER_WREN_IMAGE_MODEL")}, Audio: controlplane.WrenAudioConfigFromEnv(), Harnesses: harnesses, Computers: computers, Sandboxes: sandboxes, Auth: auth, PublicURL: publicURL, CookieSecure: cookieSecure, RequireInvite: strings.EqualFold(os.Getenv("CANTER_REQUIRE_INVITE"), "true"), GoogleOAuth: googleOAuth, GitHubOAuth: githubOAuth, GitHubApp: githubApp, GitHubAppSlug: os.Getenv("CANTER_GITHUB_APP_SLUG"), Billing: billing, Operator: operator, Secrets: vault})
 	go func() { _ = handler.(*controlplane.HTTPServer).RunAuthMaintenance(ctx) }()
+	go func() { _ = handler.(*controlplane.HTTPServer).RunWrenMessagingMaintenance(ctx) }()
+	go func() {
+		if err := (&controlplane.WrenComputerDispatcher{Server: handler.(*controlplane.HTTPServer)}).Run(ctx); err != nil && ctx.Err() == nil {
+			log.Printf("computer dispatcher stopped: %v", err)
+			stop()
+		}
+	}()
+	go func() {
+		if err := (&controlplane.SandboxDispatcher{Server: handler.(*controlplane.HTTPServer)}).Run(ctx); err != nil && ctx.Err() == nil {
+			log.Printf("sandbox dispatcher stopped: %v", err)
+			stop()
+		}
+	}()
+
+	go func() {
+		if err := (&controlplane.WrenHarnessDispatcher{Server: handler.(*controlplane.HTTPServer)}).Run(ctx); err != nil && ctx.Err() == nil {
+			log.Printf("coding dispatcher stopped: %v", err)
+			stop()
+		}
+	}()
 	if operator.Ready() || vault != nil {
 		for i := 0; i < 2; i++ {
 			go func() {

@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
-import { createPortal } from "react-dom";
 import { operatorModelChoice, operatorModels, operatorModelOptions, reasoningLabels, type OperatorModelChoice, type OperatorModelOptions } from "@/lib/operator-models";
 import { useHoverPreview } from "./use-hover-preview";
 import { WorkspaceIcon } from "./workspace-icon";
 import { MotionPresence } from "./motion-presence";
+import { createPortal } from "react-dom";
 import { MorphLabel } from "./conversation-motion";
 import shared from "./workspace.module.css";
 import styles from "./operator-model-picker.module.css";
@@ -14,6 +14,10 @@ import styles from "./operator-model-picker.module.css";
 // https://github.com/lobehub/lobe-icons — license bundled in /model-logos/LICENSE.
 // Qwen's current mark is the favicon served by https://qwen.ai/.
 const logos: Record<string, string> = { openai: "openai.svg", zai: "zai.svg", deepseek: "deepseek-color.svg", qwen: "qwen.png", gemini: "gemini-color.svg" };
+const menuWidth = 220;
+const detailsWidth = 280;
+const popupGap = 6;
+const viewportInset = 10;
 function ModelLogo({ brand }: { brand: string }) {
   if (!logos[brand]) return <WorkspaceIcon name="agent" width="18" height="18" />;
   return <span aria-hidden="true" className={styles.logo} data-mono={brand === "openai" || brand === "zai"} style={{ "--model-logo": `url(/model-logos/${logos[brand]})` } as CSSProperties} />;
@@ -28,11 +32,12 @@ export function OperatorModelPicker({ model, onChange, options, onOptionsChange,
   const card = useRef<HTMLElement>(null);
   const id = useId();
   const [query, setQuery] = useState("");
-  const [position, setPosition] = useState({ left: 0, bottom: 0, stacked: false, side: "right", below: false, maxHeight: 280 });
+  const [position, setPosition] = useState({ left: 0, anchor: 0, width: menuWidth, stacked: false, side: "right", placement: "above", maxHeight: 360 });
   const [preview, setPreview] = useHoverPreview(open, position.stacked, panel, card);
   const current = operatorModelChoice(model);
   const choices = current && !operatorModels.some(item => item.id === current.id) ? [current, ...operatorModels] : operatorModels;
-  const filtered = choices.filter(item => `${item.name} ${item.provider}`.toLowerCase().includes(query.trim().toLowerCase()));
+  const filtered = choices.filter(item => `${item.name} ${item.provider} ${item.id}`.toLowerCase().includes(query.trim().toLowerCase()));
+  const groups = Array.from(new Set(filtered.map(item => item.provider)), provider => ({ provider, models: filtered.filter(item => item.provider === provider) }));
   const inspected = filtered.find(item => item.id === preview);
   const settings = operatorModelOptions(inspected?.id, inspected ? options[inspected.id] : undefined);
 
@@ -46,19 +51,25 @@ export function OperatorModelPicker({ model, onChange, options, onOptionsChange,
       const height = viewport?.height ?? window.innerHeight;
       const viewTop = viewport?.offsetTop ?? 0;
       const viewLeft = viewport?.offsetLeft ?? 0;
-      const left = Math.max(viewLeft + 10, Math.min(rect.left, viewLeft + width - 234));
-      const fitsRight = left + 454 <= viewLeft + width - 10;
-      const fitsLeft = left - 230 >= viewLeft + 10;
+      const popupWidth = Math.min(menuWidth, Math.max(0, width - viewportInset * 2));
+      const left = Math.max(viewLeft + viewportInset, Math.min(rect.left, viewLeft + width - viewportInset - popupWidth));
+      const fitsRight = left + popupWidth + popupGap + detailsWidth <= viewLeft + width - viewportInset;
+      const fitsLeft = left - popupGap - detailsWidth >= viewLeft + viewportInset;
       const stacked = !fitsRight && !fitsLeft;
-      const anchorBottom = Math.min(rect.top - 8, viewTop + height - 10);
-      const bottom = window.innerHeight - anchorBottom;
-      setPosition({ left, bottom, stacked, side: fitsRight ? "right" : "left", below: viewTop + height - anchorBottom > 205, maxHeight: Math.max(80, anchorBottom - viewTop - 50) });
+      const above = Math.max(0, rect.top - viewTop - viewportInset - popupGap);
+      const below = Math.max(0, viewTop + height - rect.bottom - viewportInset - popupGap);
+      const placement = above >= 220 || above >= below ? "above" : "below";
+      const anchor = placement === "above"
+        ? window.innerHeight - Math.min(rect.top - popupGap, viewTop + height - viewportInset)
+        : Math.max(rect.bottom + popupGap, viewTop + viewportInset);
+      setPosition({ left, anchor, width: popupWidth, stacked, side: fitsRight ? "right" : "left", placement, maxHeight: placement === "above" ? above : below });
     };
     place();
     window.addEventListener("resize", place);
     window.visualViewport?.addEventListener("resize", place);
+    window.visualViewport?.addEventListener("scroll", place);
     window.addEventListener("scroll", place, true);
-    return () => { window.removeEventListener("resize", place); window.visualViewport?.removeEventListener("resize", place); window.removeEventListener("scroll", place, true); };
+    return () => { window.removeEventListener("resize", place); window.visualViewport?.removeEventListener("resize", place); window.visualViewport?.removeEventListener("scroll", place); window.removeEventListener("scroll", place, true); };
   }, [open]);
 
   useEffect(() => {
@@ -76,6 +87,14 @@ export function OperatorModelPicker({ model, onChange, options, onOptionsChange,
     if (event.target instanceof HTMLSelectElement) return;
     const options = Array.from(panel.current?.querySelectorAll<HTMLButtonElement>('[role="option"]') ?? []);
     const index = options.indexOf(document.activeElement as HTMLButtonElement);
+    if (event.key === "ArrowRight" && index >= 0 && inspected) {
+      const control = card.current?.querySelector<HTMLElement>("select, button");
+      if (control) { event.preventDefault(); control.focus(); }
+      return;
+    }
+    if (event.key === "ArrowLeft" && card.current?.contains(event.target as Node)) {
+      event.preventDefault(); options.find(option => option.dataset.modelOption === inspected?.id)?.focus(); return;
+    }
     if (["ArrowDown", "ArrowUp"].includes(event.key)) {
       event.preventDefault();
       const next = index < 0 ? (event.key === "ArrowDown" ? 0 : options.length - 1) : (index + (event.key === "ArrowDown" ? 1 : options.length - 1)) % options.length;
@@ -88,21 +107,30 @@ export function OperatorModelPicker({ model, onChange, options, onOptionsChange,
   }
 
   return <div ref={root} className={styles.root} onBlur={event => { if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget) && !panel.current?.contains(event.relatedTarget)) onOpenChange(false); }}>
-    <button ref={trigger} type="button" className={shared.modelTrigger} aria-label={`Model: ${current?.name ?? "Connecting"}`} aria-haspopup="dialog" aria-controls={open ? id : undefined} aria-expanded={open} disabled={disabled || !model} onClick={() => { setQuery(""); setPreview(null); onOpenChange(!open); }}>{current ? <ModelLogo brand={current.logo} /> : null}<span className={styles.triggerLabel}><MorphLabel text={current?.name ?? "Connecting…"} /></span><WorkspaceIcon name="down" width="12" height="12" /></button>
+    <button ref={trigger} type="button" className={shared.modelTrigger} aria-label={`Model: ${current?.name ?? "Connecting"}`} aria-haspopup="dialog" aria-controls={open ? id : undefined} aria-expanded={open} disabled={disabled || !model} onClick={() => { if (!open) { setQuery(""); setPreview(null); } onOpenChange(!open); }}>{current ? <ModelLogo brand={current.logo} /> : null}<span className={styles.triggerLabel}><MorphLabel text={current?.name ?? "Connecting…"} /></span><WorkspaceIcon name="down" width="12" height="12" /></button>
     {/* Viewport coordinates must escape transformed onboarding/composer ancestors. */}
-    {typeof document !== "undefined" ? createPortal(<MotionPresence open={open}><div ref={panel} id={id} role="dialog" aria-label="Choose a model" className={styles.picker} data-stacked={position.stacked} data-side={position.side} data-below={position.below} style={{ left: position.left, bottom: position.bottom, "--picker-max-height": `${position.maxHeight}px` } as CSSProperties} onKeyDown={keyboard}>
+    {typeof document !== "undefined" ? createPortal(<MotionPresence open={open}><div ref={panel} id={id} role="dialog" aria-label="Choose a model" className={styles.picker} data-stacked={position.stacked} data-side={position.side} data-placement={position.placement} style={{ left: position.left, [position.placement === "above" ? "bottom" : "top"]: position.anchor, "--picker-width": `${position.width}px`, "--picker-max-height": `${position.maxHeight}px` } as CSSProperties} onKeyDown={keyboard}>
       <div className={styles.menu}>
         <div className={styles.search}><WorkspaceIcon name="search" width="16" height="16" /><input ref={search} aria-label="Search models" placeholder="Search models" value={query} onChange={event => { setQuery(event.target.value); setPreview(null); }} aria-controls={`${id}-options`} onFocus={() => setPreview(null)} /></div>
         <div className={styles.list} role="listbox" id={`${id}-options`} aria-label="Models">
-          {filtered.map(choice => <button key={choice.id} type="button" role="option" aria-selected={choice.id === model} aria-describedby={inspected?.id === choice.id ? `${id}-details` : undefined} tabIndex={choice.id === (inspected?.id ?? filtered.find(item => item.id === model)?.id ?? filtered[0]?.id) ? 0 : -1} className={styles.option} data-model-option={choice.id} data-preview={choice.id === inspected?.id} onFocus={() => setPreview(choice.id)} onClick={event => { if (position.stacked && event.detail !== 0) setPreview(choice.id); else choose(choice); }}><ModelLogo brand={choice.logo} /><span>{choice.name}</span>{choice.id === model ? <WorkspaceIcon name="check" width="14" height="14" /> : null}</button>)}
+          {groups.map(group => <div key={group.provider} className={styles.group} role="group" aria-label={group.provider}>
+            <div className={styles.groupLabel} aria-hidden="true">{group.provider}</div>
+            {group.models.map(choice => <button key={choice.id} type="button" role="option" aria-selected={choice.id === model} aria-describedby={inspected?.id === choice.id ? `${id}-details` : undefined} tabIndex={choice.id === (inspected?.id ?? filtered.find(item => item.id === model)?.id ?? filtered[0]?.id) ? 0 : -1} className={styles.option} data-model-option={choice.id} data-preview={choice.id === inspected?.id} onFocus={() => setPreview(choice.id)} onClick={event => { if (position.stacked && event.detail !== 0) setPreview(choice.id); else choose(choice); }}>
+              <ModelLogo brand={choice.logo} /><span className={styles.optionName}>{choice.name}</span>
+              {choice.id === model && choice.reasoningEfforts ? <span className={styles.optionSetting}>{reasoningLabels[operatorModelOptions(choice.id, options[choice.id]).reasoningEffort ?? ""]}</span> : null}
+              <span className={styles.check}>{choice.id === model ? <WorkspaceIcon name="check" width="16" height="16" /> : null}</span>
+            </button>)}
+          </div>)}
           {!filtered.length ? <p className={styles.empty} role="status">No models found.</p> : null}
         </div>
       </div>
       {inspected ? <aside ref={card} data-model-settings className={styles.details} id={`${id}-details`} aria-label={`${inspected.name} details`}>
-        <div className={styles.heading}><ModelLogo brand={inspected.logo} /><strong>{inspected.name}</strong></div>
-        {inspected.contextTokens ? <p className={styles.context}>{new Intl.NumberFormat("en", { maximumFractionDigits: 2 }).format(inspected.contextTokens / 1_000_000)}M context</p> : null}
+        <div className={styles.detailHeader}>
+          <div className={styles.heading}><strong>{inspected.name}</strong></div>
+          <p className={styles.context}><span>{inspected.provider}</span>{inspected.contextTokens ? <><span aria-hidden="true">·</span><span>{new Intl.NumberFormat("en", { maximumFractionDigits: 2 }).format(inspected.contextTokens / 1_000_000)}M context</span></> : null}</p>
+        </div>
         {inspected.reasoningEfforts ? <div className={styles.controls}>
-          <label className={styles.control}><span>Reasoning</span><span className={styles.reasoningSelect}><select aria-label={`Reasoning for ${inspected.name}`} value={settings.reasoningEffort} disabled={disabled} onChange={event => onOptionsChange(inspected.id, { ...settings, reasoningEffort: event.target.value })}>{inspected.reasoningEfforts.map(effort => <option key={effort} value={effort}>{reasoningLabels[effort]}</option>)}</select><WorkspaceIcon name="down" width="12" height="12" /></span></label>
+          <label className={styles.control}><span>Reasoning effort</span><span className={styles.reasoningSelect}><select aria-label={`Reasoning for ${inspected.name}`} value={settings.reasoningEffort} disabled={disabled} onChange={event => onOptionsChange(inspected.id, { ...settings, reasoningEffort: event.target.value })}>{inspected.reasoningEfforts.map(effort => <option key={effort} value={effort}>{reasoningLabels[effort]}</option>)}</select><WorkspaceIcon name="down" width="12" height="12" /></span></label>
         </div> : null}
         {position.stacked ? <button type="button" className={styles.choose} onClick={() => choose(inspected)}>Use {inspected.name}</button> : null}
       </aside> : null}

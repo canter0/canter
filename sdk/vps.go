@@ -30,6 +30,8 @@ type VPSRequest struct {
 	SSHPublicKey string `json:"sshPublicKey"`
 	SSHCIDR      string `json:"sshCidr"`
 	ForSeconds   int    `json:"forSeconds"`
+	// ImageID pins a specific provider image instead of the default alias.
+	ImageID string `json:"imageId,omitempty"`
 }
 
 func (r *VPSRequest) Validate() error {
@@ -72,8 +74,24 @@ func (c *Client) PlanVPS(ctx context.Context, workspace, id string, request VPSR
 	if err != nil {
 		return VPSPlan{}, err
 	}
+	if request.ImageID != "" {
+		validator, ok := c.compute.(interface {
+			ResolveImageID(context.Context, string) error
+		})
+		if !ok {
+			return VPSPlan{}, fmt.Errorf("pinned VM images are unavailable")
+		}
+		if err := validator.ResolveImageID(ctx, request.ImageID); err != nil {
+			return VPSPlan{}, err
+		}
+		image = request.ImageID
+	}
 	identity := sha256.Sum256([]byte(workspace + "/" + id))
-	spec := Spec{APIVersion: APIVersion, Kind: "Sandbox", Metadata: Metadata{Name: "vps-" + hex.EncodeToString(identity[:16])}, Spec: Desired{Intent: "Standalone VPS " + request.Name, Compute: ComputeSpec{Class: "vps", Image: "ubuntu-24.04", Replicas: 1, Bootstrap: vpsBootstrap(request)}, M1: M1Spec{Prefix: "workspaces/" + workspace + "/vps/" + id}, Policy: Policy{MaxReplicas: 1}}}
+	imageLabel := "ubuntu-24.04"
+	if request.ImageID != "" {
+		imageLabel = request.ImageID
+	}
+	spec := Spec{APIVersion: APIVersion, Kind: "Sandbox", Metadata: Metadata{Name: "vps-" + hex.EncodeToString(identity[:16])}, Spec: Desired{Intent: "Standalone VPS " + request.Name, Compute: ComputeSpec{Class: "vps", Image: imageLabel, Replicas: 1, Bootstrap: vpsBootstrap(request)}, M1: M1Spec{Prefix: "workspaces/" + workspace + "/vps/" + id}, Policy: Policy{MaxReplicas: 1}}}
 	return VPSPlan{Spec: spec, Shape: shape, ImageID: image, Networks: networks}, nil
 }
 

@@ -5,19 +5,22 @@ export function pointInHoverRect(point: PointerPoint, rect: HoverRect, buffer = 
   return point.x >= rect.left - buffer && point.x <= rect.right + buffer && point.y >= rect.top - buffer && point.y <= rect.bottom + buffer;
 }
 
-// A safe triangle connects the last point on the active row to the near edge of
-// its card. Direction matters: vertical list browsing and reversing course must
-// be immediate. See https://floating-ui.com/docs/usehover#safepolygon.
+// Join the row to the full card, including paths entering its top or bottom.
+// A triangle ending only at the near edge cuts off those paths when a tall menu
+// places the card below the row. Vertical browsing and reversing still release
+// the corridor immediately, with a small allowance for pointer jitter.
 export function movingThroughHoverTriangle(point: PointerPoint, previous: PointerPoint, origin: PointerPoint, card: HoverRect, side: "left" | "right") {
   const direction = side === "right" ? 1 : -1;
-  if ((point.x - previous.x) * direction <= 0) return false;
-  const edge = side === "right" ? card.left + 6 : card.right - 6;
-  const startX = origin.x - direction * 6;
-  const progress = (point.x - startX) / (edge - startX);
-  if (progress < 0 || progress > 1) return false;
-  // Buffer both ends so the corridor includes its origin, even when the card
-  // sits entirely below or above the row. This also tolerates pointer jitter.
-  const top = origin.y - 6 + (card.top - origin.y) * progress;
-  const bottom = origin.y + 6 + (card.bottom - origin.y) * progress;
+  if ((point.x - previous.x) * direction < -2 || (point.x - origin.x) * direction <= 0) return false;
+  const buffer = 6;
+  const near = (side === "right" ? card.left : -card.right) - buffer;
+  const far = (side === "right" ? card.right : -card.left) + buffer;
+  const start = origin.x * direction - buffer;
+  const x = point.x * direction;
+  if (near <= start || x < start || x > far) return false;
+  const topEdge = origin.y < card.top ? far : near;
+  const bottomEdge = origin.y > card.bottom ? far : near;
+  const top = origin.y - buffer + (card.top - origin.y) * Math.min(1, (x - start) / (topEdge - start));
+  const bottom = origin.y + buffer + (card.bottom - origin.y) * Math.min(1, (x - start) / (bottomEdge - start));
   return point.y >= top && point.y <= bottom;
 }

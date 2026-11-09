@@ -55,7 +55,11 @@ func (s *Service) Bootstrap(ctx context.Context, p Principal) (Bootstrap, error)
 	if err != nil {
 		return Bootstrap{}, err
 	}
-	return Bootstrap{ProtocolVersion: "v1", Installation: *p.Installation, Session: *p.Session, Workspace: workspace, Systems: systems, Changes: changesPage.Items, ChangesHasMore: changesPage.HasMore, ChangesNextCursor: changesPage.NextCursor, PendingChanges: pendingPage.Items, PendingChangesHasMore: pendingPage.HasMore, PendingChangesNextCursor: pendingPage.NextCursor, InitialDeployments: deploymentsPage.Items, InitialDeploymentsHasMore: deploymentsPage.HasMore, InitialDeploymentsCursor: deploymentsPage.NextCursor, Tasks: tasks, Capabilities: initialDeploymentCapabilities(p.WorkspaceID), Incidents: []any{}}, nil
+	memory, err := s.Store.organizationMemoryReadOnly(ctx, p.WorkspaceID)
+	if err != nil {
+		return Bootstrap{}, err
+	}
+	return Bootstrap{ProtocolVersion: "v1", Installation: *p.Installation, Session: *p.Session, Workspace: workspace, Systems: systems, Changes: changesPage.Items, ChangesHasMore: changesPage.HasMore, ChangesNextCursor: changesPage.NextCursor, PendingChanges: pendingPage.Items, PendingChangesHasMore: pendingPage.HasMore, PendingChangesNextCursor: pendingPage.NextCursor, InitialDeployments: deploymentsPage.Items, InitialDeploymentsHasMore: deploymentsPage.HasMore, InitialDeploymentsCursor: deploymentsPage.NextCursor, Tasks: tasks, OrganizationMemory: memory, Capabilities: initialDeploymentCapabilities(p.WorkspaceID), Incidents: []any{}}, nil
 }
 
 func initialDeploymentCapabilities(workspaceID string) map[string]any {

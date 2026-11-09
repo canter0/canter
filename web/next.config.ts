@@ -32,6 +32,14 @@ const nextConfig: NextConfig = {
           { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
         ],
       },
+      {
+        source: "/app/:path*",
+        headers: [
+          // Dictation still requires the person's explicit browser permission.
+          // Permit it only in the workspace, not marketing or embedded origins.
+          { key: "Permissions-Policy", value: "camera=(), microphone=(self), geolocation=()" },
+        ],
+      },
     ];
   },
   async rewrites() {

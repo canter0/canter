@@ -1,4 +1,5 @@
 import "server-only";
+import {workspaceFromPreference,workspacePreferenceCookie} from "./workspace-selection";
 
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
@@ -18,7 +19,7 @@ export async function serverCanterFetch<T>(path: string): Promise<T> {
     headers: { cookie: `${session.name}=${session.value}` },
     cache: "no-store",
   });
-  if (!response.ok) throw new CanterAPIError(response.status, "Your workspace could not be loaded.");
+  if (!response.ok) throw new CanterAPIError(response.status, "Your organization could not be loaded.");
   return response.json() as Promise<T>;
 }
 
@@ -41,11 +42,18 @@ export async function requireAuthenticated() {
   return me;
 }
 
+export async function selectedWorkspace(me?:Me){
+ const account=me??await requireAuthenticated();
+ const workspace=workspaceFromPreference(account,(await cookies()).get(workspacePreferenceCookie)?.value);
+ if(!workspace)throw new Error("No organization is available.");
+ return workspace;
+}
+
 export const workspaceBootstrap = cache(async (): Promise<WorkspaceBootstrap> => {
   const me = await requireAuthenticated();
-  const workspace = me.workspaces[0];
-  if (!workspace) throw new Error("No workspace is available.");
-  const data: WorkspaceOverview = { account: me.account, workspace, conversations: [], agent: { available: false, model: "" }, systems: [], installations: [], changes: [], initialDeployments: [], tasks: [], actions: [] };
+  const workspace = await selectedWorkspace(me);
+  if (!workspace) throw new Error("No organization is available.");
+  const data: WorkspaceOverview = { account: me.account, workspace, workspaces:me.workspaces, conversations: [], agent: { available: false, model: "" }, systems: [], installations: [], changes: [], initialDeployments: [], tasks: [], actions: [] };
   try {
     const conversations = await serverCanterFetch<Pick<WorkspaceOverview, "conversations" | "agent">>(`/workspaces/${encodeURIComponent(workspace.id)}/conversations`);
     return { data: { ...data, ...conversations, conversations: conversations.conversations ?? [] }, conversationsLoaded: true };
@@ -57,7 +65,7 @@ export const workspaceBootstrap = cache(async (): Promise<WorkspaceBootstrap> =>
 
 export async function initialConversation(id: string): Promise<{ detail: ConversationDetail; loadedAt: number } | null> {
   const me = await requireAuthenticated();
-  const workspace = me.workspaces[0];
+  const workspace = await selectedWorkspace(me);
   if (!workspace) return null;
   try {
     const detail = await serverCanterFetch<ConversationDetail>(`/workspaces/${encodeURIComponent(workspace.id)}/conversations/${encodeURIComponent(id)}`);

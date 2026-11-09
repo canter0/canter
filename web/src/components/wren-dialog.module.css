@@ -1,0 +1,9 @@
+.dialog { position:fixed;margin:auto;width:min(480px,calc(100vw - 32px));max-height:calc(100svh - 48px);overflow:auto;padding:28px;border:1px solid rgb(var(--ui-border-primary));border-radius:16px;background:var(--surface-raised);color:var(--ink);box-shadow:none;font-family:var(--font-interface),sans-serif;font-size:13px; }
+.dialog::backdrop { background:rgb(var(--ui-bg-page) / .6); }
+.dialog>form { max-width:none;padding:0!important; }
+.close { position:absolute;right:12px;top:12px;display:grid;place-items:center;width:28px;height:28px;border:0;border-radius:5px;background:transparent;color:var(--text-secondary);cursor:pointer;z-index:1; }
+.close:hover { background:rgb(var(--ui-tint-secondary));color:var(--ink); }
+.dialog :where(button,a,input,textarea,summary):focus-visible { outline:2px solid var(--text-secondary);outline-offset:3px; }
+@media(max-width:600px) { .dialog { padding:24px;max-height:calc(100svh - 28px); } }
+
+.title { margin:0 28px 24px 0;font-size:19px;line-height:1.4;font-weight:500;color:var(--ink); }

@@ -1,9 +1,10 @@
 "use client";
+import {getSelectedWorkspace} from "@/lib/workspace-selection";
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { AppShell, Metric, SectionHeader } from "@/components/app-shell";
-import { canterFetch, relativeTime, type ChangeDetail, type Installation, type Me, type StandingPolicy, type StandingPolicyEnvelope } from "@/lib/canter-api";
+import { canterFetch, relativeTime, type ChangeDetail, type Installation, type StandingPolicy, type StandingPolicyEnvelope } from "@/lib/canter-api";
 
 function unique(values: Array<string | undefined>) {
   return [...new Set(values.filter((value): value is string => Boolean(value)))].sort();
@@ -26,9 +27,8 @@ export function StandingPolicies({ system, fromChange }: { system: string; fromC
 	const [observedAt] = useState(() => Date.now());
 
   async function load(cancelled?: () => boolean) {
-    const me = await canterFetch<Me>("/me");
-    const workspace = me.workspaces[0];
-    if (!workspace) throw new Error("No workspace is available.");
+    const {workspace}=await getSelectedWorkspace();
+    if (!workspace) throw new Error("No organization is available.");
     const [policyResult, agentResult, changeResult] = await Promise.all([
       canterFetch<{ policies: StandingPolicy[] }>(`/workspaces/${workspace.id}/systems/${encodeURIComponent(system)}/policies`),
       canterFetch<{ installations: Installation[] }>(`/installations?workspaceId=${encodeURIComponent(workspace.id)}`),
@@ -52,9 +52,8 @@ export function StandingPolicies({ system, fromChange }: { system: string; fromC
     let cancelled = false;
 		void (async () => {
 			try {
-				const me = await canterFetch<Me>("/me");
-				const workspace = me.workspaces[0];
-				if (!workspace) throw new Error("No workspace is available.");
+				const {workspace}=await getSelectedWorkspace();
+				if (!workspace) throw new Error("No organization is available.");
 				const [policyResult, agentResult, changeResult] = await Promise.all([
 					canterFetch<{ policies: StandingPolicy[] }>(`/workspaces/${workspace.id}/systems/${encodeURIComponent(system)}/policies`),
 					canterFetch<{ installations: Installation[] }>(`/installations?workspaceId=${encodeURIComponent(workspace.id)}`),

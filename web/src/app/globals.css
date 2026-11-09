@@ -38,20 +38,41 @@
   --ease-out: cubic-bezier(.22,1,.36,1);
 }
 
+@font-face {
+  font-family: "Canter Interface";
+  src: url("/fonts/InterVariable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
 .dashboard-theme {
-  --paper: #101010;
-  --ink: #ececec;
-  --muted: #a0a0a0;
-  --rule: #303030;
+  --font-interface: "Canter Interface", Inter, var(--font-app);
+  /* Visual roles are independent of Canter's preserved motion vocabulary. */
+  --ui-bg-page: 20 20 20;
+  --ui-bg-wash: 25 25 25;
+  --ui-bg-elevated: 37 37 37;
+  --ui-text-primary: 255 255 255 / .9;
+  --ui-text-secondary: 255 255 255 / .52;
+  --ui-text-tertiary: 255 255 255 / .4;
+  --ui-border-primary: 255 255 255 / .08;
+  --ui-border-secondary: 255 255 255 / .04;
+  --ui-tint-primary: 255 255 255 / .08;
+  --ui-tint-secondary: 255 255 255 / .05;
+  --ui-tint-tertiary: 255 255 255 / .03;
+  --paper: rgb(var(--ui-bg-page));
+  --ink: rgb(var(--ui-text-primary));
+  --muted: rgb(var(--ui-text-secondary));
+  --rule: rgb(var(--ui-border-primary));
   --rule-strong: #505050;
-  --surface: #181818;
-  --surface-raised: #202020;
-  --surface-hover: #292929;
-  --text-secondary: #aaa;
-  --text-subtle: #969696;
-  --focus: #bacbc0;
-  --radius-control: 8px;
-  --radius-panel: 16px;
+  --surface: rgb(var(--ui-bg-wash));
+  --surface-raised: rgb(var(--ui-bg-elevated));
+  --surface-hover: rgb(var(--ui-tint-secondary));
+  --text-secondary: rgb(var(--ui-text-secondary));
+  --text-subtle: rgb(var(--ui-text-tertiary));
+  --focus: #bcbcbc;
+  --radius-control: 6px;
+  --radius-panel: 12px;
   --radius-menu: 12px;
   --menu-inset: 5px;
   --radius-menu-item: calc(var(--radius-menu) - var(--menu-inset) - 1px);
@@ -61,12 +82,12 @@
   color: var(--ink);
 }
 
-.dashboard-theme ::selection { background: var(--signal); color: #11130f; }
+.dashboard-theme ::selection { background: #ffffff2b; color: inherit; }
 
 /* Keep the dashboard canvas dark and prevent browser rubber-banding. */
 html:has(.dashboard-theme),
 body:has(.dashboard-theme) {
-  background: #101010;
+  background: #141414;
   color-scheme: dark;
   overscroll-behavior: none;
 }
