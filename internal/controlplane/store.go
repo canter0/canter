@@ -243,6 +243,9 @@ var sandboxMutationsMigration string
 //go:embed migrations/078_sandbox_desktops.sql
 var sandboxDesktopMigration string
 
+//go:embed migrations/079_sandbox_environment.sql
+var sandboxEnvironmentMigration string
+
 var (
 	ErrNotFound      = errors.New("not found")
 	ErrUnauthorized  = errors.New("unauthorized")
@@ -770,6 +773,18 @@ func (s *Store) Migrate(ctx context.Context) error {
 			return err
 		}
 		if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('078_sandbox_desktops') ON CONFLICT DO NOTHING`); err != nil {
+			return err
+		}
+	}
+	var environmentApplied bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version='079_sandbox_environment')`).Scan(&environmentApplied); err != nil {
+		return err
+	}
+	if !environmentApplied {
+		if _, err := tx.Exec(ctx, sandboxEnvironmentMigration); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('079_sandbox_environment') ON CONFLICT DO NOTHING`); err != nil {
 			return err
 		}
 	}

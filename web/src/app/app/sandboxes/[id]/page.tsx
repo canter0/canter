@@ -9,6 +9,7 @@ import { useRequestScope } from "@/components/use-request-scope";
 import { WorkspaceIcon } from "@/components/workspace-icon";
 import { canterFetch, relativeTime } from "@/lib/canter-api";
 import { sandboxPhaseText,  formatBytes, type Sandbox, type SandboxMetrics, type SandboxListResponse } from "@/lib/sandboxes";
+import SandboxSetupProgress from "@/components/sandbox-setup-progress";
 import { followJob, parseSandboxLabels, runUpload, sandboxDownloadURL, type FollowState, type UploadLimits } from "@/lib/sandbox-client";
 import { SandboxSavedEnvironments } from "@/components/sandbox-saved-environments";
 import { SandboxDesktop } from "@/components/sandbox-desktop";
@@ -36,6 +37,8 @@ function SandboxDetail({ workspace, id }: { workspace: ReturnType<typeof useWork
   const writer = workspace.workspace.role === "owner" || workspace.workspace.role === "operator";
   const data = workspace;
   const [sandbox, setSandbox] = useState<Sandbox | null>(null);
+  const setupPending = sandbox?.setup?.status === "pending" || sandbox?.setup?.status === "running";
+  const canMutate = writer && sandbox?.phase === "ready" && !setupPending;
   const [loadError, setLoadError] = useState("");
   const [actionError, setActionError] = useState("");
   const [pending, setPending] = useState("");
@@ -45,6 +48,7 @@ function SandboxDetail({ workspace, id }: { workspace: ReturnType<typeof useWork
   const [entries, setEntries] = useState<FileEntry[] | null>(null);
   const [fileContent, setFileContent] = useState<{ path: string; content: string; truncated: boolean } | null>(null);
   const [tab, setTab] = useState<"exec" | "terminal" | "desktop">("exec");
+  const [useSavedSecrets, setUseSavedSecrets] = useState(true);
   const [showSaved, setShowSaved] = useState(false);
   const [previews, setPreviews] = useState<Preview[] | null>(null);
   const [previewsAvailable, setPreviewsAvailable] = useState(false);
@@ -151,7 +155,7 @@ function SandboxDetail({ workspace, id }: { workspace: ReturnType<typeof useWork
     event.preventDefault();
     const port = Number(previewPort);
     const signal = requestSignal();
-    if (!base || !port || signal.aborted || !writer) return;
+    if (!base || !port || signal.aborted || !canMutate) return;
     setPending("preview");
     setActionError("");
     try {
@@ -218,7 +222,7 @@ function SandboxDetail({ workspace, id }: { workspace: ReturnType<typeof useWork
   async function exec(event: FormEvent) {
     event.preventDefault();
     const signal = machineSignal();
-    if (!base || !command.trim() || signal.aborted || !writer || running) return;
+    if (!base || !command.trim() || signal.aborted || !canMutate || running) return;
     const submittedCommand = command.trim();
     setRunning(true);
     setActionError("");
@@ -230,6 +234,7 @@ function SandboxDetail({ workspace, id }: { workspace: ReturnType<typeof useWork
       const seconds = Number(timeoutSec);
       if (timeoutSec && (!Number.isInteger(seconds) || seconds < 1 || seconds > 86400)) throw new Error("Choose a timeout between 1 and 86400 seconds.");
       if (timeoutSec) body.timeoutSeconds = seconds;
+      if (savedSecretNames.length > 0 && !useSavedSecrets) body.secretRefs = {};
       const started = await canterFetch<{ jobId: string; status: string }>(`${base}/jobs`, { method: "POST", body: JSON.stringify(body), signal });
       if (signal.aborted) return;
       setJob({ jobId: started.jobId, command: submittedCommand, status: started.status, text: "", offset: 0 });
@@ -249,7 +254,7 @@ function SandboxDetail({ workspace, id }: { workspace: ReturnType<typeof useWork
   }
   async function startUpload({ file, target }: { file: File; target: string }) {
     const signal = machineSignal();
-    if (!base || signal.aborted || !writer || !limits) return;
+    if (!base || signal.aborted || !canMutate || !limits) return;
     uploadAbort.current?.abort();
     const abort = new AbortController();
     const cancel = () => abort.abort();
@@ -281,11 +286,13 @@ function SandboxDetail({ workspace, id }: { workspace: ReturnType<typeof useWork
   const ready = sandbox?.phase === "ready";
   const saveFailed = sandbox?.phase === "save_failed";
   const readable = ready || saveFailed;
+  const setupStatus = sandbox?.setup?.status ?? "";
+  const savedSecretNames = sandbox?.environment?.secretRefs ? Object.keys(sandbox.environment.secretRefs) : [];
   return <AppShell active="Sandboxes" pageTitle={sandbox?.name ?? "Sandbox"} pageKey={base}><section className={styles.contentPage}>
     <nav className={styles.breadcrumb ?? ""}><Link href="/app/sandboxes" className={styles.secondaryButton}><WorkspaceIcon name="arrow" width="14" height="14" />Sandboxes</Link></nav>
     {loadError && !sandbox ? <div role="alert" className={styles.error}>{loadError} <button onClick={() => void load()}>Try again</button></div> : !sandbox ? <p role="status" className={styles.loading}>Loading…</p> : <>
       <div className={styles.pageHeading} data-motion="reveal"><div><h1>{sandbox.name}</h1><p>{sandbox.size} · {sandbox.tier} tier{sandbox.createdByName ? ` · created by ${sandbox.createdByName}` : ""}{sandbox.lastUsedAt ? ` · active ${relativeTime(sandbox.lastUsedAt)}` : ""}</p></div>
-        <div className={styles.pageActions}><span className={styles.status} data-phase={ready ? "succeeded" : saveFailed ? "failed" : sandbox.phase}>{sandboxPhaseText(sandbox.phase)}</span>
+        <div className={styles.pageActions}><span className={styles.status} data-phase={ready && setupStatus === "failed" ? "failed" : ready && setupPending ? "running" : ready ? "succeeded" : saveFailed ? "failed" : sandbox.phase}>{ready && setupPending ? `Setup ${setupStatus}` : ready && setupStatus === "failed" ? "Setup failed" : sandboxPhaseText(sandbox.phase)}</span>
           {writer && ready ? <button className={styles.secondaryButton} disabled={pending !== ""} onClick={() => void action("sleep")}>Sleep</button> : null}
           {writer && sandbox.phase === "asleep" ? <button className={styles.primaryButton} disabled={pending !== ""} onClick={() => void action("wake")}>Wake</button> : null}
           {writer && saveFailed ? <>
@@ -299,19 +306,23 @@ function SandboxDetail({ workspace, id }: { workspace: ReturnType<typeof useWork
       {actionError ? <p role="alert" className={styles.error}>{actionError}</p> : null}
       {!writer ? <p>You have read-only access to this organization.</p> : null}
       {sandbox.phase === "asleep" ? <p className={styles.loading}>This sandbox is asleep; its saved files restore on wake.</p> : null}
+      {setupPending ? <p className={styles.status} role="status">New commands, uploads, terminals, desktop control and previews wait for setup to finish.</p> : null}
+      {sandbox.setup?.status ? <SandboxSetupProgress key={`${sandbox.id}:${sandbox.generation}:${sandbox.setup.jobId ?? "none"}`} base={base} setup={sandbox.setup} writer={writer} available={ready} onRefresh={() => void load()} /> : null}
       {ready ? <>
         <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
           <button className={tab === "exec" ? styles.primaryButton : styles.secondaryButton} onClick={() => setTab("exec")}>Run command</button>
-          <button className={tab === "terminal" ? styles.primaryButton : styles.secondaryButton} onClick={() => setTab("terminal")}>Terminal</button>
+          <button className={tab === "terminal" ? styles.primaryButton : styles.secondaryButton} disabled={!canMutate} onClick={() => setTab("terminal")}>Terminal</button>
           {sandbox?.desktop && sandbox.phase === "ready" ? <button className={tab === "desktop" ? styles.primaryButton : styles.secondaryButton} onClick={() => setTab("desktop")}>Desktop</button> : null}
         </div>
-        {tab === "desktop" && sandbox ? <SandboxDesktop key={`${sandbox.id}:${sandbox.generation}`} base={`/workspaces/${encodeURIComponent(data.workspace.id)}/sandboxes/${encodeURIComponent(sandbox.id)}`} sandbox={sandbox} accountId={data.account.id} writer={writer} /> : tab === "terminal" ? <section><h2>Terminal</h2>
-          {writer ? <SandboxTerminal base={base} interactive={writer} /> : <p className={styles.status}>Terminals need write access to this organization.</p>}
+        {tab === "desktop" && sandbox ? <SandboxDesktop key={`${sandbox.id}:${sandbox.generation}`} base={`/workspaces/${encodeURIComponent(data.workspace.id)}/sandboxes/${encodeURIComponent(sandbox.id)}`} sandbox={sandbox} accountId={data.account.id} writer={canMutate} /> : tab === "terminal" ? <section><h2>Terminal</h2>
+          {canMutate ? <SandboxTerminal base={base} interactive={canMutate} /> : <p className={styles.status}>Terminals require write access and completed setup.</p>}
         </section> : <>
-        <section><h2>Run command</h2><form onSubmit={exec}>
+        <section><h2>Run command</h2>
+        {writer && savedSecretNames.length > 0 ? <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}><input type="checkbox" checked={useSavedSecrets} onChange={event => setUseSavedSecrets(event.target.checked)} disabled={running || !canMutate} />Use saved secrets ({savedSecretNames.join(", ")})</label> : null}
+        <form onSubmit={exec}>
           <div style={{ display: "flex", gap: 8 }}>
-            <input aria-label="Command" placeholder="ls -la /workspace" value={command} onChange={event => setCommand(event.target.value)} disabled={!writer || running} style={{ flex: 1, background: "#1c1c1c", border: "1px solid #363636", borderRadius: 7, color: "#e4e4e4", padding: "9px 12px", fontFamily: "monospace", fontSize: 13 }} />
-            <button className={styles.primaryButton} type="submit" disabled={!writer || running || !command.trim()}>{running ? "Starting…" : "Run"}</button>
+            <input aria-label="Command" placeholder="ls -la /workspace" value={command} onChange={event => setCommand(event.target.value)} disabled={!canMutate || running} style={{ flex: 1, background: "#1c1c1c", border: "1px solid #363636", borderRadius: 7, color: "#e4e4e4", padding: "9px 12px", fontFamily: "monospace", fontSize: 13 }} />
+            <button className={styles.primaryButton} type="submit" disabled={!canMutate || running || !command.trim()}>{running ? "Starting…" : "Run"}</button>
           </div>
           {writer ? <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
             <input aria-label="Directory" placeholder="/workspace" value={directory} onChange={event => setDirectory(event.target.value)} style={{ flex: 2, background: "#1c1c1c", border: "1px solid #363636", borderRadius: 7, color: "#e4e4e4", padding: "7px 10px", fontFamily: "monospace", fontSize: 12 }} />
@@ -332,7 +343,7 @@ function SandboxDetail({ workspace, id }: { workspace: ReturnType<typeof useWork
       {readable ? <>
         <section style={{ marginTop: 28 }}><h2>Files <span className={styles.status}>{fileContent?.path ?? path}</span></h2>
           {writer && ready ? <div style={{ display: "flex", gap: 8, marginBottom: 12, alignItems: "center" }}>
-            <input type="file" id="sandbox-upload" onChange={uploadFile} style={{ fontSize: 13 }} disabled={!!upload || !limits} />
+            <input type="file" id="sandbox-upload" onChange={uploadFile} style={{ fontSize: 13 }} disabled={!canMutate || !!upload || !limits} />
             {upload ? <span className={styles.status}>{upload.name}: {formatBytes(upload.done)} / {formatBytes(upload.size)} {upload.error ? <><em className={styles.error} role="alert">{upload.error}</em> <button className={styles.secondaryButton} style={{ fontSize: 11 }} onClick={() => void retryUpload()}>Retry</button></> : null}<button className={styles.secondaryButton} onClick={cancelUpload} style={{ marginLeft: 8 }}>Cancel</button></span> : null}
           </div> : null}
           {writer && ready && limitsError ? <p role="alert" className={styles.error}>{limitsError} <button className={styles.secondaryButton} onClick={() => void loadLimits()}>Retry</button></p> : null}
@@ -358,7 +369,7 @@ function SandboxDetail({ workspace, id }: { workspace: ReturnType<typeof useWork
           <p className={styles.status}>Anyone with the link can open this port.</p>
           {writer ? <form onSubmit={sharePreview} style={{ display: "flex", gap: 8, marginBottom: 12 }}>
             <input aria-label="Port" placeholder="3000" inputMode="numeric" value={previewPort} onChange={event => setPreviewPort(event.target.value.replace(/\D/g, ""))} style={{ width: 120, background: "#1c1c1c", border: "1px solid #363636", borderRadius: 7, color: "#e4e4e4", padding: "9px 12px", fontFamily: "monospace", fontSize: 13 }} />
-            <button className={styles.primaryButton} type="submit" disabled={pending === "preview" || !previewPort}>Share preview</button>
+            <button className={styles.primaryButton} type="submit" disabled={!canMutate || pending === "preview" || !previewPort}>Share preview</button>
           </form> : null}
           <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>{(previews ?? []).map(item => <li key={item.id} style={{ display: "flex", gap: 8, alignItems: "center", padding: "6px 0" }}>
             <code style={{ fontSize: 12 }}>:{item.port}</code>

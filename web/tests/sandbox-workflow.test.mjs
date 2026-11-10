@@ -275,3 +275,63 @@ test("sandboxDesktopEligible requires 2 vCPU and 4 GiB", async () => {
 	assert.equal(sandboxDesktopEligible({ vcpus: 2, memoryMiB: 4096 }), true);
 	assert.equal(sandboxDesktopEligible(undefined), false);
 });
+
+const { parseSandboxEnvironmentDraft, emptyEnvironmentDraft } = await import("../src/lib/sandbox-environment.ts");
+const draft = (extra) => ({ ...emptyEnvironmentDraft, ...extra });
+
+test("environment draft serializes to the wire body", () => {
+  const env = parseSandboxEnvironmentDraft(draft({
+    repositoryUrl: "https://github.com/org/repo", repositoryRef: "v1",
+    setupCommand: "make setup", setupTimeoutSeconds: "60",
+    envJson: '{"NODE_ENV":"test"}', secretRefs: { API_KEY: "sec_abc" },
+  }));
+  assert.deepEqual(env, {
+    repository: { url: "https://github.com/org/repo", ref: "v1" },
+    setupCommand: "make setup", setupTimeoutSeconds: 60,
+    env: { NODE_ENV: "test" }, secretRefs: { API_KEY: "sec_abc" },
+  });
+});
+
+test("empty draft returns undefined", () => {
+  assert.equal(parseSandboxEnvironmentDraft(emptyEnvironmentDraft), undefined);
+});
+
+test("environment draft preserves prototype-like keys and bounds references alone", () => {
+  const result = parseSandboxEnvironmentDraft(draft({ envJson: '{"__proto__":"value"}' }));
+  assert.equal(Object.hasOwn(result.env, "__proto__"), true);
+  assert.equal(result.env.__proto__, "value");
+  const secretRefs = Object.fromEntries(Array.from({ length: 65 }, (_, i) => [`KEY_${i}`, "sec_a"]));
+  assert.throws(() => parseSandboxEnvironmentDraft(draft({ secretRefs })));
+  assert.throws(() => parseSandboxEnvironmentDraft(draft({ repositoryUrl: "https://github.com/o/\tr" })));
+});
+
+test("invalid environment shapes rejected", () => {
+  for (const d of [
+    draft({ repositoryUrl: "http://x" }),
+    draft({ repositoryUrl: "https://u:p@github.com/o/r" }),
+    draft({ repositoryUrl: "https://github.com/o/r?x=1" }),
+    draft({ repositoryUrl: "https://github.com/o/r#f" }),
+    draft({ repositoryRef: "v1" }),
+    draft({ repositoryUrl: "https://x", repositoryRef: "-bad" }),
+    draft({ envJson: '{"K":1}' }),
+    draft({ envJson: '{"1K":"v"}' }),
+    draft({ envJson: '{"K":"v"}', secretRefs: { K: "sec_a" } }),
+    draft({ setupTimeoutSeconds: "60" }),
+    draft({ setupCommand: "x", setupTimeoutSeconds: "abc" }),
+  ]) assert.throws(() => parseSandboxEnvironmentDraft(d));
+  assert.throws(() => parseSandboxEnvironmentDraft(draft({ repositoryUrl: "https://x" }), true));
+  assert.throws(() => parseSandboxEnvironmentDraft(draft({ setupCommand: "x" }), true));
+});
+
+test("restoring allows env and refs but not repo or setup", () => {
+  const env = parseSandboxEnvironmentDraft(draft({
+    envJson: '{"K":"v"}', secretRefs: { S: "sec_1" },
+  }), true);
+  assert.deepEqual(env, { env: { K: "v" }, secretRefs: { S: "sec_1" } });
+});
+
+test("frozen retry body carries environment", () => {
+  const env = parseSandboxEnvironmentDraft(draft({ setupCommand: "echo hi" }));
+  const body = JSON.stringify({ name: "x", size: "free-1x1", environment: env });
+  assert.deepEqual(JSON.parse(body).environment, { setupCommand: "echo hi" });
+});

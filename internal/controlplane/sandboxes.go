@@ -72,15 +72,16 @@ func (c SandboxConfig) idleSleep() time.Duration {
 }
 
 type SandboxCreateInput struct {
-	Name               string            `json:"name"`
-	Size               string            `json:"size"`
-	Labels             map[string]string `json:"labels,omitempty"`
-	IdleTimeoutSeconds *int              `json:"idleTimeoutSeconds,omitempty"`
-	IdempotencyKey     string            `json:"idempotencyKey,omitempty"`
-	SnapshotID         string            `json:"snapshotId,omitempty"`
-	TemplateID         string            `json:"templateId,omitempty"`
-	TemplateVersion    int               `json:"templateVersion,omitempty"`
-	Desktop            bool              `json:"desktop,omitempty"`
+	Name               string              `json:"name"`
+	Size               string              `json:"size"`
+	Labels             map[string]string   `json:"labels,omitempty"`
+	IdleTimeoutSeconds *int                `json:"idleTimeoutSeconds,omitempty"`
+	IdempotencyKey     string              `json:"idempotencyKey,omitempty"`
+	SnapshotID         string              `json:"snapshotId,omitempty"`
+	TemplateID         string              `json:"templateId,omitempty"`
+	TemplateVersion    int                 `json:"templateVersion,omitempty"`
+	Desktop            bool                `json:"desktop,omitempty"`
+	Environment        *SandboxEnvironment `json:"environment,omitempty"`
 }
 
 var sandboxLabelKey = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.:/-]{0,62}$`)
@@ -122,15 +123,16 @@ func sandboxRequestHash(input SandboxCreateInput, idle int) string {
 	}
 	sort.Slice(normalized, func(i, j int) bool { return normalized[i][0] < normalized[j][0] })
 	canonical, _ := json.Marshal(struct {
-		Name     string      `json:"n"`
-		Size     string      `json:"s"`
-		Labels   [][2]string `json:"l"`
-		Idle     int         `json:"i"`
-		Snapshot string      `json:"snapshot,omitempty"`
-		Template string      `json:"template,omitempty"`
-		Version  int         `json:"version,omitempty"`
-		Desktop  bool        `json:"desktop,omitempty"`
-	}{strings.TrimSpace(input.Name), input.Size, normalized, idle, input.SnapshotID, input.TemplateID, input.TemplateVersion, input.Desktop})
+		Name        string              `json:"n"`
+		Size        string              `json:"s"`
+		Labels      [][2]string         `json:"l"`
+		Idle        int                 `json:"i"`
+		Snapshot    string              `json:"snapshot,omitempty"`
+		Template    string              `json:"template,omitempty"`
+		Version     int                 `json:"version,omitempty"`
+		Desktop     bool                `json:"desktop,omitempty"`
+		Environment *SandboxEnvironment `json:"environment,omitempty"`
+	}{strings.TrimSpace(input.Name), input.Size, normalized, idle, input.SnapshotID, input.TemplateID, input.TemplateVersion, input.Desktop, input.Environment})
 	sum := sha256.Sum256(canonical)
 	return hex.EncodeToString(sum[:])
 }
@@ -207,16 +209,18 @@ type Sandbox struct {
 	CurrentSnapshotID  string                       `json:"snapshotId,omitempty"`
 	PendingSnapshotID  string                       `json:"-"`
 	Desktop            bool                         `json:"desktop"`
+	Environment        *SandboxEnvironment          `json:"environment,omitempty"`
+	Setup              SandboxSetup                 `json:"setup"`
 	observedPhase      string
 }
 
-const sandboxColumns = `id,workspace_id,name,size,tier,phase,plan,generation,ssh_public_key,ssh_key_version,ssh_key_ciphertext,COALESCE(host(address),''),COALESCE(host_fingerprint,''),monthly_cents,COALESCE(failure,''),delete_requested,sleep_requested,created_by_kind,COALESCE(created_by_id,''),COALESCE(created_by_name,''),last_used_at,awake_since,COALESCE(notice,''),sleep_forced_at,checkpoint_object_ref,checkpoint_key_version,checkpoint_nonce,checkpoint_manifest,created_at,updated_at,next_attempt_at,COALESCE(labels::text,'{}'),idle_timeout_seconds,COALESCE(current_snapshot_id,''),COALESCE(pending_snapshot_id,''),desktop`
+const sandboxColumns = `id,workspace_id,name,size,tier,phase,plan,generation,ssh_public_key,ssh_key_version,ssh_key_ciphertext,COALESCE(host(address),''),COALESCE(host_fingerprint,''),monthly_cents,COALESCE(failure,''),delete_requested,sleep_requested,created_by_kind,COALESCE(created_by_id,''),COALESCE(created_by_name,''),last_used_at,awake_since,COALESCE(notice,''),sleep_forced_at,checkpoint_object_ref,checkpoint_key_version,checkpoint_nonce,checkpoint_manifest,created_at,updated_at,next_attempt_at,COALESCE(labels::text,'{}'),idle_timeout_seconds,COALESCE(current_snapshot_id,''),COALESCE(pending_snapshot_id,''),desktop,COALESCE(environment::text,'{}'),COALESCE(setup::text,'{}')`
 
 func scanSandbox(row pgx.Row) (Sandbox, error) {
 	var v Sandbox
-	var plan, object, labels []byte
+	var plan, object, labels, environmentJSON, setupJSON []byte
 	var next *time.Time
-	err := row.Scan(&v.ID, &v.WorkspaceID, &v.Name, &v.Size, &v.Tier, &v.Phase, &plan, &v.Generation, &v.SSHPublicKey, &v.KeyVersion, &v.KeyCiphertext, &v.Address, &v.HostFingerprint, &v.MonthlyCents, &v.Failure, &v.DeleteRequested, &v.SleepRequested, &v.CreatedByKind, &v.CreatedByID, &v.CreatedByName, &v.LastUsedAt, &v.AwakeSince, &v.Notice, &v.SleepForcedAt, &object, &v.CheckpointKey, &v.CheckpointNonce, &v.CheckpointManifest, &v.CreatedAt, &v.UpdatedAt, &next, &labels, &v.IdleTimeoutSeconds, &v.CurrentSnapshotID, &v.PendingSnapshotID, &v.Desktop)
+	err := row.Scan(&v.ID, &v.WorkspaceID, &v.Name, &v.Size, &v.Tier, &v.Phase, &plan, &v.Generation, &v.SSHPublicKey, &v.KeyVersion, &v.KeyCiphertext, &v.Address, &v.HostFingerprint, &v.MonthlyCents, &v.Failure, &v.DeleteRequested, &v.SleepRequested, &v.CreatedByKind, &v.CreatedByID, &v.CreatedByName, &v.LastUsedAt, &v.AwakeSince, &v.Notice, &v.SleepForcedAt, &object, &v.CheckpointKey, &v.CheckpointNonce, &v.CheckpointManifest, &v.CreatedAt, &v.UpdatedAt, &next, &labels, &v.IdleTimeoutSeconds, &v.CurrentSnapshotID, &v.PendingSnapshotID, &v.Desktop, &environmentJSON, &setupJSON)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return v, ErrNotFound
 	}
@@ -231,6 +235,18 @@ func scanSandbox(row pgx.Row) (Sandbox, error) {
 	}
 	if err = json.Unmarshal(labels, &v.Labels); err != nil {
 		return v, err
+	}
+	if len(environmentJSON) > 2 {
+		var environment SandboxEnvironment
+		if err = json.Unmarshal(environmentJSON, &environment); err != nil {
+			return v, err
+		}
+		v.Environment = &environment
+	}
+	if len(setupJSON) > 0 {
+		if err = json.Unmarshal(setupJSON, &v.Setup); err != nil {
+			return v, err
+		}
 	}
 	if len(object) > 0 {
 		if err = json.Unmarshal(object, &v.CheckpointObject); err != nil {
@@ -412,6 +428,11 @@ func (h *HTTPServer) CreateSandbox(ctx context.Context, workspace, account strin
 	if !enabled {
 		return Sandbox{}, fmt.Errorf("%w: Enable Sandboxes first", ErrConflict)
 	}
+	environment, err := normalizeSandboxEnvironment(input.Environment, input.SnapshotID != "" || input.TemplateID != "")
+	if err != nil {
+		return Sandbox{}, err
+	}
+	input.Environment = environment
 	if input.IdempotencyKey != "" {
 		keyHash := fmt.Sprintf("%x", sha256.Sum256([]byte(input.IdempotencyKey)))
 		var priorHash, priorSandbox string
@@ -488,6 +509,23 @@ func (h *HTTPServer) CreateSandbox(ctx context.Context, workspace, account strin
 	if tier == "free" {
 		egress = "restricted"
 	}
+	if environment != nil && len(environment.SecretRefs) > 0 {
+		if err := h.validateSandboxSecretRefsTx(ctx, tx, workspace, environment); err != nil {
+			return Sandbox{}, err
+		}
+	}
+	environmentJSON, err := sandboxEnvJSON(environment)
+	if err != nil {
+		return Sandbox{}, err
+	}
+	setup := SandboxSetup{}
+	if environment != nil && (environment.Repository != nil || environment.SetupCommand != "") {
+		setup = SandboxSetup{Status: "pending"}
+	}
+	setupJSON, err := sandboxSetupJSON(setup)
+	if err != nil {
+		return Sandbox{}, err
+	}
 	bootstrap, err := wrencomputer.Bootstrap(wrencomputer.BootstrapConfig{SSHPublicKey: publicKey, SSHSourceCIDR: cfg.SSHSourceCIDR, Egress: egress, ImageVersion: cfg.imageVersion(), Sandbox: true, Desktop: input.Desktop})
 	if err != nil {
 		return Sandbox{}, err
@@ -552,7 +590,7 @@ func (h *HTTPServer) CreateSandbox(ctx context.Context, workspace, account strin
 	if sourceID != "" {
 		initialPhase = "waking"
 	}
-	if _, err = tx.Exec(ctx, `INSERT INTO sandboxes(id,workspace_id,name,size,tier,phase,plan,ssh_public_key,ssh_key_version,ssh_key_ciphertext,monthly_cents,created_by_kind,created_by_id,created_by_name,awake_since,created_at,updated_at,next_attempt_at,labels,idle_timeout_seconds,current_snapshot_id,desktop) VALUES($1,$2,$3,$4,$5,$17,$6,$7,$8,$9,$10,$11,$12,$13,$14,$14,$14,$14,$15,$16,NULLIF($18,''),$19)`, id, workspace, name, input.Size, tier, raw, publicKey, version, sealed, monthly, kind, creatorID, creatorName, now, labelsJSON, idle, initialPhase, sourceID, input.Desktop); err != nil {
+	if _, err = tx.Exec(ctx, `INSERT INTO sandboxes(id,workspace_id,name,size,tier,phase,plan,ssh_public_key,ssh_key_version,ssh_key_ciphertext,monthly_cents,created_by_kind,created_by_id,created_by_name,awake_since,created_at,updated_at,next_attempt_at,labels,idle_timeout_seconds,current_snapshot_id,desktop,environment,setup) VALUES($1,$2,$3,$4,$5,$17,$6,$7,$8,$9,$10,$11,$12,$13,$14,$14,$14,$14,$15,$16,NULLIF($18,''),$19,$20,$21)`, id, workspace, name, input.Size, tier, raw, publicKey, version, sealed, monthly, kind, creatorID, creatorName, now, labelsJSON, idle, initialPhase, sourceID, input.Desktop, environmentJSON, setupJSON); err != nil {
 		return Sandbox{}, err
 	}
 	if input.IdempotencyKey != "" {
@@ -944,7 +982,7 @@ func sandboxSetupFailure(err error) string {
 // change so a concurrent sleep/delete request is never clobbered.
 func (d *SandboxDispatcher) save(ctx context.Context, v *Sandbox) error {
 	next := d.Server.service.Store.now().Add(3 * time.Second)
-	if v.Phase == "ready" || v.Phase == "asleep" {
+	if (v.Phase == "ready" && !sandboxSetupPending(v.Setup)) || v.Phase == "asleep" {
 		next = d.Server.service.Store.now().Add(30 * time.Second)
 	}
 	err := d.Server.service.Store.pool.QueryRow(ctx, `UPDATE sandboxes SET phase=$2,address=NULLIF($3,'')::inet,host_fingerprint=NULLIF($4,''),ssh_key_ciphertext=$5,failure=$6,
@@ -1031,7 +1069,7 @@ func (d *SandboxDispatcher) Reconcile(ctx context.Context, workspace, id string)
 	}
 	// Idle auto-sleep for ready sandboxes. A guest job still running counts
 	// as activity; the free-hour cap above forces sleep regardless.
-	if v.Phase == "ready" && !v.SleepRequested {
+	if v.Phase == "ready" && !v.SleepRequested && !sandboxSetupPending(v.Setup) {
 		idleBase := v.AwakeSince
 		if v.LastUsedAt != nil {
 			idleBase = v.LastUsedAt
@@ -1112,6 +1150,11 @@ func (d *SandboxDispatcher) Reconcile(ctx context.Context, workspace, id string)
 		v.Failure = ""
 		return d.save(ctx, &v)
 	case "ready":
+		if sandboxSetupPending(v.Setup) {
+			if err := d.reconcileSandboxSetup(ctx, &v); err != nil {
+				return err
+			}
+		}
 		return d.save(ctx, &v)
 	}
 	// queued / provisioning / waking: apply the durable allocation. A wake

@@ -1,5 +1,7 @@
 export type Sandbox = {
 	desktop?: boolean;
+	environment?: { repository?: { url: string; ref?: string }; setupCommand?: string; setupTimeoutSeconds?: number; env?: Record<string, string>; secretRefs?: Record<string, string> };
+	setup?: { status?: string; jobId?: string; startedAt?: string; exitCode?: number; error?: string };
   id: string;
   name: string;
   size: string;

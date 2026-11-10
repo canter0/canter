@@ -23,9 +23,13 @@ import (
 // below — the untrusted Sandbox flag is set by the control plane itself.
 
 type SandboxExecInput struct {
-	Command        string            `json:"command"`
-	Directory      string            `json:"directory,omitempty"`
-	Env            map[string]string `json:"env,omitempty"`
+	Command   string            `json:"command"`
+	Directory string            `json:"directory,omitempty"`
+	Env       map[string]string `json:"env,omitempty"`
+	// SecretRefs intentionally has no omitempty: nil marshals null and
+	// inherits the sandbox recipe; a nonnil empty map marshals {} and clears
+	// saved references for repair after a grant is disabled.
+	SecretRefs     map[string]string `json:"secretRefs"`
 	TimeoutSeconds int               `json:"timeoutSeconds,omitempty"`
 }
 
@@ -59,6 +63,9 @@ func (h *HTTPServer) sandboxWorkflowClient(ctx context.Context, v Sandbox) (sand
 func sandboxMutationAllowed(v Sandbox) error {
 	if v.Phase != "ready" || v.SleepRequested || v.DeleteRequested {
 		return fmt.Errorf("%w: sandbox must be ready and not suspending or deleting", ErrConflict)
+	}
+	if sandboxSetupPending(v.Setup) {
+		return fmt.Errorf("%w: sandbox setup is still running", ErrConflict)
 	}
 	return nil
 }
@@ -138,6 +145,15 @@ func (h *HTTPServer) startSandboxJob(ctx context.Context, v Sandbox, input Sandb
 	if err != nil {
 		return wrencomputer.Job{}, err
 	}
+	env, err := h.sandboxJobEnvironment(ctx, v, input, actor)
+	if err != nil {
+		return wrencomputer.Job{}, err
+	}
+	defer func() {
+		for k := range env {
+			delete(env, k)
+		}
+	}()
 	client, err := h.sandboxClient(ctx, v)
 	if err != nil {
 		return wrencomputer.Job{}, err
@@ -148,7 +164,7 @@ func (h *HTTPServer) startSandboxJob(ctx context.Context, v Sandbox, input Sandb
 		return wrencomputer.Job{}, err
 	}
 	workflow := capabilities.WorkflowProtocol >= 1
-	if !workflow && (requireWorkflow || len(input.Env) > 0 || strings.TrimSpace(input.Directory) != "" || timeout > 600) {
+	if !workflow && (requireWorkflow || len(env) > 0 || strings.TrimSpace(input.Directory) != "" || timeout > 600) {
 		return wrencomputer.Job{}, errSandboxWorkflowUpgrade
 	}
 	jobID, err := newID("job_")
@@ -161,14 +177,14 @@ func (h *HTTPServer) startSandboxJob(ctx context.Context, v Sandbox, input Sandb
 	defer h.sandboxActivity(ctx, v.ID)()
 	job, err := client.StartJob(ctx, wrencomputer.JobRequest{
 		ID: jobID, Command: input.Command, Directory: directory,
-		TimeoutSeconds: timeout, Env: input.Env, Sandbox: workflow,
+		TimeoutSeconds: timeout, Env: env, Sandbox: workflow,
 	})
 	if err != nil {
 		var remote *wrencomputer.Error
 		var rejected *sandboxMutationRejected
 		if errors.As(err, &remote) && (strings.HasPrefix(remote.Code, "invalid_") || remote.Code == "forbidden" || remote.Code == "conflict") {
 			h.service.Store.finishSandboxJob(ctx, v.ID, jobID)
-			return wrencomputer.Job{}, err
+			return wrencomputer.Job{}, fmt.Errorf("%w: job %s was rejected by the sandbox", ErrConflict, jobID)
 		}
 		if errors.As(err, &rejected) {
 			// Preflight rejected the claim — the job definitely never launched.
@@ -176,7 +192,7 @@ func (h *HTTPServer) startSandboxJob(ctx context.Context, v Sandbox, input Sandb
 			return wrencomputer.Job{}, rejected.Unwrap()
 		}
 		// Keep the row and expose its handle even when an RPC result is lost.
-		return wrencomputer.Job{ID: jobID, Status: "unknown"}, fmt.Errorf("could not confirm whether job %s started; inspect this job before retrying: %w", jobID, err)
+		return wrencomputer.Job{ID: jobID, Status: "unknown"}, fmt.Errorf("could not confirm whether job %s started; inspect this job before retrying", jobID)
 	}
 	if job.ID != jobID {
 		return wrencomputer.Job{ID: jobID, Status: "unknown"}, fmt.Errorf("unexpected job receipt; inspect job %s before retrying", jobID)
@@ -357,6 +373,11 @@ func sandboxJobDone(status string) bool {
 }
 
 func (h *HTTPServer) stopSandboxJob(ctx context.Context, v Sandbox, jobID string, actor sdk.ActorRef) (wrencomputer.Job, error) {
+	// The currently-active setup job uses the narrow trusted exception; it
+	// may not be recorded in sandbox_jobs yet.
+	if sandboxSetupPending(v.Setup) && v.Setup.JobID == jobID {
+		return h.stopSandboxSetup(ctx, v, jobID, actor)
+	}
 	if !h.service.Store.sandboxJobKnown(ctx, v.ID, jobID) {
 		return wrencomputer.Job{}, ErrNotFound
 	}

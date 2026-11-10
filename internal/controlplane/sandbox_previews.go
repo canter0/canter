@@ -84,6 +84,17 @@ func (s *Store) CreateSandboxPreview(ctx context.Context, v Sandbox, actor sdk.A
 		return SandboxPreview{}, err
 	}
 	defer tx.Rollback(ctx)
+	fresh, err := scanSandbox(tx.QueryRow(ctx, `SELECT `+sandboxColumns+` FROM sandboxes WHERE workspace_id=$1 AND id=$2 FOR UPDATE`, v.WorkspaceID, v.ID))
+	if err != nil {
+		return SandboxPreview{}, err
+	}
+	if fresh.Generation != v.Generation {
+		return SandboxPreview{}, ErrConflict
+	}
+	if err := sandboxMutationAllowed(fresh); err != nil {
+		return SandboxPreview{}, err
+	}
+	v = fresh
 	rows, err := tx.Query(ctx, `SELECT id FROM sandbox_previews WHERE sandbox_id=$1 AND revoked_at IS NULL FOR UPDATE`, v.ID)
 	if err != nil {
 		return SandboxPreview{}, err

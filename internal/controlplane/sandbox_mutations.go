@@ -3,6 +3,7 @@ package controlplane
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -79,12 +80,19 @@ func (s *Store) beginSandboxMutationWithControl(ctx context.Context, v Sandbox, 
 	var generation int
 	var phase string
 	var sleepRequested, deleteRequested, desktop bool
+	var setupJSON []byte
 	err = tx.QueryRow(operationCtx,
-		`SELECT generation,phase,sleep_requested,delete_requested,desktop FROM sandboxes WHERE workspace_id=$1 AND id=$2 FOR UPDATE`,
-		v.WorkspaceID, v.ID).Scan(&generation, &phase, &sleepRequested, &deleteRequested, &desktop)
+		`SELECT generation,phase,sleep_requested,delete_requested,desktop,COALESCE(setup::text,'{}') FROM sandboxes WHERE workspace_id=$1 AND id=$2 FOR UPDATE`,
+		v.WorkspaceID, v.ID).Scan(&generation, &phase, &sleepRequested, &deleteRequested, &desktop, &setupJSON)
 	if err == nil {
 		if generation != v.Generation || phase != "ready" || sleepRequested || deleteRequested {
 			err = ErrConflict
+		}
+		var setup SandboxSetup
+		if uerr := json.Unmarshal(setupJSON, &setup); uerr != nil {
+			err = uerr
+		} else if sandboxSetupPending(setup) {
+			err = fmt.Errorf("%w: sandbox setup is still running", ErrConflict)
 		}
 	}
 	if err == nil && claim != nil && !desktop {
@@ -200,9 +208,10 @@ func (s *Store) enterSandboxSleep(ctx context.Context, v Sandbox) error {
 	var generation int
 	var phase string
 	var deleteRequested bool
+	var setupRaw []byte
 	err = tx.QueryRow(ctx,
-		`SELECT generation,phase,delete_requested FROM sandboxes WHERE workspace_id=$1 AND id=$2 FOR UPDATE`,
-		v.WorkspaceID, v.ID).Scan(&generation, &phase, &deleteRequested)
+		`SELECT generation,phase,delete_requested,setup FROM sandboxes WHERE workspace_id=$1 AND id=$2 FOR UPDATE`,
+		v.WorkspaceID, v.ID).Scan(&generation, &phase, &deleteRequested, &setupRaw)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrNotFound
@@ -211,6 +220,20 @@ func (s *Store) enterSandboxSleep(ctx context.Context, v Sandbox) error {
 	}
 	if generation != v.Generation || deleteRequested || phase == "deleted" || phase == "deleting" || phase == "asleep" || phase == "failed" {
 		return ErrConflict
+	}
+	var setup SandboxSetup
+	if err := json.Unmarshal(setupRaw, &setup); err != nil {
+		return err
+	}
+	if setup.Status == "running" {
+		setup.Status, setup.Error = "failed", setupInterruptMessage
+		raw, err := sandboxSetupJSON(setup)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `UPDATE sandboxes SET setup=$3 WHERE workspace_id=$1 AND id=$2`, v.WorkspaceID, v.ID, raw); err != nil {
+			return err
+		}
 	}
 	if _, err := tx.Exec(ctx,
 		`UPDATE sandboxes SET sleep_requested=true,sleep_forced_at=COALESCE(sleep_forced_at,$2),next_attempt_at=now()+interval '3 seconds',updated_at=now() WHERE workspace_id=$1 AND id=$3`,

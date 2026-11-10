@@ -11,6 +11,7 @@ import { WorkspaceIcon } from "@/components/workspace-icon";
 import { canterFetch, relativeTime, type Workspace } from "@/lib/canter-api";
 import { parseSandboxLabels } from "@/lib/sandbox-client";
 import { formatMiB, freeHoursText, idleChoiceText, sandboxDesktopEligible, sandboxHourlyCents, sandboxPhaseText, type SandboxListResponse } from "@/lib/sandboxes";
+import SandboxEnvironmentFields, { emptyEnvironmentDraft, parseSandboxEnvironmentDraft, type SandboxEnvironmentDraft } from "@/components/sandbox-environment-fields";
 import styles from "@/components/workspace.module.css";
 
 export default function SandboxesPage() {
@@ -27,13 +28,13 @@ function SandboxList({ workspace }: { workspace: Workspace }) {
   const [result, setResult] = useState<SandboxListResponse | null>(null);
   const [loadError, setLoadError] = useState("");
   const [dialog, setDialog] = useState(false);
-  const [draft, setDraft] = useState({ name: "", size: "free-1x1", idle: "-1", labels: "", key: "", desktop: false });
+  const [draft, setDraft] = useState({ name: "", size: "free-1x1", idle: "-1", labels: "", key: "", desktop: false, environment: { ...emptyEnvironmentDraft } });
   const [createError, setCreateError] = useState("");
   const [creating, setCreating] = useState(false);
   const [submitted, setSubmitted] = useState<string | null>(null);
   const loadSequence = useRef(0);
   const openDialog = useCallback(() => {
-    setDraft({ name: "", size: result?.sizes?.[0]?.id ?? "free-1x1", idle: "-1", labels: "", key: crypto.randomUUID(), desktop: false });
+    setDraft({ name: "", size: result?.sizes?.[0]?.id ?? "free-1x1", idle: "-1", labels: "", key: crypto.randomUUID(), desktop: false, environment: { ...emptyEnvironmentDraft } });
     setCreateError("");
     setSubmitted(null);
     setDialog(true);
@@ -62,12 +63,12 @@ function SandboxList({ workspace }: { workspace: Workspace }) {
     <div className={styles.pageHeading} data-motion="reveal"><div><h1>Sandboxes</h1><p>Cloud computers for you and your agents.{result ? ` ${freeHoursText(result.freeUsage.usedSeconds, result.freeUsage.limitSeconds)}` : ""}</p></div>
       {result?.enabled ? <div className={styles.pageActions}><Link className={styles.secondaryButton} href="/app/sandboxes/library">Saved environments</Link>{writer ? <><Link className={styles.secondaryButton} href={`/app?compose=1&prompt=${encodeURIComponent("Create a sandbox called ")}`}><WorkspaceIcon name="agent" width="16" height="16" />Ask Canter</Link><button className={styles.primaryButton} onClick={openDialog} disabled={!sizesReady}><WorkspaceIcon name="plus" width="16" height="16" />New sandbox</button></> : null}</div> : null}</div>
     {loadError ? <div role="alert" className={styles.error}>{loadError} <button onClick={() => void load()}>Try again</button></div> : !result ? <p role="status" className={styles.loading}>Loading sandboxes…</p> : !result.enabled ? <p>Enable Sandboxes in <Link href="/app/products">Products</Link> to get started.</p> : sandboxes.length ? <div className={styles.cardGrid}>{sandboxes.map(sandbox => <Link href={`/app/sandboxes/${encodeURIComponent(sandbox.id)}`} key={sandbox.id} className={styles.resourceCard} data-motion="fade" data-motion-card>
-      <div className={styles.resourceCardHeader}><div><WorkspaceIcon name="terminal" /><h2>{sandbox.name}</h2></div><span className={styles.status} data-phase={sandbox.phase === "ready" ? "succeeded" : sandbox.phase === "save_failed" ? "failed" : sandbox.phase}>{sandboxPhaseText(sandbox.phase)}</span></div>
+      <div className={styles.resourceCardHeader}><div><WorkspaceIcon name="terminal" /><h2>{sandbox.name}</h2></div><span className={styles.status} data-phase={sandbox.phase === "ready" && sandbox.setup?.status === "failed" ? "failed" : sandbox.phase === "ready" && ["pending", "running"].includes(sandbox.setup?.status ?? "") ? "running" : sandbox.phase === "ready" ? "succeeded" : sandbox.phase === "save_failed" ? "failed" : sandbox.phase}>{sandbox.phase === "ready" && ["pending", "running", "failed"].includes(sandbox.setup?.status ?? "") ? `Setup ${sandbox.setup?.status}` : sandboxPhaseText(sandbox.phase)}</span></div>
       <p>{sandbox.size} · {sandbox.tier === "paid" ? `${sandboxHourlyCents(sandbox.monthlyCents)}` : "free tier"}{sandbox.desktop ? " · Desktop" : ""} · by {sandbox.createdByName || (sandbox.createdByKind === "agent" ? "an agent" : "a member")}</p>
       <div className={styles.resourceCardFooter}><span>{sandbox.lastUsedAt ? `Active ${relativeTime(sandbox.lastUsedAt)}` : "Not used yet"}</span><span>{sandbox.createdAt ? `Created ${relativeTime(sandbox.createdAt)}` : ""}</span></div>
       {sandbox.labels && Object.keys(sandbox.labels).length ? <p className={styles.muted}>{Object.entries(sandbox.labels).map(([k, v]) => `${k}=${v}`).join(" ")}</p> : null}
     </Link>)}</div> : <div className={styles.emptyState} data-motion="reveal"><span className={styles.emptyIcon}><WorkspaceIcon name="terminal" width="24" height="24" /></span><h2>No sandboxes yet</h2><p>Sandboxes are private cloud computers that run code, keep files, and sleep when idle.</p></div>}
-    {dialog && writer ? <CreateDialog draft={draft} setDraft={setDraft} sizes={result?.sizes ?? []} defaultIdle={result?.limits?.defaultIdleSeconds ?? 900} error={createError} pending={creating} locked={submitted !== null} onNewRequest={() => {
+    {dialog && writer ? <CreateDialog workspaceId={workspace.id} draft={draft} setDraft={setDraft} sizes={result?.sizes ?? []} defaultIdle={result?.limits?.defaultIdleSeconds ?? 900} error={createError} pending={creating} locked={submitted !== null} onNewRequest={() => {
       setDraft(current => ({ ...current, key: crypto.randomUUID() }));
       setSubmitted(null);
       setCreateError("");
@@ -78,7 +79,7 @@ function SandboxList({ workspace }: { workspace: Workspace }) {
       setCreateError("");
       try {
         const paid = !(result?.sizes ?? []).find(s => s.id === draft.size)?.free;
-        const body = submitted ?? JSON.stringify({ name: draft.name, size: draft.size, labels: parseSandboxLabels(draft.labels), idleTimeoutSeconds: paid ? Number(draft.idle) : undefined, desktop: draft.desktop, idempotencyKey: draft.key });
+        const body = submitted ?? JSON.stringify({ name: draft.name, size: draft.size, labels: parseSandboxLabels(draft.labels), idleTimeoutSeconds: paid ? Number(draft.idle) : undefined, desktop: draft.desktop, idempotencyKey: draft.key, environment: parseSandboxEnvironmentDraft(draft.environment) });
         setSubmitted(body);
         setCreating(true);
         await canterFetch(`/workspaces/${encodeURIComponent(workspace.id)}/sandboxes`, {
@@ -94,7 +95,7 @@ function SandboxList({ workspace }: { workspace: Workspace }) {
   </section></AppShell>;
 }
 
-function CreateDialog({ draft, setDraft, sizes, defaultIdle, error, pending, locked, onNewRequest, onClose, onSubmit }: { draft: { name: string; size: string; idle: string; labels: string; key: string; desktop: boolean }; setDraft: (d: { name: string; size: string; idle: string; labels: string; key: string; desktop: boolean }) => void; sizes: { id: string; vcpus: number; memoryMiB: number; diskGiB: number; free: boolean; monthlyCents: number }[]; defaultIdle: number; error: string; pending: boolean; locked: boolean; onNewRequest: () => void; onClose: () => void; onSubmit: (e: FormEvent) => void }) {
+function CreateDialog({ workspaceId, draft, setDraft, sizes, defaultIdle, error, pending, locked, onNewRequest, onClose, onSubmit }: { workspaceId: string; draft: { name: string; size: string; idle: string; labels: string; key: string; desktop: boolean; environment: SandboxEnvironmentDraft }; setDraft: (d: { name: string; size: string; idle: string; labels: string; key: string; desktop: boolean; environment: SandboxEnvironmentDraft }) => void; sizes: { id: string; vcpus: number; memoryMiB: number; diskGiB: number; free: boolean; monthlyCents: number }[]; defaultIdle: number; error: string; pending: boolean; locked: boolean; onNewRequest: () => void; onClose: () => void; onSubmit: (e: FormEvent) => void }) {
   const paid = !sizes.find(s => s.id === draft.size)?.free;
   const ref = useRef<HTMLDialogElement>(null);
   const dismiss = useDialog(ref, "input");
@@ -120,6 +121,7 @@ function CreateDialog({ draft, setDraft, sizes, defaultIdle, error, pending, loc
       </label>
       <p className={dialogStyles.field} style={{ marginTop: -8 }}>A shared graphical desktop. Requires at least 2 vCPUs and 4 GiB RAM.</p>
       <label className={dialogStyles.field}>Labels <span>(optional JSON object — values may contain spaces)</span><textarea value={draft.labels} onChange={e => setDraft({ ...draft, labels: e.target.value })} placeholder={'{"team": "platform", "env": "dev"}'} disabled={pending || locked} rows={2} style={{ fontFamily: "monospace", fontSize: 12 }} /></label>
+      <SandboxEnvironmentFields workspaceId={workspaceId} draft={draft.environment} onChange={environment => setDraft({ ...draft, environment })} restoring={false} disabled={pending || locked} />
       {error ? <p className={dialogStyles.error} role="alert">{error}</p> : null}
       {locked && !pending ? <p>Retry sends the same request. Check your sandbox list before starting a separate request. <button type="button" className={styles.secondaryButton} onClick={onNewRequest}>Edit as new request</button></p> : null}
       <button className={dialogStyles.primary} type="submit" disabled={pending}>{pending ? "Creating…" : locked ? "Retry request" : "Create sandbox"}</button>

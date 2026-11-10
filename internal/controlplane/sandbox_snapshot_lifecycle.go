@@ -140,7 +140,7 @@ func (d *SandboxDispatcher) stopSandboxJobsForSave(ctx context.Context, v Sandbo
 			if stopped.ID != record.ID {
 				return fmt.Errorf("stop job %s returned receipt %s", record.ID, stopped.ID)
 			}
-			if stopped.Status == "completed" || stopped.Status == "failed" || stopped.Status == "cancelled" {
+			if sandboxJobTerminal(stopped.Status) {
 				break
 			}
 			if stopped.Status != "starting" && stopped.Status != "running" {

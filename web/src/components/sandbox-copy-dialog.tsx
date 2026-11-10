@@ -9,6 +9,7 @@ import { WorkspaceIcon } from "@/components/workspace-icon";
 import { canterFetch } from "@/lib/canter-api";
 import { useRequestScope } from "@/components/use-request-scope";
 import { compatibleSandboxSizes, formatMiB, sandboxDesktopEligible, sandboxHourlyCents, type Sandbox, type SandboxCreateSource, type SandboxSize } from "@/lib/sandboxes";
+import SandboxEnvironmentFields, { emptyEnvironmentDraft, parseSandboxEnvironmentDraft, type SandboxEnvironmentDraft } from "./sandbox-environment-fields";
 
 // SandboxCopyDialog creates a separate sandbox that starts from saved files.
 // The captured source never changes while the dialog is open; the submitted
@@ -30,6 +31,7 @@ export function SandboxCopyDialog({ workspaceId, source, sizes, onClose }: {
 	const [size, setSize] = useState(preferred?.id ?? "");
 	const [desktop, setDesktop] = useState(false);
 	const [key, setKey] = useState(() => crypto.randomUUID());
+	const [environment, setEnvironment] = useState<SandboxEnvironmentDraft>({ ...emptyEnvironmentDraft });
 	const [submitted, setSubmitted] = useState<string | null>(null);
 	const [error, setError] = useState("");
 	const [pending, setPending] = useState(false);
@@ -51,6 +53,7 @@ export function SandboxCopyDialog({ workspaceId, source, sizes, onClose }: {
 				name: name.trim(), size, desktop,
 				...(source.templateId ? { templateId: source.templateId, templateVersion: source.templateVersion } : { snapshotId: source.snapshotId }),
 				idempotencyKey: key,
+				environment: parseSandboxEnvironmentDraft(environment, true),
 			});
 			setSubmitted(body);
 			const created = await canterFetch<Sandbox>(`/workspaces/${encodeURIComponent(workspaceId)}/sandboxes`, { method: "POST", body, signal: requestSignal });
@@ -82,6 +85,7 @@ export function SandboxCopyDialog({ workspaceId, source, sizes, onClose }: {
 			</label>
 			<p className={dialogStyles.field} style={{ marginTop: -8 }}>A shared graphical desktop. Requires at least 2 vCPUs and 4 GiB RAM.</p>
 			<p>Free sandboxes sleep after 15 idle minutes and share 50 awake-hours monthly; paid sizes bill while running.</p>
+			<SandboxEnvironmentFields workspaceId={workspaceId} draft={environment} onChange={setEnvironment} restoring disabled={pending || locked} />
 			{error ? <p className={dialogStyles.error} role="alert">{error}</p> : null}
 			{locked && !pending ? <p>Retry sends the same request. Check your sandbox list before starting a separate request. <button type="button" className={styles.secondaryButton} onClick={() => {
 				setSubmitted(null);

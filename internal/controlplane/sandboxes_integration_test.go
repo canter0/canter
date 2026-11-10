@@ -11,6 +11,7 @@ import (
 	"image/jpeg"
 	pngpkg "image/png"
 	"io"
+	"maps"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -25,6 +26,7 @@ import (
 	"github.com/canter0/canter/internal/provider/compute"
 	"github.com/canter0/canter/internal/wrencomputer"
 	"github.com/canter0/canter/sdk"
+	"github.com/canter0/canter/sdk/remote"
 )
 
 type sandboxFakeEngine struct {
@@ -69,6 +71,7 @@ type sandboxFakeClient struct {
 	failCheckpoint bool
 	failRestore    bool
 	startHook      func(context.Context, wrencomputer.JobRequest) (wrencomputer.Job, error)
+	jobHook        func(context.Context, string) (wrencomputer.Job, error)
 	stopHook       func(context.Context, string) (wrencomputer.Job, error)
 	exportHook     func() error
 	logsHook       func(context.Context, string, string, int64, int) (wrencomputer.JobLogChunk, error)
@@ -96,7 +99,10 @@ func (c *sandboxFakeClient) StartJob(ctx context.Context, r wrencomputer.JobRequ
 	c.jobs[r.ID] = job
 	return job, nil
 }
-func (c *sandboxFakeClient) Job(_ context.Context, id string) (wrencomputer.Job, error) {
+func (c *sandboxFakeClient) Job(ctx context.Context, id string) (wrencomputer.Job, error) {
+	if c.jobHook != nil {
+		return c.jobHook(ctx, id)
+	}
 	if job, ok := c.jobs[id]; ok {
 		return job, nil
 	}
@@ -3642,4 +3648,657 @@ func mustPNG(t *testing.T) []byte {
 		t.Fatal(err)
 	}
 	return buf.Bytes()
+}
+
+// environmentPost creates a sandbox with an environment recipe over real HTTP.
+func environmentPost(t *testing.T, f *sandboxFixtureT, body map[string]any, status int) map[string]any {
+	t.Helper()
+	response := requestJSON(t, f.h, http.MethodPost, "/v1/workspaces/"+f.space.ID+"/sandboxes", body, f.cookie)
+	requireStatus(t, response, status)
+	var out map[string]any
+	if status < 300 {
+		if err := json.Unmarshal(response.Body.Bytes(), &out); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return out
+}
+
+func TestSandboxEnvironmentValidationAndIdempotency(t *testing.T) {
+	f := sandboxFixture(t)
+	f.enable(t)
+	base := func(extra map[string]any) map[string]any {
+		body := map[string]any{"name": "env", "size": "free-1x1", "idempotencyKey": "env-key-1"}
+		for k, v := range extra {
+			body[k] = v
+		}
+		return body
+	}
+	// Valid recipe persists + normalizes timeout.
+	created := environmentPost(t, f, base(map[string]any{"environment": map[string]any{
+		"repository":   map[string]any{"url": "https://github.com/org/repo", "ref": "v1.0"},
+		"setupCommand": "make setup",
+		"env":          map[string]string{"NODE_ENV": "test"},
+	}}), http.StatusAccepted)
+	env, _ := created["environment"].(map[string]any)
+	if env == nil {
+		t.Fatal("environment not persisted")
+	}
+	if env["setupTimeoutSeconds"].(float64) != 1800 {
+		t.Fatalf("default timeout: %v", env["setupTimeoutSeconds"])
+	}
+	if env["repository"].(map[string]any)["url"] != "https://github.com/org/repo" {
+		t.Fatal("repository URL not persisted")
+	}
+	setup, _ := created["setup"].(map[string]any)
+	if setup == nil || setup["status"] != "pending" {
+		t.Fatalf("setup should be pending: %v", setup)
+	}
+	// Same idempotency key + different recipe → 409.
+	changed := base(map[string]any{"environment": map[string]any{"setupCommand": "other"}})
+	response := requestJSON(t, f.h, http.MethodPost, "/v1/workspaces/"+f.space.ID+"/sandboxes", changed, f.cookie)
+	requireStatus(t, response, http.StatusConflict)
+	// Invalid cases rejected before allocation.
+	for name, env := range map[string]map[string]any{
+		"http":       {"repository": map[string]any{"url": "http://x"}},
+		"userinfo":   {"repository": map[string]any{"url": "https://u:p@github.com/o/r"}},
+		"query":      {"repository": map[string]any{"url": "https://github.com/o/r?x=1"}},
+		"fragment":   {"repository": map[string]any{"url": "https://github.com/o/r#f"}},
+		"ref-dash":   {"repository": map[string]any{"url": "https://github.com/o/r", "ref": "-bad"}},
+		"timeout-no": {"setupTimeoutSeconds": 60},
+		"collision":  {"env": map[string]string{"K": "v"}, "secretRefs": map[string]string{"K": "sec_1"}},
+	} {
+		body := map[string]any{"name": name, "size": "free-1x1", "environment": env}
+		response := requestJSON(t, f.h, http.MethodPost, "/v1/workspaces/"+f.space.ID+"/sandboxes", body, f.cookie)
+		if response.Code < 400 {
+			t.Fatalf("%s: invalid environment accepted (%d)", name, response.Code)
+		}
+	}
+	// Snapshot + recipe is a conflict.
+	snapshot := f.create(t, "src", "free-1x1", http.StatusAccepted)
+	_ = f.ready(t, snapshot)
+	body := map[string]any{"name": "restore-env", "size": "free-1x1", "snapshotId": "snap_x", "environment": map[string]any{"setupCommand": "x"}}
+	response = requestJSON(t, f.h, http.MethodPost, "/v1/workspaces/"+f.space.ID+"/sandboxes", body, f.cookie)
+	if response.Code < 400 {
+		t.Fatal("snapshot+recipe must conflict")
+	}
+}
+
+func TestSandboxEnvironmentSecretsPermission(t *testing.T) {
+	f := sandboxFixture(t)
+	f.enable(t)
+	ctx := context.Background()
+	// Seed a stored secret WITHOUT sandbox_allowed; a wrong-org secret; an
+	// openrouter secret — all must be forbidden as sandbox refs.
+	plain := []byte("secret-value-1")
+	key, sealed, err := f.h.config.Secrets.seal(plain, secretBinding(f.space.ID, "sec_stored1", "stored"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.s.pool.Exec(ctx, `INSERT INTO workspace_secrets(id,workspace_id,name,purpose,note,ciphertext,key_id,updated_by,sandbox_allowed) VALUES('sec_stored1',$1,'S1','stored','n',$2,$3,$4,false)`, f.space.ID, sealed, key, f.account.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.s.pool.Exec(ctx, `INSERT INTO workspace_secrets(id,workspace_id,name,purpose,note,ciphertext,key_id,updated_by,sandbox_allowed) VALUES('sec_open1',$1,'O1','openrouter','n',$2,$3,$4,false)`, f.space.ID, sealed, key, f.account.ID); err != nil {
+		t.Fatal(err)
+	}
+	// sandbox_allowed=false → forbidden.
+	body := map[string]any{"name": "x", "size": "free-1x1", "environment": map[string]any{"secretRefs": map[string]string{"API_KEY": "sec_stored1"}}}
+	response := requestJSON(t, f.h, http.MethodPost, "/v1/workspaces/"+f.space.ID+"/sandboxes", body, f.cookie)
+	if response.Code < 400 {
+		t.Fatal("non-allowed secret must be forbidden")
+	}
+	// openrouter purpose → forbidden even if somehow marked allowed.
+	body = map[string]any{"name": "x", "size": "free-1x1", "environment": map[string]any{"secretRefs": map[string]string{"API_KEY": "sec_open1"}}}
+	response = requestJSON(t, f.h, http.MethodPost, "/v1/workspaces/"+f.space.ID+"/sandboxes", body, f.cookie)
+	if response.Code < 400 {
+		t.Fatal("openrouter secret must be forbidden")
+	}
+	// Owner PATCH enables sandbox access.
+	response = requestJSON(t, f.h, http.MethodPatch, "/v1/workspaces/"+f.space.ID+"/secrets/sec_stored1", map[string]any{"version": 1, "sandboxAllowed": true}, f.cookie)
+	requireStatus(t, response, http.StatusOK)
+	// Now creation succeeds.
+	body = map[string]any{"name": "allowed", "size": "free-1x1", "environment": map[string]any{"secretRefs": map[string]string{"API_KEY": "sec_stored1"}}}
+	environmentPost(t, f, body, http.StatusAccepted)
+	// Metadata reports sandboxAllowed.
+	response = requestJSON(t, f.h, http.MethodGet, "/v1/workspaces/"+f.space.ID+"/secrets", nil, f.cookie)
+	requireStatus(t, response, http.StatusOK)
+	if !strings.Contains(response.Body.String(), `"sandboxAllowed":true`) {
+		t.Fatal("metadata must report sandboxAllowed")
+	}
+}
+
+func TestSandboxSetupStateMachine(t *testing.T) {
+	f := sandboxFixture(t)
+	f.enable(t)
+	created := environmentPost(t, f, map[string]any{
+		"name": "setup", "size": "free-1x1",
+		"environment": map[string]any{"setupCommand": "echo done"},
+	}, http.StatusAccepted)
+	v, _ := created["id"].(string)
+	sandbox, err := f.s.Sandbox(context.Background(), f.space.ID, v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sandbox = f.ready(t, sandbox)
+	// Mutations fenced while setup is pending.
+	if err := sandboxMutationAllowed(sandbox); err == nil {
+		t.Fatal("pending setup must fence mutations")
+	}
+	// Dispatcher launches the fixed setup job (fake must return running —
+	// the default completed/nil-exit correctly fails immediately).
+	d := &SandboxDispatcher{Server: f.h}
+	ctx := context.Background()
+	dial := f.h.sandboxDial
+	f.h.sandboxDial = func(config wrencomputer.Config) (sandboxAgentClient, error) {
+		c, err := dial(config)
+		if err != nil {
+			return nil, err
+		}
+		c.(*sandboxFakeClient).startHook = func(_ context.Context, req wrencomputer.JobRequest) (wrencomputer.Job, error) {
+			f.jobs[req.ID] = wrencomputer.Job{ID: req.ID, Status: "running"}
+			return wrencomputer.Job{ID: req.ID, Status: "running"}, nil
+		}
+		return c, nil
+	}
+	if err := d.Reconcile(ctx, f.space.ID, sandbox.ID); err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+	sandbox, _ = f.s.Sandbox(ctx, f.space.ID, sandbox.ID)
+	if sandbox.Setup.Status != "running" || sandbox.Setup.JobID == "" {
+		t.Fatalf("setup should be running with job: %+v", sandbox.Setup)
+	}
+	if !strings.HasPrefix(sandbox.Setup.JobID, "job_setup_") {
+		t.Fatalf("fixed job ID: %s", sandbox.Setup.JobID)
+	}
+	// Complete the job → setup succeeds.
+	exit := 0
+	f.jobs[sandbox.Setup.JobID] = wrencomputer.Job{ID: sandbox.Setup.JobID, Status: "completed", ExitCode: &exit}
+	if err := d.Reconcile(ctx, f.space.ID, sandbox.ID); err != nil {
+		t.Fatalf("reconcile2: %v", err)
+	}
+	sandbox, _ = f.s.Sandbox(ctx, f.space.ID, sandbox.ID)
+	if sandbox.Setup.Status != "succeeded" || sandbox.Setup.ExitCode == nil || *sandbox.Setup.ExitCode != 0 {
+		t.Fatalf("setup should succeed: %+v", sandbox.Setup)
+	}
+	if err := sandboxMutationAllowed(sandbox); err != nil {
+		t.Fatal("succeeded setup must allow mutations")
+	}
+}
+
+func TestSandboxSetupFailureKeepsMachine(t *testing.T) {
+	f := sandboxFixture(t)
+	f.enable(t)
+	created := environmentPost(t, f, map[string]any{
+		"name": "fail", "size": "free-1x1",
+		"environment": map[string]any{"setupCommand": "exit 1"},
+	}, http.StatusAccepted)
+	v, _ := created["id"].(string)
+	sandbox, _ := f.s.Sandbox(context.Background(), f.space.ID, v)
+	sandbox = f.ready(t, sandbox)
+	d := &SandboxDispatcher{Server: f.h}
+	ctx := context.Background()
+	_ = d.Reconcile(ctx, f.space.ID, sandbox.ID)
+	sandbox, _ = f.s.Sandbox(ctx, f.space.ID, sandbox.ID)
+	// Failed job → setup failed but VM retained (phase still ready).
+	fail := 1
+	f.jobs[sandbox.Setup.JobID] = wrencomputer.Job{ID: sandbox.Setup.JobID, Status: "failed", ExitCode: &fail}
+	_ = d.Reconcile(ctx, f.space.ID, sandbox.ID)
+	sandbox, _ = f.s.Sandbox(ctx, f.space.ID, sandbox.ID)
+	if sandbox.Setup.Status != "failed" || sandbox.Setup.Error == "" {
+		t.Fatalf("setup should fail: %+v", sandbox.Setup)
+	}
+	if sandbox.Phase != "ready" {
+		t.Fatalf("failed setup must keep machine ready: %s", sandbox.Phase)
+	}
+}
+
+func TestSandboxSetupLostAck(t *testing.T) {
+	f := sandboxFixture(t)
+	f.enable(t)
+	created := environmentPost(t, f, map[string]any{
+		"name": "lostack", "size": "free-1x1",
+		"environment": map[string]any{"setupCommand": "echo ok"},
+	}, http.StatusAccepted)
+	sandbox, _ := f.s.Sandbox(context.Background(), f.space.ID, created["id"].(string))
+	sandbox = f.ready(t, sandbox)
+	d := &SandboxDispatcher{Server: f.h}
+	ctx := context.Background()
+	jobID := sandboxSetupJobID(sandbox.ID, sandbox.Generation)
+	var starts, captured atomic.Int32
+	dial := f.h.sandboxDial
+	f.h.sandboxDial = func(config wrencomputer.Config) (sandboxAgentClient, error) {
+		c, err := dial(config)
+		if err != nil {
+			return nil, err
+		}
+		c.(*sandboxFakeClient).startHook = func(_ context.Context, req wrencomputer.JobRequest) (wrencomputer.Job, error) {
+			starts.Add(1)
+			f.jobs[jobID] = wrencomputer.Job{ID: jobID, Status: "running"}
+			captured.Store(int32(len(req.Env)))
+			return wrencomputer.Job{}, errors.New("ack dropped")
+		}
+		return c, nil
+	}
+	if err := d.Reconcile(ctx, f.space.ID, sandbox.ID); err != nil {
+		t.Fatalf("reconcile1: %v", err)
+	}
+	sandbox, _ = f.s.Sandbox(ctx, f.space.ID, sandbox.ID)
+	if sandbox.Setup.Status != "running" {
+		t.Fatalf("guard should hold running after lost ack: %+v", sandbox.Setup)
+	}
+	// Second reconcile must NOT relaunch — Job knows the recorded ID.
+	if err := d.Reconcile(ctx, f.space.ID, sandbox.ID); err != nil {
+		t.Fatalf("reconcile2: %v", err)
+	}
+	if starts.Load() != 1 {
+		t.Fatalf("lost ack must not relaunch: %d starts", starts.Load())
+	}
+	// Complete the recorded job → succeeded + finished_at.
+	exit := 0
+	f.jobs[jobID] = wrencomputer.Job{ID: jobID, Status: "completed", ExitCode: &exit}
+	if err := d.Reconcile(ctx, f.space.ID, sandbox.ID); err != nil {
+		t.Fatalf("reconcile3: %v", err)
+	}
+	sandbox, _ = f.s.Sandbox(ctx, f.space.ID, sandbox.ID)
+	if sandbox.Setup.Status != "succeeded" {
+		t.Fatalf("setup should succeed: %+v", sandbox.Setup)
+	}
+	var finished bool
+	if err := f.s.pool.QueryRow(ctx, `SELECT finished_at IS NOT NULL FROM sandbox_jobs WHERE sandbox_id=$1 AND job_id=$2`, sandbox.ID, jobID).Scan(&finished); err != nil {
+		t.Fatal(err)
+	}
+	if !finished {
+		t.Fatal("sandbox_jobs.finished_at must be set")
+	}
+}
+
+func TestSandboxSetupDeadlineStopsFirst(t *testing.T) {
+	f := sandboxFixture(t)
+	f.enable(t)
+	created := environmentPost(t, f, map[string]any{
+		"name": "deadline", "size": "free-1x1",
+		"environment": map[string]any{"setupCommand": "x", "setupTimeoutSeconds": 1},
+	}, http.StatusAccepted)
+	sandbox, _ := f.s.Sandbox(context.Background(), f.space.ID, created["id"].(string))
+	sandbox = f.ready(t, sandbox)
+	d := &SandboxDispatcher{Server: f.h}
+	ctx := context.Background()
+	// Force StartedAt far past timeout+90s.
+	jobID := sandboxSetupJobID(sandbox.ID, sandbox.Generation)
+	if _, err := f.s.pool.Exec(ctx, `UPDATE sandboxes SET setup=jsonb_build_object('status','running','jobId',$1::text,'startedAt',now()-interval '1 hour') WHERE id=$2`, jobID, sandbox.ID); err != nil {
+		t.Fatal(err)
+	}
+	sandbox, _ = f.s.Sandbox(ctx, f.space.ID, sandbox.ID)
+	var stops, jobs atomic.Int32
+	dial := f.h.sandboxDial
+	f.h.sandboxDial = func(config wrencomputer.Config) (sandboxAgentClient, error) {
+		c, err := dial(config)
+		if err != nil {
+			return nil, err
+		}
+		fake := c.(*sandboxFakeClient)
+		fake.stopHook = func(_ context.Context, id string) (wrencomputer.Job, error) {
+			stops.Add(1)
+			return wrencomputer.Job{ID: id, Status: "timed_out"}, nil
+		}
+		fake.jobHook = func(_ context.Context, id string) (wrencomputer.Job, error) {
+			jobs.Add(1)
+			return wrencomputer.Job{}, errors.New("job lookup must not run before the deadline stop")
+		}
+		return c, nil
+	}
+	if err := d.Reconcile(ctx, f.space.ID, sandbox.ID); err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+	if stops.Load() != 1 || jobs.Load() != 0 {
+		t.Fatalf("deadline must StopJob before Job: stops=%d jobs=%d", stops.Load(), jobs.Load())
+	}
+	sandbox, _ = f.s.Sandbox(ctx, f.space.ID, sandbox.ID)
+	if sandbox.Setup.Status != "failed" {
+		t.Fatalf("timed_out stop must close guard as failed: %+v", sandbox.Setup)
+	}
+}
+
+func TestSandboxSetupStopWriterOnly(t *testing.T) {
+	f := sandboxFixture(t)
+	f.enable(t)
+	created := environmentPost(t, f, map[string]any{
+		"name": "stop", "size": "free-1x1",
+		"environment": map[string]any{"setupCommand": "sleep 99"},
+	}, http.StatusAccepted)
+	sandbox, _ := f.s.Sandbox(context.Background(), f.space.ID, created["id"].(string))
+	sandbox = f.ready(t, sandbox)
+	d := &SandboxDispatcher{Server: f.h}
+	ctx := context.Background()
+	jobID := sandboxSetupJobID(sandbox.ID, sandbox.Generation)
+	dial := f.h.sandboxDial
+	f.h.sandboxDial = func(config wrencomputer.Config) (sandboxAgentClient, error) {
+		c, err := dial(config)
+		if err != nil {
+			return nil, err
+		}
+		c.(*sandboxFakeClient).startHook = func(_ context.Context, req wrencomputer.JobRequest) (wrencomputer.Job, error) {
+			return wrencomputer.Job{ID: req.ID, Status: "running"}, nil
+		}
+		return c, nil
+	}
+	_ = d.Reconcile(ctx, f.space.ID, sandbox.ID)
+	sandbox, _ = f.s.Sandbox(ctx, f.space.ID, sandbox.ID)
+	// Writer can stop the exact setup job through the REST surface.
+	response := requestJSON(t, f.h, http.MethodPost, "/v1/workspaces/"+f.space.ID+"/sandboxes/"+sandbox.ID+"/jobs/"+jobID+"/stop", nil, f.cookie)
+	requireStatus(t, response, http.StatusOK)
+	// A different unrelated job must not route through the setup exception.
+	response = requestJSON(t, f.h, http.MethodPost, "/v1/workspaces/"+f.space.ID+"/sandboxes/"+sandbox.ID+"/jobs/job_other/stop", nil, f.cookie)
+	if response.Code != http.StatusNotFound && response.Code != http.StatusConflict {
+		t.Fatalf("unrelated job must not reach the setup stop: %d", response.Code)
+	}
+}
+
+func TestSandboxEnvironmentSecretRotationAndClear(t *testing.T) {
+	f := sandboxFixture(t)
+	f.enable(t)
+	ctx := context.Background()
+	plain := []byte("rotated-secret")
+	key, sealed, err := f.h.config.Secrets.seal(plain, secretBinding(f.space.ID, "sec_rot1", "stored"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.s.pool.Exec(ctx, `INSERT INTO workspace_secrets(id,workspace_id,name,purpose,note,ciphertext,key_id,updated_by,sandbox_allowed) VALUES('sec_rot1',$1,'R1','stored','n',$2,$3,$4,true)`, f.space.ID, sealed, key, f.account.ID); err != nil {
+		t.Fatal(err)
+	}
+	// Rotation preserving sandbox_allowed via explicit true.
+	response := requestJSON(t, f.h, http.MethodPut, "/v1/workspaces/"+f.space.ID+"/secrets/sec_rot1", map[string]any{"version": 1, "value": "new-rotated"}, f.cookie)
+	requireStatus(t, response, http.StatusOK)
+	var still bool
+	if err := f.s.pool.QueryRow(ctx, `SELECT sandbox_allowed FROM workspace_secrets WHERE id='sec_rot1'`).Scan(&still); err != nil || !still {
+		t.Fatalf("rotation must preserve sandbox_allowed: %v %v", still, err)
+	}
+	// Explicit false disables.
+	response = requestJSON(t, f.h, http.MethodPut, "/v1/workspaces/"+f.space.ID+"/secrets/sec_rot1", map[string]any{"version": 2, "value": "final", "sandboxAllowed": false}, f.cookie)
+	requireStatus(t, response, http.StatusOK)
+	if err := f.s.pool.QueryRow(ctx, `SELECT sandbox_allowed FROM workspace_secrets WHERE id='sec_rot1'`).Scan(&still); err != nil || still {
+		t.Fatalf("explicit false must disable: %v %v", still, err)
+	}
+	// Now forbidden for a new job.
+	body := map[string]any{"name": "x", "size": "free-1x1", "environment": map[string]any{"secretRefs": map[string]string{"K": "sec_rot1"}}}
+	response = requestJSON(t, f.h, http.MethodPost, "/v1/workspaces/"+f.space.ID+"/sandboxes", body, f.cookie)
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("disabled secret must be forbidden: %d", response.Code)
+	}
+}
+
+func TestSandboxEnvironmentSecretCollision(t *testing.T) {
+	f := sandboxFixture(t)
+	f.enable(t)
+	ctx := context.Background()
+	plain := []byte("v1")
+	key, sealed, _ := f.h.config.Secrets.seal(plain, secretBinding(f.space.ID, "sec_col1", "stored"))
+	if _, err := f.s.pool.Exec(ctx, `INSERT INTO workspace_secrets(id,workspace_id,name,purpose,note,ciphertext,key_id,updated_by,sandbox_allowed) VALUES('sec_col1',$1,'C1','stored','n',$2,$3,$4,true)`, f.space.ID, sealed, key, f.account.ID); err != nil {
+		t.Fatal(err)
+	}
+	// Explicit env colliding with a chosen secret ref is rejected.
+	body := map[string]any{"name": "x", "size": "free-1x1", "environment": map[string]any{
+		"env":        map[string]string{"API_KEY": "explicit"},
+		"secretRefs": map[string]string{"API_KEY": "sec_col1"},
+	}}
+	response := requestJSON(t, f.h, http.MethodPost, "/v1/workspaces/"+f.space.ID+"/sandboxes", body, f.cookie)
+	if response.Code != http.StatusConflict {
+		t.Fatalf("env+ref collision must conflict: %d", response.Code)
+	}
+	// Combined size over 32KiB rejected before allocation.
+	big := map[string]string{}
+	for i := 0; i < 33; i++ {
+		big[fmt.Sprintf("K%d", i)] = string(make([]byte, 1024))
+	}
+	body = map[string]any{"name": "x", "size": "free-1x1", "environment": map[string]any{"env": big}}
+	response = requestJSON(t, f.h, http.MethodPost, "/v1/workspaces/"+f.space.ID+"/sandboxes", body, f.cookie)
+	if response.Code != http.StatusConflict && response.Code != http.StatusBadRequest {
+		t.Fatalf("oversize env must be rejected before allocation: %d", response.Code)
+	}
+	var count int
+	if err := f.s.pool.QueryRow(ctx, `SELECT count(*) FROM sandboxes WHERE workspace_id=$1 AND name='x'`, f.space.ID).Scan(&count); err != nil || count != 0 {
+		t.Fatalf("invalid recipe must not allocate: %d", count)
+	}
+}
+
+func TestSandboxEnvironmentSecretJobInjection(t *testing.T) {
+	f := sandboxFixture(t)
+	f.enable(t)
+	ctx := context.Background()
+	// Two approved secrets; the sandbox recipe maps API_TOKEN→sec_env1.
+	mk := func(id, value string) {
+		plain := []byte(value)
+		key, sealed, err := f.h.config.Secrets.seal(plain, secretBinding(f.space.ID, id, "stored"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := f.s.pool.Exec(ctx, `INSERT INTO workspace_secrets(id,workspace_id,name,purpose,note,ciphertext,key_id,updated_by,sandbox_allowed) VALUES($1,$2,$3,'stored','n',$4,$5,$6,true)`, id, f.space.ID, id, sealed, key, f.account.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mk("sec_env1", "first-value")
+	mk("sec_env2", "second-value")
+	created := environmentPost(t, f, map[string]any{
+		"name": "envjob", "size": "free-1x1",
+		"environment": map[string]any{
+			"env":        map[string]string{"BASE": "default"},
+			"secretRefs": map[string]string{"API_TOKEN": "sec_env1"},
+		},
+	}, http.StatusAccepted)
+	sandbox, _ := f.s.Sandbox(ctx, f.space.ID, created["id"].(string))
+	sandbox = f.ready(t, sandbox)
+	// Mark setup succeeded so ordinary mutations are allowed.
+	if _, err := f.s.pool.Exec(ctx, `UPDATE sandboxes SET setup='{}' WHERE id=$1`, sandbox.ID); err != nil {
+		t.Fatal(err)
+	}
+	sandbox, _ = f.s.Sandbox(ctx, f.space.ID, sandbox.ID)
+	// Capture the merged env the guest actually receives.
+	var capturedEnv map[string]string
+	dial := f.h.sandboxDial
+	f.h.sandboxDial = func(config wrencomputer.Config) (sandboxAgentClient, error) {
+		c, err := dial(config)
+		if err != nil {
+			return nil, err
+		}
+		c.(*sandboxFakeClient).startHook = func(_ context.Context, req wrencomputer.JobRequest) (wrencomputer.Job, error) {
+			capturedEnv = maps.Clone(req.Env)
+			return wrencomputer.Job{ID: req.ID, Status: "running"}, nil
+		}
+		return c, nil
+	}
+	postJob := func(extra map[string]any) *httptest.ResponseRecorder {
+		body := map[string]any{"command": "true"}
+		for k, v := range extra {
+			body[k] = v
+		}
+		return requestJSON(t, f.h, http.MethodPost, "/v1/workspaces/"+f.space.ID+"/sandboxes/"+sandbox.ID+"/jobs", body, f.cookie)
+	}
+	// First job: default ref value injected + nonsecret default.
+	requireStatus(t, postJob(nil), http.StatusAccepted)
+	if capturedEnv["API_TOKEN"] != "first-value" || capturedEnv["BASE"] != "default" {
+		t.Fatalf("merged env wrong: %v", capturedEnv)
+	}
+	// Rotate the secret; next job gets the new value.
+	requireStatus(t, requestJSON(t, f.h, http.MethodPut, "/v1/workspaces/"+f.space.ID+"/secrets/sec_env1", map[string]any{"version": 1, "value": "rotated-value"}, f.cookie), http.StatusOK)
+	requireStatus(t, postJob(nil), http.StatusAccepted)
+	if capturedEnv["API_TOKEN"] != "rotated-value" {
+		t.Fatalf("rotated value not used: %v", capturedEnv)
+	}
+	// Disable the flag → default ref forbidden.
+	requireStatus(t, requestJSON(t, f.h, http.MethodPatch, "/v1/workspaces/"+f.space.ID+"/secrets/sec_env1", map[string]any{"version": 2, "sandboxAllowed": false}, f.cookie), http.StatusOK)
+	if resp := postJob(nil); resp.Code != http.StatusForbidden {
+		t.Fatalf("disabled secret must be forbidden: %d", resp.Code)
+	}
+	// Explicit {} clears saved refs — job runs without the secret.
+	requireStatus(t, postJob(map[string]any{"secretRefs": map[string]string{}}), http.StatusAccepted)
+	if _, ok := capturedEnv["API_TOKEN"]; ok {
+		t.Fatalf("{} must clear saved refs: %v", capturedEnv)
+	}
+	// Replace with the second approved ref → only that ref injected.
+	requireStatus(t, postJob(map[string]any{"secretRefs": map[string]string{"OTHER": "sec_env2"}}), http.StatusAccepted)
+	if capturedEnv["OTHER"] != "second-value" {
+		t.Fatalf("replacement ref not injected: %v", capturedEnv)
+	}
+	if _, ok := capturedEnv["API_TOKEN"]; ok {
+		t.Fatalf("replaced ref must drop the default: %v", capturedEnv)
+	}
+	// Explicit env colliding with the chosen ref conflicts.
+	if resp := postJob(map[string]any{"secretRefs": map[string]string{"OTHER": "sec_env2"}, "env": map[string]string{"OTHER": "x"}}); resp.Code != http.StatusConflict {
+		t.Fatalf("explicit+ref collision must conflict: %d", resp.Code)
+	}
+	// No secret marker in job receipts/audit.
+	response := requestJSON(t, f.h, http.MethodGet, "/v1/workspaces/"+f.space.ID+"/sandboxes/"+sandbox.ID, nil, f.cookie)
+	if strings.Contains(response.Body.String(), "rotated-value") || strings.Contains(response.Body.String(), "second-value") {
+		t.Fatal("secret value leaked into sandbox JSON")
+	}
+}
+
+func TestSandboxEnvironmentSecretAccessRoles(t *testing.T) {
+	f := sandboxFixture(t)
+	f.enable(t)
+	ctx := context.Background()
+	plain := []byte("v")
+	key, sealed, _ := f.h.config.Secrets.seal(plain, secretBinding(f.space.ID, "sec_role1", "stored"))
+	if _, err := f.s.pool.Exec(ctx, `INSERT INTO workspace_secrets(id,workspace_id,name,purpose,note,ciphertext,key_id,updated_by,sandbox_allowed) VALUES('sec_role1',$1,'R1','stored','n',$2,$3,$4,false)`, f.space.ID, sealed, key, f.account.ID); err != nil {
+		t.Fatal(err)
+	}
+	// PATCH with a value field is rejected (strict separate struct).
+	response := requestJSON(t, f.h, http.MethodPatch, "/v1/workspaces/"+f.space.ID+"/secrets/sec_role1", map[string]any{"version": 1, "sandboxAllowed": true, "value": "x"}, f.cookie)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("PATCH with value field must be 400: %d", response.Code)
+	}
+	// Wrong version → conflict.
+	response = requestJSON(t, f.h, http.MethodPatch, "/v1/workspaces/"+f.space.ID+"/secrets/sec_role1", map[string]any{"version": 99, "sandboxAllowed": true}, f.cookie)
+	if response.Code != http.StatusConflict {
+		t.Fatalf("stale version must conflict: %d", response.Code)
+	}
+}
+
+func TestSandboxEnvironmentRemoteSDKContract(t *testing.T) {
+	f := sandboxFixture(t)
+	f.enable(t)
+	ctx := context.Background()
+	pair := workspaceTestAgent(t, f.s, f.account, f.space.ID, "remote-sdk")
+	if _, err := f.s.UpdateAgentAuthority(ctx, f.account.ID, f.space.ID, pair.Installation.ID, Authority{Inspect: true, Draft: true, ApplyMode: "automatic"}); err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(f.h)
+	defer server.Close()
+	// Real sdk/remote client against the actual router — not a mock.
+	client, err := remote.New(server.URL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sandboxes, err := client.Sandboxes(f.space.ID, pair.AccessToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, err := sandboxes.Create(ctx, remote.SandboxCreateInput{
+		Name: "remote", Size: "free-1x1", IdempotencyKey: "remote-key-01",
+		Environment: &remote.SandboxEnvironment{
+			Repository:   &remote.SandboxRepository{URL: "https://github.com/org/repo"},
+			SetupCommand: "echo done",
+			Env:          map[string]string{"K": "v"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("remote create: %v", err)
+	}
+	if created.Environment == nil || created.Environment.SetupCommand != "echo done" || created.Setup.Status != "pending" {
+		t.Fatalf("environment/setup not round-tripped: %+v", created)
+	}
+	got, err := sandboxes.Get(ctx, created.ID)
+	if err != nil || got.ID != created.ID {
+		t.Fatalf("remote get: %v %v", got, err)
+	}
+}
+
+func TestSandboxSetupReceiptOutcomes(t *testing.T) {
+	setup := func(t *testing.T, status, jobID string, startedAt time.Time) (*sandboxFixtureT, Sandbox) {
+		f := sandboxFixture(t)
+		f.enable(t)
+		created := environmentPost(t, f, map[string]any{
+			"name": "receipt", "size": "free-1x1",
+			"environment": map[string]any{"setupCommand": "x"},
+		}, http.StatusAccepted)
+		sandbox, _ := f.s.Sandbox(context.Background(), f.space.ID, created["id"].(string))
+		sandbox = f.ready(t, sandbox)
+		if status != "" {
+			if jobID == "" {
+				jobID = sandboxSetupJobID(sandbox.ID, sandbox.Generation)
+			}
+			if _, err := f.s.pool.Exec(context.Background(), `UPDATE sandboxes SET setup=$3 WHERE workspace_id=$1 AND id=$2`,
+				f.space.ID, sandbox.ID, fmt.Sprintf(`{"status":%q,"jobId":%q,"startedAt":%q}`, status, jobID, startedAt.Format(time.RFC3339))); err != nil {
+				t.Fatal(err)
+			}
+		}
+		sandbox, _ = f.s.Sandbox(context.Background(), f.space.ID, sandbox.ID)
+		return f, sandbox
+	}
+	reconcile := func(f *sandboxFixtureT, sandbox Sandbox) Sandbox {
+		d := &SandboxDispatcher{Server: f.h}
+		if err := d.Reconcile(context.Background(), f.space.ID, sandbox.ID); err != nil && !errors.Is(err, ErrConflict) {
+			t.Fatalf("reconcile: %v", err)
+		}
+		sandbox, _ = f.s.Sandbox(context.Background(), f.space.ID, sandbox.ID)
+		return sandbox
+	}
+	// Unknown error containing "not found" text must NOT permit a new Start —
+	// only the typed not_found allows relaunch.
+	t.Run("unknown-job-error-holds-guard", func(t *testing.T) {
+		f, sandbox := setup(t, "running", "", time.Now())
+		var starts, queries atomic.Int32
+		dial := f.h.sandboxDial
+		f.h.sandboxDial = func(config wrencomputer.Config) (sandboxAgentClient, error) {
+			c, err := dial(config)
+			if err != nil {
+				return nil, err
+			}
+			fake := c.(*sandboxFakeClient)
+			fake.jobHook = func(_ context.Context, id string) (wrencomputer.Job, error) {
+				queries.Add(1)
+				return wrencomputer.Job{}, errors.New("dial reset with 'not found' inside")
+			}
+			fake.startHook = func(_ context.Context, r wrencomputer.JobRequest) (wrencomputer.Job, error) {
+				starts.Add(1)
+				return wrencomputer.Job{ID: r.ID, Status: "running"}, nil
+			}
+			return c, nil
+		}
+		sandbox = reconcile(f, sandbox)
+		if queries.Load() == 0 {
+			t.Fatal("the unknown job error path was not exercised")
+		}
+		if starts.Load() != 0 {
+			t.Fatalf("unknown error must not relaunch: %d starts", starts.Load())
+		}
+		if sandbox.Setup.Status != "running" {
+			t.Fatalf("guard must hold running: %+v", sandbox.Setup)
+		}
+	})
+	// Missing exitCode on completed must not succeed.
+	t.Run("completed-missing-exit-fails", func(t *testing.T) {
+		f, sandbox := setup(t, "running", "", time.Now())
+		jobID := sandbox.Setup.JobID
+		f.jobs[jobID] = wrencomputer.Job{ID: jobID, Status: "completed"} // nil exit
+		sandbox = reconcile(f, sandbox)
+		if sandbox.Setup.Status != "failed" || sandbox.Setup.ExitCode != nil {
+			t.Fatalf("completed without exitCode must fail: %+v", sandbox.Setup)
+		}
+	})
+	// Stale v after a generation change must not publish success.
+	t.Run("stale-generation-no-publish", func(t *testing.T) {
+		f, sandbox := setup(t, "running", "", time.Now())
+		if _, err := f.s.pool.Exec(context.Background(), `UPDATE sandboxes SET generation=generation+1 WHERE id=$1`, sandbox.ID); err != nil {
+			t.Fatal(err)
+		}
+		d := &SandboxDispatcher{Server: f.h}
+		if err := d.updateSandboxSetup(context.Background(), &sandbox, SandboxSetup{Status: "succeeded", JobID: sandbox.Setup.JobID}); !errors.Is(err, ErrConflict) {
+			t.Fatalf("stale generation must conflict: %v", err)
+		}
+		fresh, err := f.s.Sandbox(context.Background(), f.space.ID, sandbox.ID)
+		if err != nil || fresh.Setup.Status != "running" || fresh.Generation != sandbox.Generation+1 {
+			t.Fatalf("stale result changed the new generation: %+v %v", fresh, err)
+		}
+	})
 }
