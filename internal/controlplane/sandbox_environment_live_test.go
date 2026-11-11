@@ -24,15 +24,20 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/canter0/canter/internal/envfile"
 	"github.com/canter0/canter/internal/provider/compute"
+	"github.com/canter0/canter/internal/wrencomputer"
 	"github.com/canter0/canter/sdk"
 	"github.com/canter0/canter/sdk/remote"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"golang.org/x/crypto/ssh"
 )
 
 // Pin the public repository revision so setup assertions are reproducible.
@@ -134,11 +139,23 @@ func TestSandboxLiveEnvironment(t *testing.T) {
 	d := &SandboxDispatcher{Server: h}
 	actor := sdk.ActorRef{Kind: "human", ID: a.ID}
 
+	// Bounded probe recorder — populated by the wrapped sandboxDial below.
+	// report logs each already-throttled event's safe fields so a provisioning
+	// stall is never silent for 12 minutes.
+	probes := &sandboxLiveProbeRecorder{now: time.Now, succeeded: map[string]bool{}, diagnose: sandboxLiveSSHDiagnostic}
+	probes.report = func(event map[string]any) {
+		raw, _ := json.Marshal(event)
+		t.Logf("checkpoint: guest probe %s", raw)
+	}
+
 	// Evidence manifest: non-secret IDs, statuses and hashes only.
 	// Registered BEFORE the cloud cleanup so it runs AFTER it (LIFO): the
 	// manifest records the cleanup outcome the cleanup closure actually set.
 	manifest := map[string]any{"startedAt": time.Now().UTC().Format(time.RFC3339), "repository": liveEnvRepositoryURL, "ref": liveEnvRepositoryRef}
 	writeManifest := func() {
+		if probes != nil {
+			manifest["probeDiagnostics"] = probes.snapshot()
+		}
 		data, _ := json.MarshalIndent(manifest, "", "  ")
 		if err := os.WriteFile(filepath.Join(artifactDir, "manifest.json"), data, 0600); err != nil {
 			t.Logf("manifest write: %v", err)
@@ -301,6 +318,27 @@ func TestSandboxLiveEnvironment(t *testing.T) {
 	}
 	t.Log("checkpoint: workspace enabled, installation credential issued")
 
+	// Test-only probe observability: wrap every guest client with a bounded
+	// recorder and, on failure, an independent capped SSH diagnostic. The
+	// private key bytes are parsed into an ssh.Signer HERE — the caller clears
+	// config.PrivateKeyPEM as soon as dialSandbox returns. The diagnostic
+	// never observes or stores key material, raw errors, or endpoint values.
+	h.sandboxDial = func(config wrencomputer.Config) (sandboxAgentClient, error) {
+		var signer ssh.Signer
+		if s, parseErr := ssh.ParsePrivateKey(config.PrivateKeyPEM); parseErr == nil {
+			signer = s
+		}
+		inner, err := wrencomputer.NewSSH(config)
+		if err != nil {
+			return nil, err
+		}
+		return &sandboxLiveProbeClient{
+			sandboxAgentClient: inner, recorder: probes, testCtx: ctx,
+			address: config.Address, port: config.Port,
+			fingerprint: config.HostKeySHA256, signer: signer,
+		}, nil
+	}
+
 	// A stored+approved secret with a run-local dummy value: never prod,
 	// never logged, never interpolated into any command.
 	dummyBytes := make([]byte, 18)
@@ -335,6 +373,7 @@ func TestSandboxLiveEnvironment(t *testing.T) {
 	// fails fast if setup reaches a terminal state the caller doesn't expect.
 	reconcileTo := func(id, wantPhase, wantSetup string, timeout time.Duration) Sandbox {
 		deadline := time.Now().Add(timeout)
+		lastProgress := time.Now()
 		for time.Now().Before(deadline) {
 			reconcileErr := d.Reconcile(ctx, w.ID, id)
 			v, err := s.Sandbox(ctx, w.ID, id)
@@ -357,6 +396,10 @@ func TestSandboxLiveEnvironment(t *testing.T) {
 			}
 			if ctx.Err() != nil {
 				t.Fatalf("context done reconciling %s: %v", id, ctx.Err())
+			}
+			if time.Since(lastProgress) >= 30*time.Second {
+				t.Logf("checkpoint: %s still %s (setup %s)", id, v.Phase, v.Setup.Status)
+				lastProgress = time.Now()
 			}
 			time.Sleep(3 * time.Second)
 		}
@@ -798,4 +841,302 @@ func sandboxJobCount(ctx context.Context, t *testing.T, s *Store, sandboxID stri
 		t.Fatal(err)
 	}
 	return count
+}
+
+// ---- Test-only bounded probe observability ----
+
+// sandboxLiveProbeClient wraps a real guest client: Probe is observed and the
+// exact capabilities/error are returned unchanged; every other method is
+// forwarded by the embedded interface.
+type sandboxLiveProbeClient struct {
+	sandboxAgentClient
+	recorder    *sandboxLiveProbeRecorder
+	testCtx     context.Context // overall test ctx for the bounded diagnostic
+	address     string          // internal map key only — never recorded
+	port        int
+	fingerprint string // expected host key — compared, never recorded
+	signer      ssh.Signer
+}
+
+func (c *sandboxLiveProbeClient) Probe(ctx context.Context) (wrencomputer.Capabilities, error) {
+	caps, err := c.sandboxAgentClient.Probe(ctx)
+	c.recorder.observe(c, ctx, caps, err)
+	return caps, err
+}
+
+// sandboxLiveProbeRecorder owns a mutex-guarded, 32-entry event buffer.
+// Success is recorded once per address; flagged events (failure or missing
+// required capabilities) at most once per 30s. Events carry only fixed
+// non-secret fields — error TYPE (%T), context flags, capability booleans,
+// and the SSH diagnostic's boolean map. The mutex is never held across the
+// bounded network diagnostic; report is invoked once per recorded event with
+// the same immutable map.
+type sandboxLiveProbeRecorder struct {
+	mu        sync.Mutex
+	events    []map[string]any
+	lastFlag  time.Time
+	succeeded map[string]bool
+	diagnose  func(ctx context.Context, address string, port int, fingerprint string, signer ssh.Signer) map[string]bool
+	now       func() time.Time
+	report    func(map[string]any)
+}
+
+func (r *sandboxLiveProbeRecorder) observe(c *sandboxLiveProbeClient, probeCtx context.Context, caps wrencomputer.Capabilities, probeErr error) {
+	r.mu.Lock()
+	if r.now == nil {
+		r.now = time.Now
+	}
+	now := r.now()
+	ok := probeErr == nil && caps.PersistentFiles && caps.DurableJobs
+	if ok {
+		if r.succeeded[c.address] {
+			r.mu.Unlock()
+			return
+		}
+		r.succeeded[c.address] = true
+	} else {
+		if now.Sub(r.lastFlag) < 30*time.Second {
+			r.mu.Unlock()
+			return
+		}
+		r.lastFlag = now
+	}
+	event := map[string]any{
+		"at":               now.UTC().Format(time.RFC3339),
+		"operation":        "probe",
+		"ok":               ok,
+		"persistentFiles":  caps.PersistentFiles,
+		"durableJobs":      caps.DurableJobs,
+		"workflowProtocol": caps.WorkflowProtocol,
+	}
+	if probeErr != nil {
+		event["errorType"] = fmt.Sprintf("%T", probeErr)
+		event["contextDeadline"] = errors.Is(probeErr, context.DeadlineExceeded)
+		event["contextCancelled"] = errors.Is(probeErr, context.Canceled)
+		var rpcErr *wrencomputer.Error
+		event["rpcError"] = errors.As(probeErr, &rpcErr)
+	}
+	// Reserve the throttle slot above, then run the bounded diagnostic
+	// UNLOCKED so snapshot() is never blocked by network IO.
+	runDiag := !ok && c.testCtx != nil && c.testCtx.Err() == nil && r.diagnose != nil
+	r.mu.Unlock()
+	if runDiag {
+		event["sshDiagnostic"] = r.diagnose(c.testCtx, c.address, c.port, c.fingerprint, c.signer)
+	}
+	r.mu.Lock()
+	r.events = append(r.events, event)
+	if len(r.events) > 32 {
+		r.events = r.events[len(r.events)-32:]
+	}
+	r.mu.Unlock()
+	if r.report != nil {
+		r.report(event)
+	}
+}
+
+func (r *sandboxLiveProbeRecorder) snapshot() []map[string]any {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]map[string]any, len(r.events))
+	copy(out, r.events)
+	return out
+}
+
+// sandboxLiveSSHDiagnostic answers "how far does the same-identity connection
+// get?" — TCP, host-key presentation, host-key match, SSH auth — as booleans.
+// Hard 6s bound, strict pinned-fingerprint callback, no session, no command,
+// every connection closed on all paths, nothing but booleans returned.
+func sandboxLiveSSHDiagnostic(ctx context.Context, address string, port int, expectedFingerprint string, signer ssh.Signer) map[string]bool {
+	result := map[string]bool{}
+	if signer == nil || address == "" {
+		return result
+	}
+	if port == 0 {
+		port = 22
+	}
+	diag, cancel := context.WithTimeout(ctx, 6*time.Second)
+	defer cancel()
+	deadline := time.Now().Add(6 * time.Second)
+	target := net.JoinHostPort(address, strconv.Itoa(port))
+	conn, err := (&net.Dialer{}).DialContext(diag, "tcp", target)
+	if err != nil {
+		var netErr net.Error
+		result["timeout"] = errors.Is(err, context.DeadlineExceeded) || errors.As(err, &netErr) && netErr.Timeout()
+		result["deadline"] = diag.Err() == context.DeadlineExceeded
+		result["cancelled"] = diag.Err() == context.Canceled
+		return result
+	}
+	defer conn.Close()
+	result["tcpConnected"] = true
+	if connDeadline, hasDeadline := diag.Deadline(); hasDeadline {
+		deadline = connDeadline
+	}
+	_ = conn.SetDeadline(deadline)
+	// Cancel-safe: closing the conn aborts an in-flight handshake when the
+	// parent context ends, and every path closes it.
+	stopClose := context.AfterFunc(diag, func() { conn.Close() })
+	defer stopClose()
+	var hostKeySeen, hostKeyMatched atomic.Bool
+	sshConn, _, _, err := ssh.NewClientConn(conn, target, &ssh.ClientConfig{
+		User:              "wren",
+		Auth:              []ssh.AuthMethod{ssh.PublicKeys(signer)},
+		HostKeyAlgorithms: []string{ssh.KeyAlgoED25519},
+		HostKeyCallback: func(_ string, _ net.Addr, key ssh.PublicKey) error {
+			hostKeySeen.Store(true)
+			if ssh.FingerprintSHA256(key) == expectedFingerprint {
+				hostKeyMatched.Store(true)
+				return nil
+			}
+			return errors.New("host key mismatch")
+		},
+		Timeout: 6 * time.Second,
+	})
+	result["hostKeySeen"], result["hostKeyMatched"] = hostKeySeen.Load(), hostKeyMatched.Load()
+	if err != nil {
+		// Client-side auth rejection surfaces as "unable to authenticate" —
+		// classified locally; the raw error is never recorded.
+		result["authRejected"] = strings.Contains(err.Error(), "unable to authenticate")
+		result["deadline"] = diag.Err() == context.DeadlineExceeded
+		result["cancelled"] = diag.Err() == context.Canceled
+		return result
+	}
+	result["sshAuthenticated"] = true
+	sshConn.Close()
+	return result
+}
+
+// ---- Offline helper tests: zero network, zero DB ----
+
+// fakeProbeClient returns fixed caps/error from Probe; other methods forward
+// to the embedded fake so embedding/forwarding stays verified.
+type fakeProbeClient struct {
+	*sandboxFakeClient
+	caps wrencomputer.Capabilities
+	err  error
+}
+
+func (c *fakeProbeClient) Probe(context.Context) (wrencomputer.Capabilities, error) {
+	return c.caps, c.err
+}
+
+func probeTestClient(recorder *sandboxLiveProbeRecorder, caps wrencomputer.Capabilities, probeErr error) (*sandboxLiveProbeClient, *sandboxFakeClient) {
+	fake := &sandboxFakeClient{}
+	return &sandboxLiveProbeClient{
+		sandboxAgentClient: &fakeProbeClient{sandboxFakeClient: fake, caps: caps, err: probeErr},
+		recorder:           recorder, testCtx: context.Background(),
+		address: "10.0.0.9", port: 22, fingerprint: "SHA256:test", signer: nil,
+	}, fake
+}
+
+func TestSandboxLiveProbeWrapsAndRecords(t *testing.T) {
+	good := wrencomputer.Capabilities{PersistentFiles: true, DurableJobs: true, WorkflowProtocol: 1}
+	r := &sandboxLiveProbeRecorder{now: time.Now, succeeded: map[string]bool{}, diagnose: func(context.Context, string, int, string, ssh.Signer) map[string]bool {
+		t.Error("diagnostic must not run for a healthy probe")
+		return nil
+	}}
+	c, _ := probeTestClient(r, good, nil)
+	caps, err := c.Probe(context.Background())
+	if err != nil || caps != good {
+		t.Fatalf("exact caps must pass through: %+v %v", caps, err)
+	}
+	caps, err = c.Probe(context.Background()) // once per address
+	if err != nil || caps != good {
+		t.Fatal(err)
+	}
+	events := r.snapshot()
+	if len(events) != 1 || events[0]["ok"] != true {
+		t.Fatalf("one success event expected: %v", events)
+	}
+	// Embedding forwards other methods.
+	c, fake := probeTestClient(r, good, nil)
+	c.Close()
+	if !fake.closed.Load() {
+		t.Fatal("embedded Close must reach the inner client")
+	}
+}
+
+func TestSandboxLiveProbeFailureEventIsSafe(t *testing.T) {
+	sentinel := errors.New("sentinel-probe-failure-SECRET-MARKER")
+	var diagCalls int
+	r := &sandboxLiveProbeRecorder{now: time.Now, succeeded: map[string]bool{}, diagnose: func(context.Context, string, int, string, ssh.Signer) map[string]bool {
+		diagCalls++
+		return map[string]bool{"tcpConnected": true, "hostKeySeen": true}
+	}}
+	c, _ := probeTestClient(r, wrencomputer.Capabilities{}, sentinel)
+	caps, err := c.Probe(context.Background())
+	if err != sentinel || caps.PersistentFiles {
+		t.Fatalf("exact error must pass through unchanged: %v", err)
+	}
+	if diagCalls != 1 {
+		t.Fatalf("one diagnostic expected, got %d", diagCalls)
+	}
+	events := r.snapshot()
+	if len(events) != 1 {
+		t.Fatalf("one failure event expected: %v", events)
+	}
+	event := events[0]
+	if event["ok"] != false || event["errorType"] != "*errors.errorString" || event["contextDeadline"] != false || event["rpcError"] != false {
+		t.Fatalf("event fields: %v", event)
+	}
+	diag, _ := event["sshDiagnostic"].(map[string]bool)
+	if !diag["tcpConnected"] {
+		t.Fatalf("diagnostic booleans missing: %v", event)
+	}
+	raw, _ := json.Marshal(events)
+	for _, forbidden := range []string{"SECRET-MARKER", "10.0.0.9", "SHA256:test", "PRIVATE KEY"} {
+		if strings.Contains(string(raw), forbidden) {
+			t.Fatalf("event leaked %q: %s", forbidden, raw)
+		}
+	}
+}
+
+func TestSandboxLiveProbeThrottleAndBounds(t *testing.T) {
+	now := time.Unix(1700000000, 0)
+	clock := func() time.Time { return now }
+	r := &sandboxLiveProbeRecorder{now: clock, succeeded: map[string]bool{}, diagnose: func(context.Context, string, int, string, ssh.Signer) map[string]bool {
+		return map[string]bool{}
+	}}
+	c, _ := probeTestClient(r, wrencomputer.Capabilities{}, errors.New("x"))
+	for i := 0; i < 5; i++ {
+		_, _ = c.Probe(context.Background()) // all inside 30s → one event
+	}
+	if got := len(r.snapshot()); got != 1 {
+		t.Fatalf("throttled events: %d", got)
+	}
+	now = now.Add(31 * time.Second)
+	_, _ = c.Probe(context.Background())
+	if got := len(r.snapshot()); got != 2 {
+		t.Fatalf("post-window event expected: %d", got)
+	}
+	// Buffer is bounded at 32.
+	for i := 0; i < 40; i++ {
+		now = now.Add(31 * time.Second)
+		_, _ = c.Probe(context.Background())
+	}
+	if got := len(r.snapshot()); got != 32 {
+		t.Fatalf("buffer must cap at 32, got %d", got)
+	}
+}
+
+func TestSandboxLiveProbeMissingCapsTriggersDiagnostic(t *testing.T) {
+	var diagCalls int
+	r := &sandboxLiveProbeRecorder{now: time.Now, succeeded: map[string]bool{}, diagnose: func(context.Context, string, int, string, ssh.Signer) map[string]bool {
+		diagCalls++
+		return map[string]bool{"tcpConnected": true}
+	}}
+	c, _ := probeTestClient(r, wrencomputer.Capabilities{PersistentFiles: true, DurableJobs: false, WorkflowProtocol: 1}, nil)
+	caps, err := c.Probe(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if caps.PersistentFiles != true {
+		t.Fatal("caps must pass through even when incomplete")
+	}
+	if diagCalls != 1 {
+		t.Fatalf("missing durableJobs must trigger one diagnostic, got %d", diagCalls)
+	}
+	events := r.snapshot()
+	if len(events) != 1 || events[0]["ok"] != false {
+		t.Fatalf("incomplete caps must record a flagged event: %v", events)
+	}
 }
