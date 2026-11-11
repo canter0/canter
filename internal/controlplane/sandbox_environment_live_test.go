@@ -23,6 +23,7 @@ import (
 	"net/netip"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -62,6 +63,21 @@ echo setup-ok`
 func TestSandboxLiveEnvironment(t *testing.T) {
 	if os.Getenv("CANTER_SANDBOX_ENV_LIVE_AUTHORIZED") != "true" || os.Getenv("CANTER_SANDBOX_LIVE_AUTHORIZED") != "true" {
 		t.Skip("requires CANTER_SANDBOX_ENV_LIVE_AUTHORIZED=true AND CANTER_SANDBOX_LIVE_AUTHORIZED=true (real VMs, dedicated live DB)")
+	}
+	// Optional private relay: guest SSH is forwarded through a local OpenSSH
+	// ControlMaster on the private production peer (native TCP forwarding
+	// only). Unset means the exact existing direct path. A bad socket fails
+	// here — before the provider preflight and any provisioning.
+	var relay *sandboxLiveSSHRelay
+	if controlPath := os.Getenv("CANTER_SANDBOX_LIVE_SSH_CONTROL_PATH"); controlPath != "" {
+		if !filepath.IsAbs(controlPath) {
+			t.Fatal("CANTER_SANDBOX_LIVE_SSH_CONTROL_PATH must be an absolute path")
+		}
+		info, err := os.Stat(controlPath)
+		if err != nil || info.Mode()&os.ModeSocket == 0 {
+			t.Fatal("CANTER_SANDBOX_LIVE_SSH_CONTROL_PATH must be an existing unix socket")
+		}
+		relay = &sandboxLiveSSHRelay{controlPath: controlPath, forwards: map[string]int{}}
 	}
 	database := os.Getenv("CANTER_TEST_DATABASE_URL")
 	parsed, err := url.Parse(database)
@@ -327,6 +343,13 @@ func TestSandboxLiveEnvironment(t *testing.T) {
 		var signer ssh.Signer
 		if s, parseErr := ssh.ParsePrivateKey(config.PrivateKeyPEM); parseErr == nil {
 			signer = s
+		}
+		if relay != nil {
+			localPort, relayErr := relay.forward(ctx, config.Address, config.Port)
+			if relayErr != nil {
+				return nil, relayErr
+			}
+			config.Address, config.Port = "127.0.0.1", localPort
 		}
 		inner, err := wrencomputer.NewSSH(config)
 		if err != nil {
@@ -874,7 +897,7 @@ func (c *sandboxLiveProbeClient) Probe(ctx context.Context) (wrencomputer.Capabi
 type sandboxLiveProbeRecorder struct {
 	mu        sync.Mutex
 	events    []map[string]any
-	lastFlag  time.Time
+	lastFlag  map[string]time.Time
 	succeeded map[string]bool
 	diagnose  func(ctx context.Context, address string, port int, fingerprint string, signer ssh.Signer) map[string]bool
 	now       func() time.Time
@@ -887,19 +910,28 @@ func (r *sandboxLiveProbeRecorder) observe(c *sandboxLiveProbeClient, probeCtx c
 		r.now = time.Now
 	}
 	now := r.now()
+	if r.lastFlag == nil {
+		r.lastFlag = map[string]time.Time{}
+	}
+	port := c.port
+	if port == 0 {
+		port = 22
+	}
+	// Internal dedup key only — never recorded or reported.
+	key := net.JoinHostPort(c.address, strconv.Itoa(port))
 	ok := probeErr == nil && caps.PersistentFiles && caps.DurableJobs
 	if ok {
-		if r.succeeded[c.address] {
+		if r.succeeded[key] {
 			r.mu.Unlock()
 			return
 		}
-		r.succeeded[c.address] = true
+		r.succeeded[key] = true
 	} else {
-		if now.Sub(r.lastFlag) < 30*time.Second {
+		if now.Sub(r.lastFlag[key]) < 30*time.Second {
 			r.mu.Unlock()
 			return
 		}
-		r.lastFlag = now
+		r.lastFlag[key] = now
 	}
 	event := map[string]any{
 		"at":               now.UTC().Format(time.RFC3339),
@@ -940,6 +972,56 @@ func (r *sandboxLiveProbeRecorder) snapshot() []map[string]any {
 	out := make([]map[string]any, len(r.events))
 	copy(out, r.events)
 	return out
+}
+
+// sandboxLiveSSHRelay is a test-only adapter that maps a guest VM's ip:22 to
+// a loopback TCP forward owned by a local OpenSSH ControlMaster over the
+// private tailnet. It validates the target is a literal IP on port 22,
+// forwards only that port, caches per remote endpoint under its own mutex,
+// never falls back to a direct path, and never surfaces remote output — the
+// caller sees only a sanitised generic error.
+type sandboxLiveSSHRelay struct {
+	controlPath string
+	mu          sync.Mutex
+	forwards    map[string]int // "ip:port" -> loopback port
+}
+
+func (r *sandboxLiveSSHRelay) forward(ctx context.Context, address string, port int) (int, error) {
+	if net.ParseIP(address) == nil {
+		return 0, errors.New("private ssh relay requires a literal IP target")
+	}
+	if port == 0 {
+		port = 22
+	}
+	if port != 22 {
+		return 0, errors.New("private ssh relay only forwards port 22")
+	}
+	key := net.JoinHostPort(address, strconv.Itoa(port))
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if local, ok := r.forwards[key]; ok {
+		return local, nil
+	}
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return 0, errors.New("private ssh relay listener failed")
+	}
+	local := listener.Addr().(*net.TCPAddr).Port
+	listener.Close()
+	// Ask the running ControlMaster for a new forward; a stolen port just
+	// fails the command — no retry, no host-key downgrade.
+	forwardCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(forwardCtx, "ssh",
+		"-T", "-o", "BatchMode=yes", "-o", "ExitOnForwardFailure=yes",
+		"-S", r.controlPath, "-O", "forward",
+		"-L", "127.0.0.1:"+strconv.Itoa(local)+":"+key,
+		"canter-production")
+	if err := cmd.Run(); err != nil {
+		return 0, errors.New("private ssh relay forward failed")
+	}
+	r.forwards[key] = local
+	return local, nil
 }
 
 // sandboxLiveSSHDiagnostic answers "how far does the same-identity connection
