@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -896,6 +897,59 @@ func (c *sandboxLiveProbeClient) Probe(ctx context.Context) (wrencomputer.Capabi
 	c.recorder.observe(c, ctx, caps, err)
 	return caps, err
 }
+
+// The optional guest surfaces below forward to the wrapped client so this
+// observer does not strip capabilities the sleep/wake and desktop paths
+// require; a genuinely missing surface returns a controlled error.
+func (c *sandboxLiveProbeClient) ExportSandboxSnapshot(ctx context.Context, opts wrencomputer.SandboxSnapshotOptions, dst io.Writer) (wrencomputer.SandboxSnapshotStats, error) {
+	source, ok := c.sandboxAgentClient.(sandboxSnapshotSource)
+	if !ok {
+		return wrencomputer.SandboxSnapshotStats{}, errors.New("wrapped client cannot export snapshots")
+	}
+	return source.ExportSandboxSnapshot(ctx, opts, dst)
+}
+
+func (c *sandboxLiveProbeClient) RestoreSandboxSnapshot(ctx context.Context, opts wrencomputer.SandboxSnapshotOptions, stats wrencomputer.SandboxSnapshotStats, src io.Reader) error {
+	target, ok := c.sandboxAgentClient.(sandboxSnapshotTarget)
+	if !ok {
+		return errors.New("wrapped client cannot restore snapshots")
+	}
+	return target.RestoreSandboxSnapshot(ctx, opts, stats, src)
+}
+
+func (c *sandboxLiveProbeClient) Screenshot(ctx context.Context) ([]byte, error) {
+	agent, ok := c.sandboxAgentClient.(sandboxDesktopAgent)
+	if !ok {
+		return nil, errors.New("wrapped client has no desktop")
+	}
+	return agent.Screenshot(ctx)
+}
+
+func (c *sandboxLiveProbeClient) ScreenStream(ctx context.Context, emit func([]byte) error) error {
+	agent, ok := c.sandboxAgentClient.(sandboxDesktopAgent)
+	if !ok {
+		return errors.New("wrapped client has no desktop")
+	}
+	return agent.ScreenStream(ctx, emit)
+}
+
+func (c *sandboxLiveProbeClient) Input(ctx context.Context, input wrencomputer.DesktopInput) error {
+	agent, ok := c.sandboxAgentClient.(sandboxDesktopAgent)
+	if !ok {
+		return errors.New("wrapped client has no desktop")
+	}
+	return agent.Input(ctx, input)
+}
+
+var (
+	_ sandboxAgentClient    = (*sandboxLiveProbeClient)(nil)
+	_ sandboxSnapshotSource = (*sandboxLiveProbeClient)(nil)
+	_ sandboxSnapshotTarget = (*sandboxLiveProbeClient)(nil)
+	_ sandboxDesktopAgent   = (*sandboxLiveProbeClient)(nil)
+	_ sandboxSnapshotSource = (*wrencomputer.Client)(nil)
+	_ sandboxSnapshotTarget = (*wrencomputer.Client)(nil)
+	_ sandboxDesktopAgent   = (*wrencomputer.Client)(nil)
+)
 
 // sandboxLiveProbeRecorder owns a mutex-guarded, 32-entry event buffer.
 // Success is recorded once per address; flagged events (failure or missing

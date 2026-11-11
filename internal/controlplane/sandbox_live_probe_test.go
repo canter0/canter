@@ -7,15 +7,20 @@ package controlplane
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"errors"
+	"io"
 	"net"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/canter0/canter/internal/wrencomputer"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -185,5 +190,125 @@ func TestSandboxLiveProbeSSHAlreadyCancelled(t *testing.T) {
 	}
 	if !result["cancelled"] {
 		t.Fatalf("cancelled must be recorded on the dial branch: %+v", result)
+	}
+}
+
+// ---- Optional-interface contract tests: the probe wrapper must forward
+// every optional guest surface, not hide it behind the base embedding. ----
+
+func liveProbeWrapper(inner sandboxAgentClient) *sandboxLiveProbeClient {
+	return &sandboxLiveProbeClient{
+		sandboxAgentClient: inner,
+		recorder:           &sandboxLiveProbeRecorder{now: time.Now, succeeded: map[string]bool{}},
+		testCtx:            context.Background(),
+	}
+}
+
+func liveSnapshotOptions() wrencomputer.SandboxSnapshotOptions {
+	return wrencomputer.SandboxSnapshotOptions{MaxUnpackedBytes: 1 << 30, MaxEntries: wrencomputer.SandboxSnapshotMaxEntries}
+}
+
+func TestSandboxLiveProbeSnapshotRoundTrip(t *testing.T) {
+	archive := snapshotStoreArchive(t, 1024)
+	fake := &sandboxFakeClient{archive: archive}
+	wrapped := liveProbeWrapper(fake)
+	options := liveSnapshotOptions()
+	source, ok := interface{}(wrapped).(sandboxSnapshotSource)
+	if !ok {
+		t.Fatal("wrapper hides sandboxSnapshotSource")
+	}
+	var buf bytes.Buffer
+	stats, err := source.ExportSandboxSnapshot(context.Background(), options, &buf)
+	if err != nil {
+		t.Fatalf("export: %v", err)
+	}
+	if !bytes.Equal(buf.Bytes(), archive) {
+		t.Fatal("export bytes differ from fixture archive")
+	}
+	if stats.RawBytes <= 0 || stats.Entries <= 0 {
+		t.Fatalf("invalid export stats %+v", stats)
+	}
+	target, ok := interface{}(wrapped).(sandboxSnapshotTarget)
+	if !ok {
+		t.Fatal("wrapper hides sandboxSnapshotTarget")
+	}
+	if err := target.RestoreSandboxSnapshot(context.Background(), options, stats, bytes.NewReader(buf.Bytes())); err != nil {
+		t.Fatalf("restore: %v", err)
+	}
+	if len(fake.restored) != 1 || !bytes.Equal(fake.restored[0], archive) {
+		t.Fatalf("inner restore saw %d payloads, not the exact archive", len(fake.restored))
+	}
+}
+
+type desktopRecordingFake struct {
+	*fakeProbeClient
+	screenshot []byte
+	frames     [][]byte
+	inputs     []wrencomputer.DesktopInput
+}
+
+func (f *desktopRecordingFake) Screenshot(context.Context) ([]byte, error) {
+	return f.screenshot, nil
+}
+
+func (f *desktopRecordingFake) ScreenStream(_ context.Context, emit func([]byte) error) error {
+	for _, frame := range f.frames {
+		if err := emit(frame); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (f *desktopRecordingFake) Input(_ context.Context, input wrencomputer.DesktopInput) error {
+	f.inputs = append(f.inputs, input)
+	return nil
+}
+
+// agentOnlyFake hides the optional interfaces behind the base embedding so
+// the wrapper must surface a controlled error, never a panic.
+type agentOnlyFake struct {
+	sandboxAgentClient
+}
+
+func TestSandboxLiveProbeDesktopForwarding(t *testing.T) {
+	fake := &sandboxFakeClient{}
+	inner := &desktopRecordingFake{
+		fakeProbeClient: &fakeProbeClient{sandboxFakeClient: fake},
+		screenshot:      []byte{0x89, 0x50, 0x4e, 0x47},
+		frames:          [][]byte{{1, 2, 3}, {4, 5, 6}},
+	}
+	wrapped := liveProbeWrapper(inner)
+	agent, ok := interface{}(wrapped).(sandboxDesktopAgent)
+	if !ok {
+		t.Fatal("wrapper hides sandboxDesktopAgent")
+	}
+	shot, err := agent.Screenshot(context.Background())
+	if err != nil || !bytes.Equal(shot, inner.screenshot) {
+		t.Fatalf("screenshot %x err=%v", shot, err)
+	}
+	sentinel := errors.New("stream callback sentinel")
+	var got [][]byte
+	if err := agent.ScreenStream(context.Background(), func(frame []byte) error {
+		got = append(got, frame)
+		return sentinel
+	}); !errors.Is(err, sentinel) {
+		t.Fatalf("callback sentinel must pass through unchanged, got %v", err)
+	}
+	if len(got) != 1 || !bytes.Equal(got[0], inner.frames[0]) {
+		t.Fatalf("stream frames %v", got)
+	}
+	input := wrencomputer.DesktopInput{Kind: "move", X: 10, Y: 20, X2: 30, Y2: 40, Button: 1, Amount: 2, Text: "t", Key: "k", URL: "u"}
+	if err := agent.Input(context.Background(), input); err != nil {
+		t.Fatalf("input: %v", err)
+	}
+	if len(inner.inputs) != 1 || !reflect.DeepEqual(inner.inputs[0], input) {
+		t.Fatalf("input did not reach inner exactly: %+v", inner.inputs)
+	}
+
+	// Optional surface genuinely missing on the inner: controlled error, no panic.
+	stub := liveProbeWrapper(agentOnlyFake{sandboxAgentClient: &fakeProbeClient{sandboxFakeClient: &sandboxFakeClient{}}})
+	if _, err := stub.ExportSandboxSnapshot(context.Background(), liveSnapshotOptions(), io.Discard); err == nil {
+		t.Fatal("missing optional surface must return a controlled error")
 	}
 }
