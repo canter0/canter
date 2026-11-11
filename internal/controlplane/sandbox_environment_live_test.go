@@ -383,6 +383,14 @@ func TestSandboxLiveEnvironment(t *testing.T) {
 	}
 	secretID := secretView.ID
 	secretVersion := 1
+	// Secrets writes require a human session authenticated within the last
+	// five minutes; provisioning can exceed that window, so renew the test
+	// session's timestamp before each gated write.
+	refreshSession := func() {
+		if _, err := s.pool.Exec(ctx, `UPDATE human_sessions SET authenticated_at=now() WHERE account_id=$1 AND revoked_at IS NULL`, a.ID); err != nil {
+			t.Fatalf("refresh session auth: %v", err)
+		}
+	}
 	assertNoPlaintext := func(where string, payloads ...string) {
 		for _, payload := range payloads {
 			if payload != "" && strings.Contains(where, payload) {
@@ -645,6 +653,7 @@ func TestSandboxLiveEnvironment(t *testing.T) {
 	rotatedValue := "live-env-rot-" + hex.EncodeToString(dummyBytes2)
 	rotatedHash := sha256.Sum256([]byte(rotatedValue))
 	secretVersion++
+	refreshSession()
 	rot := requestJSON(t, h, http.MethodPut, "/v1/workspaces/"+w.ID+"/secrets/"+secretID,
 		map[string]any{"version": secretVersion - 1, "value": rotatedValue}, cookie)
 	if rot.Code != http.StatusOK {
@@ -661,6 +670,7 @@ func TestSandboxLiveEnvironment(t *testing.T) {
 	// Disable the grant: omitted refs are forbidden with no durable row;
 	// explicit {} runs without the token but keeps PUBLIC_MODE.
 	secretVersion++
+	refreshSession()
 	dis := requestJSON(t, h, http.MethodPatch, "/v1/workspaces/"+w.ID+"/secrets/"+secretID,
 		map[string]any{"version": secretVersion - 1, "sandboxAllowed": false}, cookie)
 	if dis.Code != http.StatusOK {
