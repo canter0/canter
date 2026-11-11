@@ -4302,3 +4302,82 @@ func TestSandboxSetupReceiptOutcomes(t *testing.T) {
 		}
 	})
 }
+
+func TestSandboxRemoteSDKLogStreamContract(t *testing.T) {
+	f := sandboxFixture(t)
+	f.enable(t)
+	ctx := context.Background()
+	pair := workspaceTestAgent(t, f.s, f.account, f.space.ID, "remote-logs")
+	if _, err := f.s.UpdateAgentAuthority(ctx, f.account.ID, f.space.ID, pair.Installation.ID, Authority{Inspect: true, Draft: true, ApplyMode: "automatic"}); err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(f.h)
+	defer server.Close()
+	client, err := remote.New(server.URL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sandboxes, err := client.Sandboxes(f.space.ID, pair.AccessToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	created := environmentPost(t, f, map[string]any{"name": "log-contract", "size": "free-1x1"}, http.StatusAccepted)
+	sandbox, _ := f.s.Sandbox(ctx, f.space.ID, created["id"].(string))
+	sandbox = f.ready(t, sandbox)
+	// A known durable job whose guest feed is already terminal.
+	jobID := "job_contract_1"
+	if err := f.s.recordSandboxJob(ctx, sandbox.ID, jobID); err != nil {
+		t.Fatal(err)
+	}
+	payload := []byte("contract-output-bytes")
+	updatedAt := time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)
+	exitCode := 0
+	dial := f.h.sandboxDial
+	f.h.sandboxDial = func(config wrencomputer.Config) (sandboxAgentClient, error) {
+		c, err := dial(config)
+		if err != nil {
+			return nil, err
+		}
+		fake := c.(*sandboxFakeClient)
+		fake.jobHook = func(_ context.Context, id string) (wrencomputer.Job, error) {
+			return wrencomputer.Job{ID: jobID, Status: "completed", UpdatedAt: updatedAt.Format(time.RFC3339), ExitCode: &exitCode}, nil
+		}
+		fake.logsHook = func(_ context.Context, id, stream string, offset int64, limit int) (wrencomputer.JobLogChunk, error) {
+			if offset != 0 || stream != "combined" {
+				return wrencomputer.JobLogChunk{JobID: jobID, Stream: stream, Status: "completed", Offset: offset, NextOffset: offset, EOF: true}, nil
+			}
+			return wrencomputer.JobLogChunk{
+				JobID: jobID, Stream: "combined", Data: payload,
+				Offset: 0, NextOffset: int64(len(payload)),
+				Status: "completed", ExitCode: &exitCode, EOF: true,
+			}, nil
+		}
+		return fake, nil
+	}
+	var out bytes.Buffer
+	var status string
+	var exit *int
+	if err := sandboxes.StreamLogs(ctx, sandbox.ID, jobID, "combined", 0, func(event remote.SandboxLogEvent) error {
+		if event.Event == "output" {
+			out.Write(event.Data)
+		}
+		if event.Event == "status" {
+			status = event.Status
+			exit = event.ExitCode
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("real SDK StreamLogs over the router: %v", err)
+	}
+	if out.String() != string(payload) || status != "completed" || exit == nil || *exit != 0 {
+		t.Fatalf("stream contract: out=%q status=%q exit=%v", out.String(), status, exit)
+	}
+	// A genuine updatedAt timestamp must pass through unchanged.
+	job, err := sandboxes.Job(ctx, sandbox.ID, jobID)
+	if err != nil {
+		t.Fatalf("job view: %v", err)
+	}
+	if job.JobID != jobID || job.Status != "completed" || !job.UpdatedAt.Equal(updatedAt) {
+		t.Fatalf("job receipt must preserve updatedAt: %+v", job)
+	}
+}

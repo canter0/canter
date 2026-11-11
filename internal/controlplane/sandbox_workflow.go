@@ -210,7 +210,10 @@ func (h *HTTPServer) startSandboxJob(ctx context.Context, v Sandbox, input Sandb
 
 // workflowJobView is the public job receipt: never env, never request fields.
 func workflowJobView(job wrencomputer.Job) map[string]any {
-	out := map[string]any{"jobId": job.ID, "status": job.Status, "updatedAt": job.UpdatedAt}
+	out := map[string]any{"jobId": job.ID, "status": job.Status}
+	if job.UpdatedAt != "" {
+		out["updatedAt"] = job.UpdatedAt
+	}
 	if job.ExitCode != nil {
 		out["exitCode"] = *job.ExitCode
 	}
