@@ -65,6 +65,13 @@ func TestSandboxLiveEnvironment(t *testing.T) {
 	if os.Getenv("CANTER_SANDBOX_ENV_LIVE_AUTHORIZED") != "true" || os.Getenv("CANTER_SANDBOX_LIVE_AUTHORIZED") != "true" {
 		t.Skip("requires CANTER_SANDBOX_ENV_LIVE_AUTHORIZED=true AND CANTER_SANDBOX_LIVE_AUTHORIZED=true (real VMs, dedicated live DB)")
 	}
+	// FAILURE_ONLY runs only the separate exit-17 setup-failure case for a
+	// one-generation budget; it conflicts with SKIP_FAILURE and must fail
+	// before any env/provider/DB mutation.
+	failureOnly := os.Getenv("CANTER_SANDBOX_ENV_LIVE_FAILURE_ONLY") == "true"
+	if failureOnly && os.Getenv("CANTER_SANDBOX_ENV_LIVE_SKIP_FAILURE") == "true" {
+		t.Fatal("CANTER_SANDBOX_ENV_LIVE_FAILURE_ONLY and CANTER_SANDBOX_ENV_LIVE_SKIP_FAILURE are mutually exclusive")
+	}
 	// Optional private relay: guest SSH is forwarded through a local OpenSSH
 	// ControlMaster on the private production peer (native TCP forwarding
 	// only). Unset means the exact existing direct path. A bad socket fails
@@ -168,7 +175,13 @@ func TestSandboxLiveEnvironment(t *testing.T) {
 	// Evidence manifest: non-secret IDs, statuses and hashes only.
 	// Registered BEFORE the cloud cleanup so it runs AFTER it (LIFO): the
 	// manifest records the cleanup outcome the cleanup closure actually set.
-	manifest := map[string]any{"startedAt": time.Now().UTC().Format(time.RFC3339), "repository": liveEnvRepositoryURL, "ref": liveEnvRepositoryRef}
+	mode := "full"
+	if failureOnly {
+		mode = "failure-only"
+	} else if os.Getenv("CANTER_SANDBOX_ENV_LIVE_SKIP_FAILURE") == "true" {
+		mode = "success-wake-only"
+	}
+	manifest := map[string]any{"startedAt": time.Now().UTC().Format(time.RFC3339), "mode": mode, "repository": liveEnvRepositoryURL, "ref": liveEnvRepositoryRef}
 	writeManifest := func() {
 		if probes != nil {
 			manifest["probeDiagnostics"] = probes.snapshot()
@@ -491,6 +504,57 @@ func TestSandboxLiveEnvironment(t *testing.T) {
 			t.Fatalf("download %s: %v", path, err)
 		}
 		return buf.Bytes()
+	}
+
+	// --- Failure sandbox: exit-17 setup must fail but keep the VM usable ---
+	runFailureCase := func() {
+		failure, err := sandboxes.Create(ctx, remote.SandboxCreateInput{
+			Name: "env-live-failure", Size: "free-1x1", IdempotencyKey: "env-live-fail-" + fmt.Sprint(time.Now().UnixNano()),
+			Environment: &remote.SandboxEnvironment{
+				SetupCommand:        "exit 17",
+				SetupTimeoutSeconds: 30,
+			},
+		})
+		if err != nil {
+			t.Fatalf("create failure sandbox: %v", err)
+		}
+		track(failure.ID)
+		if tracked, loadErr := s.Sandbox(ctx, w.ID, failure.ID); loadErr != nil {
+			t.Fatalf("reload failure sandbox for plan: %v", loadErr)
+		} else {
+			trackPlan(tracked.Plan)
+		}
+		failed := reconcileTo(failure.ID, "ready", "failed", 12*time.Minute)
+		thirdGenIDs := recordProviderIDs(failed)
+		if failed.Setup.JobID == "" || failed.Setup.Error == "" {
+			t.Fatalf("failed setup must carry a job handle and safe error: %+v", failed.Setup)
+		}
+		manifest["failure"] = map[string]any{"sandboxId": failed.ID, "setupJobId": failed.Setup.JobID, "providerIds": thirdGenIDs, "error": failed.Setup.Error}
+		// Wait ready must surface the failure with the setup job handle.
+		if _, err := sandboxes.Wait(ctx, failed.ID, "ready"); err == nil || !strings.Contains(err.Error(), failed.Setup.JobID) {
+			t.Fatalf("Wait must error with the setup job ID %q: %v", failed.Setup.JobID, err)
+		}
+		// The failed VM stays ready and accepts a manual repair job.
+		mustJob(failed.ID, remote.SandboxExecInput{Command: "echo repaired"}, "repair job")
+		t.Logf("checkpoint: failure sandbox %s kept VM, Wait surfaced %s, repair job ok", failed.ID, failed.Setup.JobID)
+		if err := sandboxes.Delete(ctx, failed.ID); err != nil {
+			t.Fatalf("delete failure sandbox: %v", err)
+		}
+		reconcileTo(failed.ID, "deleted", "", 12*time.Minute)
+		for _, id := range thirdGenIDs {
+			if _, err := provider.Server(ctx, id); !compute.IsNotFound(err) {
+				t.Fatalf("failure provider %s must be gone after delete: %v", id, err)
+			}
+		}
+		manifest["finishedAt"] = time.Now().UTC().Format(time.RFC3339)
+		t.Log("checkpoint: failure sandbox deleted, all providers 404; live environment flow complete")
+	}
+
+	// Failure-only mode runs just the exit-17 case — no success VM.
+	if failureOnly {
+		manifest["success"] = "not_run_in_failure_only_mode"
+		runFailureCase()
+		return
 	}
 
 	// --- Success sandbox: pinned repo + env + approved secret ---
@@ -823,47 +887,7 @@ func TestSandboxLiveEnvironment(t *testing.T) {
 		return
 	}
 
-	// --- Failure sandbox: exit-17 setup must fail but keep the VM usable ---
-	failure, err := sandboxes.Create(ctx, remote.SandboxCreateInput{
-		Name: "env-live-failure", Size: "free-1x1", IdempotencyKey: "env-live-fail-" + fmt.Sprint(time.Now().UnixNano()),
-		Environment: &remote.SandboxEnvironment{
-			SetupCommand:        "exit 17",
-			SetupTimeoutSeconds: 30,
-		},
-	})
-	if err != nil {
-		t.Fatalf("create failure sandbox: %v", err)
-	}
-	track(failure.ID)
-	if tracked, loadErr := s.Sandbox(ctx, w.ID, failure.ID); loadErr != nil {
-		t.Fatalf("reload failure sandbox for plan: %v", loadErr)
-	} else {
-		trackPlan(tracked.Plan)
-	}
-	failed := reconcileTo(failure.ID, "ready", "failed", 12*time.Minute)
-	thirdGenIDs := recordProviderIDs(failed)
-	if failed.Setup.JobID == "" || failed.Setup.Error == "" {
-		t.Fatalf("failed setup must carry a job handle and safe error: %+v", failed.Setup)
-	}
-	manifest["failure"] = map[string]any{"sandboxId": failed.ID, "setupJobId": failed.Setup.JobID, "providerIds": thirdGenIDs, "error": failed.Setup.Error}
-	// Wait ready must surface the failure with the setup job handle.
-	if _, err := sandboxes.Wait(ctx, failed.ID, "ready"); err == nil || !strings.Contains(err.Error(), failed.Setup.JobID) {
-		t.Fatalf("Wait must error with the setup job ID %q: %v", failed.Setup.JobID, err)
-	}
-	// The failed VM stays ready and accepts a manual repair job.
-	mustJob(failed.ID, remote.SandboxExecInput{Command: "echo repaired"}, "repair job")
-	t.Logf("checkpoint: failure sandbox %s kept VM, Wait surfaced %s, repair job ok", failed.ID, failed.Setup.JobID)
-	if err := sandboxes.Delete(ctx, failed.ID); err != nil {
-		t.Fatalf("delete failure sandbox: %v", err)
-	}
-	reconcileTo(failed.ID, "deleted", "", 12*time.Minute)
-	for _, id := range thirdGenIDs {
-		if _, err := provider.Server(ctx, id); !compute.IsNotFound(err) {
-			t.Fatalf("failure provider %s must be gone after delete: %v", id, err)
-		}
-	}
-	manifest["finishedAt"] = time.Now().UTC().Format(time.RFC3339)
-	t.Log("checkpoint: failure sandbox deleted, all providers 404; live environment flow complete")
+	runFailureCase()
 }
 
 // sandboxJobCount returns the durable sandbox_jobs row count, used to prove a
