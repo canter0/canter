@@ -126,6 +126,10 @@ func IsDuplicateManagedResource(err error) bool {
 type AmbiguousManagedResourceError struct {
 	Kind, Identity string
 	Cause          error
+	// OwnedPolicy is nonnil only when lookup uniquely matched the exact name
+	// and ownership and identified the associated server port; completeness
+	// or attachment remains ambiguous.
+	OwnedPolicy *SecurityPolicy
 }
 
 func (e *AmbiguousManagedResourceError) Error() string {
@@ -754,10 +758,10 @@ func (c *Client) FindManagedTCPExposure(ctx context.Context, input ManagedTCPExp
 		return SecurityPolicy{}, false, &DuplicateManagedResourceError{Kind: "network policy rule", Identity: fmt.Sprintf("%s:tcp/%d", input.Name, input.Port), Count: len(rules)}
 	}
 	if len(rules) == 0 {
-		return SecurityPolicy{}, false, &AmbiguousManagedResourceError{Kind: "network policy", Identity: input.Name, Cause: fmt.Errorf("owned policy exists without the intended rule")}
+		return SecurityPolicy{}, false, &AmbiguousManagedResourceError{Kind: "network policy", Identity: input.Name, Cause: fmt.Errorf("owned policy exists without the intended rule"), OwnedPolicy: &SecurityPolicy{ID: groups[0].ID, PortID: port.ID, Port: input.Port}}
 	}
 	if !containsString(port.SecurityGroups, groups[0].ID) {
-		return SecurityPolicy{}, false, &AmbiguousManagedResourceError{Kind: "network policy attachment", Identity: fmt.Sprintf("%s:%s", input.ServerID, input.Name), Cause: fmt.Errorf("owned policy exists but is not attached")}
+		return SecurityPolicy{}, false, &AmbiguousManagedResourceError{Kind: "network policy attachment", Identity: fmt.Sprintf("%s:%s", input.ServerID, input.Name), Cause: fmt.Errorf("owned policy exists but is not attached"), OwnedPolicy: &SecurityPolicy{ID: groups[0].ID, PortID: port.ID, RuleID: rules[0].ID, Port: input.Port}}
 	}
 	return SecurityPolicy{ID: groups[0].ID, PortID: port.ID, RuleID: rules[0].ID, Port: input.Port}, true, nil
 }

@@ -306,6 +306,61 @@ test("download yields bytes and surfaces truncation", async () => {
   }, /truncat/);
 });
 
+test("download outlasts the configured request timeout", async () => {
+  let passedSignal;
+  const { client } = makeClient((_url, { signal }) => {
+    passedSignal = signal;
+    return new Response(new ReadableStream({
+      async start(controller) {
+        const onAbort = () => controller.error(signal.reason);
+        signal?.addEventListener("abort", onAbort, { once: true });
+        controller.enqueue(new TextEncoder().encode("first"));
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        signal?.removeEventListener("abort", onAbort);
+        if (!signal?.aborted) {
+          controller.enqueue(new TextEncoder().encode(" rest"));
+          controller.close();
+        }
+      },
+    }), { headers: { "Content-Length": "10" } });
+  }, { requestTimeoutMs: 20 });
+  const parts = [];
+  for await (const chunk of client.download("sbx_1", "/work/f")) parts.push(...chunk);
+  assert.equal(new TextDecoder().decode(new Uint8Array(parts)), "first rest");
+  assert.equal(passedSignal, undefined);
+});
+
+test("download caller abort stops a blocked body and releases its reader", async (t) => {
+  const abort = new AbortController();
+  let passedSignal;
+  let reader;
+  let body;
+  const { client } = makeClient((_url, { signal }) => {
+    passedSignal = signal;
+    body = new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("first"));
+        signal.addEventListener("abort", () => controller.error(signal.reason), { once: true });
+      },
+    });
+    const response = new Response(body);
+    reader = body.getReader();
+    t.mock.method(reader, "cancel");
+    t.mock.method(reader, "releaseLock");
+    t.mock.method(body, "getReader", () => reader);
+    return response;
+  });
+  const download = client.download("sbx_1", "/work/f", { signal: abort.signal });
+  assert.equal(new TextDecoder().decode((await download.next()).value), "first");
+  const blocked = download.next();
+  abort.abort();
+  await assert.rejects(blocked, { name: "AbortError" });
+  assert.equal(passedSignal, abort.signal);
+  assert.equal(reader.cancel.mock.callCount(), 1);
+  assert.equal(reader.releaseLock.mock.callCount(), 1);
+  assert.equal(body.locked, false);
+});
+
 test("native redirect across two real servers never forwards credentials", async () => {
   let targetRequests = 0;
   const target = http.createServer((req, res) => { targetRequests++; res.end(); });

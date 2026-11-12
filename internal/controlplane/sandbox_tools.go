@@ -429,6 +429,7 @@ func (h *HTTPServer) callSandboxTool(ctx context.Context, workspace, account str
 		Command            string            `json:"command"`
 		Directory          string            `json:"directory"`
 		Env                map[string]string `json:"env"`
+		SecretRefs         map[string]string `json:"secretRefs"`
 		Labels             map[string]string `json:"labels"`
 		IdleTimeoutSeconds *int              `json:"idleTimeoutSeconds"`
 		IdempotencyKey     string            `json:"idempotencyKey"`
@@ -473,13 +474,13 @@ func (h *HTTPServer) callSandboxTool(ctx context.Context, workspace, account str
 		if err != nil {
 			return nil, err
 		}
-		return h.sandboxExec(ctx, v, SandboxExecInput{Command: args.Command, Directory: args.Directory, Env: args.Env, TimeoutSeconds: args.TimeoutSeconds}, actor)
+		return h.sandboxExec(ctx, v, SandboxExecInput{Command: args.Command, Directory: args.Directory, Env: args.Env, SecretRefs: args.SecretRefs, TimeoutSeconds: args.TimeoutSeconds}, actor)
 	case "canter_sandbox_start":
 		v, err := h.service.Store.Sandbox(ctx, workspace, args.ID)
 		if err != nil {
 			return nil, err
 		}
-		job, err := h.sandboxJobStart(ctx, v, SandboxExecInput{Command: args.Command, Directory: args.Directory, Env: args.Env, TimeoutSeconds: args.TimeoutSeconds}, actor)
+		job, err := h.sandboxJobStart(ctx, v, SandboxExecInput{Command: args.Command, Directory: args.Directory, Env: args.Env, SecretRefs: args.SecretRefs, TimeoutSeconds: args.TimeoutSeconds}, actor)
 		if err != nil {
 			return nil, err
 		}

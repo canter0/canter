@@ -1045,10 +1045,41 @@ func (c *Client) Destroy(ctx context.Context, spec Spec) (State, error) {
 		request := compute.ManagedTCPExposureRequest{ServerID: intent.ServerID, Name: intent.Name, Ownership: intent.Ownership, Port: intent.Port}
 		policy, recovered, lookupErr := c.compute.FindManagedTCPExposure(ctx, request)
 		if lookupErr != nil {
-			return escalate(fmt.Errorf("reconcile public endpoint before destroy: %w", lookupErr))
+			// A proven-owned partial (created but never attached) is safe to
+			// use for cleanup only: deleting it removes the leftover policy.
+			// Everything else still fails closed.
+			var ambiguous *compute.AmbiguousManagedResourceError
+			if errors.As(lookupErr, &ambiguous) && ambiguous.OwnedPolicy != nil && ambiguous.OwnedPolicy.ID != "" && ambiguous.OwnedPolicy.PortID != "" && ambiguous.OwnedPolicy.Port == intent.Port {
+				policy, recovered = *ambiguous.OwnedPolicy, true
+			} else if compute.IsDuplicateManagedResource(lookupErr) {
+				return escalate(fmt.Errorf("reconcile public endpoint before destroy: %w", lookupErr))
+			} else {
+				// A retry after the VM was already deleted cannot rediscover
+				// the policy by server port. Continue only when the VM is
+				// provably gone and an exact owned policy was persisted.
+				if _, serverErr := c.compute.Server(ctx, intent.ServerID); serverErr == nil || !compute.IsNotFound(serverErr) || len(policies) == 0 {
+					return escalate(fmt.Errorf("reconcile public endpoint before destroy: %w", lookupErr))
+				}
+			}
 		}
 		if recovered {
-			policies[policy.ID] = NetworkPolicy{ID: policy.ID, PortID: policy.PortID, RuleID: policy.RuleID, Name: intent.Name, Ownership: intent.Ownership, Protocol: intent.Protocol, Port: policy.Port}
+			mapped := NetworkPolicy{ID: policy.ID, PortID: policy.PortID, RuleID: policy.RuleID, Name: intent.Name, Ownership: intent.Ownership, Protocol: intent.Protocol, Port: policy.Port}
+			policies[policy.ID] = mapped
+			// Record the adopted policy under the destroy fence before any VM
+			// delete so a later failed policy delete can still be completed.
+			persisted, persistErr := c.mutateDestroyState(ctx, key, creationOperationID, exposureOperationID, func(current *State) (bool, error) {
+				for _, existing := range current.NetworkPolicies {
+					if existing.ID == mapped.ID {
+						return false, nil
+					}
+				}
+				current.NetworkPolicies = append(current.NetworkPolicies, mapped)
+				return true, nil
+			})
+			if persistErr != nil {
+				return state, fmt.Errorf("persist recovered public endpoint policy %s: %w", policy.ID, persistErr)
+			}
+			state = persisted
 		} else if intent.MutationUnresolved && len(policies) == 0 {
 			return escalate(fmt.Errorf("public endpoint operation %s is still in flight with no visible exact managed policy", exposureOperationID))
 		}

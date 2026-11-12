@@ -401,6 +401,64 @@ func TestSandboxClientDownload(t *testing.T) {
 	}
 }
 
+func TestSandboxClientDownloadOutlastsRequestTimeout(t *testing.T) {
+	sandboxes, _ := sandboxTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", "10")
+		_, _ = w.Write([]byte("first"))
+		w.(http.Flusher).Flush()
+		time.Sleep(100 * time.Millisecond)
+		_, _ = w.Write([]byte(" rest"))
+	})
+	sandboxes.client.http.Timeout = 20 * time.Millisecond
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	var dest bytes.Buffer
+	err := sandboxes.Download(ctx, "sbx_1", "/work/f", &dest)
+	if sandboxes.client.http.Timeout != 20*time.Millisecond {
+		t.Fatal("download changed the configured HTTP client timeout")
+	}
+	if err != nil {
+		t.Fatalf("download outlasting request timeout: %v", err)
+	}
+	if dest.String() != "first rest" {
+		t.Fatalf("download bytes: %q", dest.String())
+	}
+}
+
+func TestSandboxClientDownloadCallerCancellation(t *testing.T) {
+	sandboxes, _ := sandboxTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("first"))
+		w.(http.Flusher).Flush()
+		<-r.Context().Done()
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	reader, writer := io.Pipe()
+	defer reader.Close()
+	result := make(chan error, 1)
+	go func() {
+		err := sandboxes.Download(ctx, "sbx_1", "/work/f", writer)
+		_ = writer.CloseWithError(err)
+		result <- err
+	}()
+	first := make([]byte, 5)
+	if _, err := io.ReadFull(reader, first); err != nil || string(first) != "first" {
+		t.Fatalf("first chunk: %q, %v", first, err)
+	}
+	cancel()
+	select {
+	case err := <-result:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("download cancellation: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("download did not stop after cancellation")
+	}
+	if rest, err := io.ReadAll(reader); len(rest) != 0 || !errors.Is(err, context.Canceled) {
+		t.Fatalf("read after cancellation: %q, %v", rest, err)
+	}
+}
+
 func TestSandboxClientLifecycleAndLibrary(t *testing.T) {
 	var phase atomic.Value
 	phase.Store("ready")

@@ -880,7 +880,9 @@ export class SandboxClient {
     });
   }
 
-  /** Streams a downloaded file, always releasing the response body. */
+  /** Streams a downloaded file, always releasing the response body.
+   * Download duration is controlled by the caller's AbortSignal, not requestTimeoutMs.
+   */
   async *download(id: string, path: string, options?: RequestOptions): AsyncGenerator<Uint8Array> {
     const query = new URLSearchParams({ path });
     const token = await this.token();
@@ -889,7 +891,7 @@ export class SandboxClient {
       redirect: "manual",
       credentials: "omit",
       cache: "no-store",
-      signal: this.signal(options, this.timeoutMs),
+      ...(options?.signal ? { signal: options.signal } : {}),
       headers: { Authorization: `Bearer ${token}` },
     });
     if (!response.ok || !response.body) {

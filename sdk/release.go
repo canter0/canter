@@ -512,9 +512,10 @@ func (c *Client) exposeSpecTCP(ctx context.Context, spec Spec, result *ApplyResu
 			}
 			// The exact policy may be absent or partially present (for example,
 			// its rule exists but the timed-out port attachment does not). This
-			// path is reachable only from an explicit human retry. The provider
-			// ensure is scoped by the persisted name and ownership digest and is
-			// itself duplicate/ambiguity detecting.
+			// Service endpoints require an explicit human retry; VPS SSH
+			// recovery also requires proof of the exact owned policy. The
+			// provider ensure uses the persisted name and ownership digest
+			// and is itself duplicate/ambiguity detecting.
 			policy, ensureErr := c.compute.ExposeManagedTCP(ctx, request)
 			if ensureErr != nil {
 				return c.escalateExposure(context.WithoutCancel(ctx), key, result, operationID, ensureErr)
@@ -593,6 +594,7 @@ func (c *Client) completeExposureMode(ctx context.Context, key string, result *A
 				}
 				intent.Phase = "ready"
 				intent.MutationUnresolved = false
+				current.Phase = "ready"
 				current.Failure = ""
 				return true, nil
 			}

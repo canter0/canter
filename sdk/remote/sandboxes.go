@@ -902,6 +902,7 @@ func (s *SandboxClient) Upload(ctx context.Context, id, path string, source io.R
 
 // Download streams a sandbox file into dest, verifying any declared
 // Content-Length and propagating truncation or read failures.
+// Download duration is controlled by ctx, not the HTTP client's timeout.
 func (s *SandboxClient) Download(ctx context.Context, id, path string, dest io.Writer) error {
 	if dest == nil {
 		return errors.New("a sandbox download destination is required")
@@ -917,7 +918,9 @@ func (s *SandboxClient) Download(ctx context.Context, id, path string, dest io.W
 		return err
 	}
 	request.Header.Set("Authorization", "Bearer "+s.accessToken)
-	response, err := s.client.http.Do(request)
+	client := *s.client.http
+	client.Timeout = 0
+	response, err := client.Do(request)
 	if err != nil {
 		return err
 	}
