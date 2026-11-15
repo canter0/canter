@@ -441,6 +441,60 @@ class ActivationTests(unittest.TestCase):
         self.assertEqual((self.root / 'bin/canter-ci-enforcer').read_text(), 'old-enforcer')
         self.assertEqual((self.systemd / release.ENFORCER_UNIT).read_text(), 'old-enforcer-unit')
 
+    @patch.object(release.subprocess, 'run')
+    @patch.object(release, 'run')
+    @patch.object(release, 'healthy', return_value=True)
+    def test_failed_enforcer_restart_restores_and_restarts_active_original(self, health, run, subprocess):
+        (self.root / 'bin/canter-ci-enforcer').write_text('old-enforcer')
+        (self.systemd / release.ENFORCER_UNIT).write_text('old-enforcer-unit')
+        # Active at snapshot and installation, inactive after the failed restart.
+        active = [True]
+        release.unit_state.side_effect = \
+            lambda unit, state: active[0] if unit == release.ENFORCER_UNIT else False
+        restarts = []
+
+        def command(*args):
+            if args == ('systemctl', 'restart', release.ENFORCER_UNIT):
+                restarts.append(args)
+                if len(restarts) == 1:
+                    active[0] = False
+                    raise RuntimeError('enforcer restart failed')
+
+        run.side_effect = command
+        with self.assertRaisesRegex(RuntimeError, 'enforcer restart failed'):
+            release.activate(self.next, self.sha)
+        self.assertEqual((self.root / 'bin/canter-ci-enforcer').read_text(), 'old-enforcer')
+        self.assertEqual((self.systemd / release.ENFORCER_UNIT).read_text(), 'old-enforcer-unit')
+        self.assertEqual(len(restarts), 2)
+
+    @patch.object(release.time, 'sleep')
+    @patch.object(release.subprocess, 'run')
+    @patch.object(release, 'run')
+    @patch.object(release, 'healthy', return_value=False)
+    def test_failed_health_does_not_restart_inactive_original_enforcer(self, health, run, subprocess, sleep):
+        (self.root / 'bin/canter-ci-enforcer').write_text('old-enforcer')
+        (self.systemd / release.ENFORCER_UNIT).write_text('old-enforcer-unit')
+        # Inactive at snapshot and installation; the new unit is live-active once
+        # activation fails (the rollback-path stop call marks that boundary).
+        active = [False]
+        release.unit_state.side_effect = \
+            lambda unit, state: active[0] if unit == release.ENFORCER_UNIT else False
+        stops = []
+
+        def command(*args):
+            if args == ('systemctl', 'stop', 'canter-web', 'canter-controlplane'):
+                stops.append(args)
+                if len(stops) == 2:
+                    active[0] = True
+
+        run.side_effect = command
+        with self.assertRaisesRegex(RuntimeError, 'readiness'):
+            release.activate(self.next, self.sha)
+        self.assertEqual((self.root / 'bin/canter-ci-enforcer').read_text(), 'old-enforcer')
+        self.assertEqual((self.systemd / release.ENFORCER_UNIT).read_text(), 'old-enforcer-unit')
+        self.assertNotIn(('systemctl', 'restart', release.ENFORCER_UNIT),
+                         [call.args for call in run.call_args_list])
+
     @patch.object(release.subprocess, 'run', side_effect=RuntimeError('backup failed'))
     @patch.object(release, 'run')
     def test_backup_failure_does_not_stop_production(self, run, subprocess):

@@ -298,7 +298,8 @@ def enforcer_snapshot(release):
         shutil.copy2(binary, previous)
     unit = SYSTEMD / ENFORCER_UNIT
     return {'binary': previous if previous.exists() else None,
-            'unit': unit.read_bytes() if unit.exists() else None}
+            'unit': unit.read_bytes() if unit.exists() else None,
+            'active': unit_state(ENFORCER_UNIT, 'is-active')}
 
 
 def install_enforcer(release):
@@ -325,7 +326,7 @@ def restore_enforcer(previous):
         unit.write_bytes(previous['unit'])
         unit.chmod(0o644)
     run('systemctl', 'daemon-reload')
-    if unit_state(ENFORCER_UNIT, 'is-active'):
+    if previous['active']:
         run('systemctl', 'restart', ENFORCER_UNIT)
 
 
