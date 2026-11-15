@@ -853,6 +853,7 @@ class BootstrapSupervision(Fixture):
         directory = jit._prepare_admission(self.admission_dir)
         base = time.time()
         fakewall = [base]
+        fakemono = [100.0]
         args = SimpleNamespace(
             admission_dir=directory,
             setup_deadline_unix_ms=int((base + 3) * 1000),
@@ -889,6 +890,7 @@ class BootstrapSupervision(Fixture):
             raw = json.dumps(receipt, separators=(',', ':')).encode() + b'\n'
             jit._publish_exclusive(directory, jit.FILE_RECEIPT, raw, 0o600)
             fakewall[0] = base + 4
+            fakemono[0] = 104.0
             return proc
 
         admission_url = self.endpoint.replace('/runner-bootstrap',
@@ -896,6 +898,8 @@ class BootstrapSupervision(Fixture):
         try:
             with mock.patch.object(gb.time, 'time',
                                    side_effect=lambda: fakewall[0]), \
+                    mock.patch.object(gb, 'monotonic',
+                                      side_effect=lambda: fakemono[0]), \
                     mock.patch.object(gb.subprocess, 'Popen',
                                       side_effect=spy), \
                     mock.patch.object(gb, '_publish_bridge_denial',
@@ -904,6 +908,7 @@ class BootstrapSupervision(Fixture):
             self.assertEqual(len(created), 1)
             self.assertGreater(fakewall[0], base + 3)
             self.assertGreater(fakewall[0], int(base) + 2)
+            self.assertGreater(fakemono[0], 103.0)
             self.assertTrue(gb._receipt_satisfies(directory, request))
             self.assertTrue(os.path.exists(
                 os.path.join(directory, jit.FILE_RECEIPT)))
