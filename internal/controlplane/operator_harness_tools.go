@@ -52,6 +52,8 @@ func operatorPolicy(name string) (operatorToolPolicy, bool) {
 		return operatorToolPolicy{Effect: "delegation", RetrySafe: true}, true
 	case "canter_inspect_job", "canter_list_jobs", "canter_read_web":
 		return operatorToolPolicy{Effect: "read", RetrySafe: true}, true
+	case "canter_inspect_ci", "canter_inspect_ci_job":
+		return operatorToolPolicy{Effect: "read", RetrySafe: true}, true
 	case "canter_list_vps", "canter_capabilities", "canter_show_compute", "canter_show_storage", "canter_estimate_compute_cost", "canter_list_changes", "canter_inspect_change_execution", "canter_list_standing_policies", "canter_list_initial_deployments", "canter_inspect_initial_deployment_execution", "canter_list_tasks", "canter_inspect_task", "canter_read_task_context", "canter_search_history", "canter_read_history", "canter_read_result":
 		return operatorToolPolicy{Effect: "read", RetrySafe: true}, true
 	case "canter_show_connections":

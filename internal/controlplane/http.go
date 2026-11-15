@@ -38,6 +38,7 @@ type HTTPConfig struct {
 	GitHubOAuth   OAuthCredentials
 	GitHubApp     OAuthCredentials
 	GitHubAppSlug string
+	CI            CIConfig
 	Billing       *BillingGateway
 	Operator      OperatorConfig
 }
@@ -49,6 +50,40 @@ type CIConfig struct {
 	WebhookSecret []byte
 	APIBaseURL    string
 	HTTPClient    *http.Client
+	// Admission is the optional guest runner-admission endpoint configuration.
+	// Nil or invalid leaves POST /v1/ci/runner-admissions absent (404); it is
+	// populated only by an explicitly configured managed runtime, never by
+	// environment or public routes directly.
+	Admission *CIAdmissionConfig
+	// Bootstrap is the optional runner-bootstrap endpoint configuration. It
+	// reuses the admission signing key and enforcer client; nil or an invalid
+	// profile digest leaves POST /v1/ci/runner-bootstrap absent (404).
+	Bootstrap *CIBootstrapConfig
+	// Cache is the optional authenticated CI cache server. Nil leaves every
+	// /v1/ci/cache route absent (404); it is populated only by explicit
+	// CANTER_CI_CACHE_ROOT startup configuration.
+	Cache *CICacheServer
+	// Managed is the optional managed CI runtime. Nil leaves the runner pool
+	// offline; a configured runtime reports live pool readiness and owns the
+	// admission/bootstrap endpoints through CIConfig.
+	Managed *CIManagedRuntime
+}
+
+// CIBootstrapConfig carries the provisioning profile digest that scopes the
+// optional bootstrap endpoint. Signing and enforcer access come from
+// CI.Admission; there is no separate issuer.
+type CIBootstrapConfig struct {
+	ProfileDigest string
+}
+
+// CIAdmissionConfig carries the dedicated guest capability signing key and
+// the independent enforcer endpoint used to prove and approve each admission.
+type CIAdmissionConfig struct {
+	SigningKey        []byte
+	EnforcerURL       string
+	EnforcerToken     []byte
+	HTTPClient        *http.Client
+	AllowLoopbackHTTP bool
 }
 
 type HTTPServer struct {
@@ -72,11 +107,13 @@ type HTTPServer struct {
 	// requests that may carry an artifact encoded as base64.
 	mcpRequests    chan struct{}
 	mcpLargeBodies chan struct{}
+	// ciEvidenceSlots bounds concurrent runner-evidence uploads globally.
+	ciEvidenceSlots chan struct{}
 }
 
 func NewHTTPServer(service *Service, config HTTPConfig) http.Handler {
 	passkeys, _ := newPasskeys(config.PublicURL)
-	return &HTTPServer{passkeys: passkeys, service: service, config: config, limits: newRequestLimiter(), oauth: newOAuthProviders(config), artifactUploads: make(chan struct{}, 2), audioUploads: make(chan struct{}, 2), mcpRequests: make(chan struct{}, 8), mcpLargeBodies: make(chan struct{}, 1)}
+	return &HTTPServer{passkeys: passkeys, service: service, config: config, limits: newRequestLimiter(), oauth: newOAuthProviders(config), artifactUploads: make(chan struct{}, 2), audioUploads: make(chan struct{}, 2), mcpRequests: make(chan struct{}, 8), mcpLargeBodies: make(chan struct{}, 1), ciEvidenceSlots: make(chan struct{}, ciEvidenceHTTPConcurrency)}
 }
 
 func (h *HTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -137,6 +174,8 @@ func (h *HTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch parts[1] {
+	case "ci":
+		h.ciGitHubPublic(w, r, parts[2:])
 	case "wren-extension-events":
 		if len(parts) != 3 {
 			http.NotFound(w, r)
@@ -767,6 +806,10 @@ func (h *HTTPServer) workspaces(w http.ResponseWriter, r *http.Request, parts []
 	}
 	if parts[1] == "sandbox-templates" {
 		h.workspaceSandboxTemplates(w, r, p, workspaceID, parts[2:])
+		return
+	}
+	if parts[1] == "ci" {
+		h.workspaceCI(w, r, p, workspaceID, parts[2:])
 		return
 	}
 	if parts[1] == "wren-read" {

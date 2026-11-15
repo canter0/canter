@@ -294,7 +294,11 @@ func (s *Store) accountDeletionWorkspacesTx(ctx context.Context, tx pgx.Tx, acco
 		if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM systems WHERE workspace_id=$1) OR EXISTS(SELECT 1 FROM node_installations WHERE workspace_id=$1 AND revoked_at IS NULL) OR EXISTS(SELECT 1 FROM initial_deployment_executions WHERE workspace_id=$1 AND phase IN ('queued','running')) OR EXISTS(SELECT 1 FROM workspace_vps WHERE workspace_id=$1 AND phase NOT IN ('drafted','deleted')) OR EXISTS(SELECT 1 FROM wren_computers WHERE workspace_id=$1 AND phase<>'deleted') OR EXISTS(SELECT 1 FROM sandboxes WHERE workspace_id=$1 AND phase<>'deleted')`, item.id).Scan(&resources); err != nil {
 			return nil, err
 		}
-		if resources {
+		ciProtected, err := s.ciWorkspaceProtectedTx(ctx, tx, item.id)
+		if err != nil {
+			return nil, err
+		}
+		if resources || ciProtected {
 			return nil, accountDeletionBlocked{fmt.Sprintf("Close or transfer hosted resources in workspace %q before deleting your account. Contact support to arrange removal.", item.name)}
 		}
 		if _, err = tx.Exec(ctx, `SELECT workspace_id FROM workspace_billing WHERE workspace_id=$1 FOR UPDATE`, item.id); err != nil {

@@ -1,0 +1,23 @@
+CREATE TABLE ci_runner_lifecycles (
+    workspace_id text NOT NULL,
+    runner_id text PRIMARY KEY,
+    operation_id text NOT NULL UNIQUE CHECK (operation_id ~ '^[A-Za-z0-9_-]{1,128}$'),
+    plan jsonb NOT NULL CHECK (jsonb_typeof(plan)='object'),
+    resources jsonb NOT NULL DEFAULT '[]'::jsonb CHECK (jsonb_typeof(resources)='array'),
+    enforcer_lease text NOT NULL DEFAULT '',
+    create_attempted_at timestamptz,
+    create_settled boolean NOT NULL DEFAULT false,
+    setup_deadline_at timestamptz NOT NULL,
+    hard_deadline_at timestamptz NOT NULL,
+    stop_requested_at timestamptz,
+    bill_stop_at timestamptz,
+    stop_reason text CHECK (stop_reason IN ('cancelled','deadline','completed','setup_failed')),
+    stopped_verified_at timestamptz,
+    cleanup_verified_at timestamptz,
+    next_attempt_at timestamptz NOT NULL DEFAULT now(),
+    FOREIGN KEY (workspace_id,runner_id) REFERENCES ci_runners(workspace_id,id) ON DELETE CASCADE,
+    CHECK (hard_deadline_at > setup_deadline_at),
+    CHECK ((stop_requested_at IS NULL) = (stop_reason IS NULL)),
+    CHECK (bill_stop_at IS NULL OR stop_requested_at IS NOT NULL),
+    CHECK (cleanup_verified_at IS NULL OR stopped_verified_at IS NOT NULL)
+);

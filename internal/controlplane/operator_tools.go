@@ -45,7 +45,7 @@ func (o *OperatorRuntime) surface(ctx context.Context, r OperatorRun, surface Op
 }
 func (o *OperatorRuntime) tools() []mcpTool {
 	out := []mcpTool{}
-	allowed := map[string]bool{"canter_list_tasks": true, "canter_inspect_task": true, "canter_read_task_context": true, "canter_inspect_system": true, "canter_list_changes": true, "canter_inspect_change": true, "canter_inspect_change_execution": true, "canter_draft_change": true, "canter_list_standing_policies": true, "canter_apply_change_under_policy": true, "canter_list_initial_deployments": true, "canter_inspect_initial_deployment": true, "canter_inspect_initial_deployment_execution": true}
+	allowed := map[string]bool{"canter_list_tasks": true, "canter_inspect_task": true, "canter_read_task_context": true, "canter_inspect_system": true, "canter_list_changes": true, "canter_inspect_change": true, "canter_inspect_change_execution": true, "canter_draft_change": true, "canter_list_standing_policies": true, "canter_apply_change_under_policy": true, "canter_list_initial_deployments": true, "canter_inspect_initial_deployment": true, "canter_inspect_initial_deployment_execution": true, "canter_inspect_ci": true, "canter_inspect_ci_job": true}
 	for _, t := range mcpTools() {
 		if allowed[t.Name] {
 			out = append(out, t)

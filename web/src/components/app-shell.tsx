@@ -49,7 +49,7 @@ function pageIsFocused() {
 
 function serverPageIsFocused() { return true; }
 
-type NavItem = "Home" | "Task" | "System" | "Changes" | "Agents" | "Account" | "Billing" | "Customize" | "Wrens" | "Products" | "Sandboxes";
+type NavItem = "Home" | "Task" | "System" | "Changes" | "Agents" | "Account" | "Billing" | "Customize" | "Wrens" | "Products" | "Sandboxes" | "CI";
 const navigation: Array<{ label: string; active: NavItem; href: string; icon: WorkspaceIconName; key: string }> = [
   { label: "New session", active: "Home", href: "/app", icon: "plus", key: "n" },
   { label: "Apps", active: "System", href: "/app/system", icon: "apps", key: "s" },
@@ -116,7 +116,7 @@ export function AppShell({ active, context, children, onNewInstruction, agentVie
   const sidebarSettings = settingsNavigation ?? (isSettings ? <SettingsNavigation active={settingsActive} /> : null);
   const navActive = pathname.startsWith("/app/conversations/") ? "Task" : pathname.startsWith("/app/customize") ? "Customize" : pathname.startsWith("/app/agents") ? "Agents" : pathname.startsWith("/app/system") ? "System" : pathname.startsWith("/app/changes") ? "Changes" : pathname === "/app" ? "Home" : active;
   const conversationTitle = data?.conversations.find(item => pathname === `/app/conversations/${encodeURIComponent(item.id)}`)?.title;
-  const title = pageTitle ?? conversationTitle ?? (isSettings ? settingsActive : { Home: "New conversation", Task: "Task", System: "Apps", Changes: "Activity", Agents: "Agents", Account: "Profile", Billing: "Billing", Customize: "Customize", Wrens: "Wrens", Products: "Products", Sandboxes: "Sandboxes" }[navActive]);
+  const title = pageTitle ?? conversationTitle ?? (isSettings ? settingsActive : { Home: "New conversation", Task: "Task", System: "Apps", Changes: "Activity", Agents: "Agents", Account: "Profile", Billing: "Billing", Customize: "Customize", Wrens: "Wrens", Products: "Products", Sandboxes: "Sandboxes", CI: "CI" }[navActive]);
   useLayoutEffect(() => { if (!embedded) setPageTitle(title); }, [title, pathname, embedded, setPageTitle]);
   const [mobileOpen, setMobileOpen] = useState(false);
   const mobile = useMediaQuery("(max-width: 1023px)");

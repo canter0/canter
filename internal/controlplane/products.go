@@ -3,6 +3,7 @@ package controlplane
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -22,6 +23,7 @@ type productEntry struct {
 var productCatalog = []productEntry{
 	{ID: "wrens", Name: "Wrens", Description: "Persistent agents that work alongside your organization.", AlwaysOn: true},
 	{ID: "sandboxes", Name: "Sandboxes", Description: "Cloud computers for you and your agents. Run code, keep files, sleep when idle."},
+	{ID: "ci", Name: "CI", Description: "GitHub Actions runners with a free first hour on every run."},
 }
 
 func productKnown(id string) bool {
@@ -102,6 +104,37 @@ func (s *Store) EnableWorkspaceProduct(ctx context.Context, workspaceID, product
 	return err
 }
 
+// requireWorkspaceProductForUseTx activates a product as part of an authorized
+// first use. Callers must hold the workspace row lock (also used by disable)
+// and commit only after all operation-specific validation and writes succeed.
+// account is the human authority, including for the home operator; connected
+// installations pass an empty account and may only use already-enabled products.
+func (s *Store) requireWorkspaceProductForUseTx(ctx context.Context, tx pgx.Tx, workspaceID, product, account string, actor sdk.ActorRef) error {
+	if !productKnown(product) {
+		return ErrNotFound
+	}
+	enabled, err := s.productEnabled(ctx, tx, workspaceID, product)
+	if err != nil || enabled {
+		return err
+	}
+	if account == "" {
+		return fmt.Errorf("%w: a workspace owner or operator must enable %s first", ErrConflict, product)
+	}
+	if err := requireWorkspaceWriter(ctx, tx, workspaceID, account, true); err != nil {
+		return err
+	}
+	result, err := tx.Exec(ctx, `INSERT INTO workspace_products(workspace_id,product,enabled_by_kind,enabled_by_id) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING`, workspaceID, product, actor.Kind, actor.ID)
+	if err != nil || result.RowsAffected() == 0 {
+		return err
+	}
+	event, err := newID("evt_")
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO audit_events(id,workspace_id,actor_kind,actor_id,session_id,action,subject,metadata,occurred_at) VALUES($1,$2,$3,$4,$5,'product.enabled',$6,'{"implicit":true}'::jsonb,$7)`, event, workspaceID, actor.Kind, actor.ID, actor.SessionID, product, s.now())
+	return err
+}
+
 // DisableWorkspaceProduct removes enablement. alwaysOn products and disabling
 // Sandboxes while sandboxes still exist are conflicts. Idempotent.
 func (s *Store) DisableWorkspaceProduct(ctx context.Context, workspaceID, product string) error {
@@ -130,6 +163,15 @@ func (s *Store) DisableWorkspaceProduct(ctx context.Context, workspaceID, produc
 		}
 		if live {
 			return ErrConflict
+		}
+	}
+	if product == "ci" {
+		protected, err := s.ciWorkspaceProtectedTx(ctx, tx, workspaceID)
+		if err != nil {
+			return err
+		}
+		if protected {
+			return fmt.Errorf("%w: wait for CI runners and billing reconciliation to finish before disabling CI", ErrConflict)
 		}
 	}
 	if _, err = tx.Exec(ctx, `DELETE FROM workspace_products WHERE workspace_id=$1 AND product=$2`, workspaceID, product); err != nil {

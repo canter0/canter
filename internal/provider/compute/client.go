@@ -220,6 +220,14 @@ func NewFromEnv() (*Client, error) {
 	return &Client{config: cfg, http: providerHTTPClient(18 * time.Second)}, nil
 }
 
+// WithRegion returns a client for the same account pinned to another region,
+// for workloads such as CI runners that live outside the default region.
+func (c *Client) WithRegion(region string) *Client {
+	cfg := c.config
+	cfg.Region = region
+	return &Client{config: cfg, http: c.http}
+}
+
 func validProviderURL(raw string) bool {
 	u, err := url.Parse(raw)
 	if err != nil || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Opaque != "" {

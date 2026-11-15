@@ -27,6 +27,7 @@ WEB_USER = 'canter-web'
 WEB_GROUP = 'canter-web'
 HARNESS_UNITS = ('canter-harness.socket', 'canter-harness@.service')
 RUNTIME_UNITS = (*HARNESS_UNITS, 'canter-web.service')
+ENFORCER_UNIT = 'canter-ci-enforcer.service'
 DOWNLOAD_CHUNK_SIZE = 1024 * 1024
 MAX_ARCHIVE_BYTES = 1024 * 1024 * 1024
 MAX_ARCHIVE_MEMBERS = 100_000
@@ -290,6 +291,45 @@ def install_runtime(release, sha):
     run('systemctl', 'enable', '--now', 'canter-harness.socket')
 
 
+def enforcer_snapshot(release):
+    binary = ROOT / 'bin/canter-ci-enforcer'
+    previous = release / 'previous-ci-enforcer'
+    if binary.exists():
+        shutil.copy2(binary, previous)
+    unit = SYSTEMD / ENFORCER_UNIT
+    return {'binary': previous if previous.exists() else None,
+            'unit': unit.read_bytes() if unit.exists() else None,
+            'active': unit_state(ENFORCER_UNIT, 'is-active')}
+
+
+def install_enforcer(release):
+    """Update the CI enforcer files; only an operator-enabled unit restarts."""
+    binary, unit = release / 'canter-ci-enforcer', release / 'deploy' / ENFORCER_UNIT
+    if not binary.is_file() or not unit.is_file():
+        return
+    install_file(binary, ROOT / 'bin/canter-ci-enforcer')
+    install_file(unit, SYSTEMD / ENFORCER_UNIT, 0o644)
+    run('systemctl', 'daemon-reload')
+    if unit_state(ENFORCER_UNIT, 'is-active'):
+        run('systemctl', 'restart', ENFORCER_UNIT)
+
+
+def restore_enforcer(previous):
+    binary, unit = ROOT / 'bin/canter-ci-enforcer', SYSTEMD / ENFORCER_UNIT
+    if previous['binary'] is None:
+        binary.unlink(missing_ok=True)
+    else:
+        install_file(previous['binary'], binary)
+    if previous['unit'] is None:
+        unit.unlink(missing_ok=True)
+    else:
+        unit.write_bytes(previous['unit'])
+        unit.chmod(0o644)
+    run('systemctl', 'daemon-reload')
+    if previous['active']:
+        run('systemctl', 'restart', ENFORCER_UNIT)
+
+
 def restore_runtime(previous, keep_web_unit=False):
     stop_runtime()
     if previous['target'] is None:
@@ -345,11 +385,13 @@ def activate(release, sha):
     backup.with_suffix('.r2-key').write_text('ops/control-plane/postgres/' + key + '\n')
     backup.unlink()
     runtime = runtime_snapshot(release)
+    enforcer = enforcer_snapshot(release)
     prepare_web_tree(release / 'web')
     allow_web_path_traversal()
     switched = False
     runtime_changed = False
     web_unit_installed = False
+    enforcer_changed = False
     try:
         run('systemctl', 'stop', 'canter-web', 'canter-controlplane')
         runtime_changed = True
@@ -360,6 +402,8 @@ def activate(release, sha):
         switched = True
         (release / 'web').rename(ROOT / 'web')
         install_binary(release / 'canter-controlplane')
+        enforcer_changed = True
+        install_enforcer(release)
         run('systemctl', 'restart', 'canter-controlplane', 'canter-web')
         for _ in range(60):
             if healthy(sha):
@@ -375,6 +419,8 @@ def activate(release, sha):
                 (ROOT / 'web').rename(release / 'failed-web')
             previous_web.rename(ROOT / 'web')
         install_binary(previous_binary)
+        if enforcer_changed:
+            restore_enforcer(enforcer)
         if runtime_changed:
             restore_runtime(runtime, keep_web_unit=web_unit_installed)
         if web_unit_installed:

@@ -240,11 +240,50 @@ var sandboxSnapshotsMigration string
 //go:embed migrations/073_sandbox_mutations.sql
 var sandboxMutationsMigration string
 
+//go:embed migrations/074_ci.sql
+var ciMigration string
+
+//go:embed migrations/075_ci_connect_states.sql
+var ciConnectStatesMigration string
+
+//go:embed migrations/076_ci_runner_retirement.sql
+var ciRunnerRetirementMigration string
+
+//go:embed migrations/077_ci_repository_history.sql
+var ciRepositoryHistoryMigration string
+
 //go:embed migrations/078_sandbox_desktops.sql
 var sandboxDesktopMigration string
 
 //go:embed migrations/079_sandbox_environment.sql
 var sandboxEnvironmentMigration string
+
+//go:embed migrations/079_ci_runner_admission_registration.sql
+var ciRunnerAdmissionRegistrationMigration string
+
+//go:embed migrations/080_ci_admission_decisions.sql
+var ciAdmissionDecisionsMigration string
+
+//go:embed migrations/081_ci_runner_lifecycles.sql
+var ciRunnerLifecyclesMigration string
+
+//go:embed migrations/082_ci_provisioning_budget.sql
+var ciProvisioningBudgetMigration string
+
+//go:embed migrations/083_ci_runner_creation_journal.sql
+var ciRunnerCreationJournalMigration string
+
+//go:embed migrations/084_ci_runner_bootstrap_grants.sql
+var ciRunnerBootstrapGrantsMigration string
+
+//go:embed migrations/085_ci_cache.sql
+var ciCacheMigration string
+
+//go:embed migrations/086_ci_job_log_collections.sql
+var ciJobLogCollectionsMigration string
+
+//go:embed migrations/087_ci_job_evidence.sql
+var ciJobEvidenceMigration string
 
 var (
 	ErrNotFound      = errors.New("not found")
@@ -764,6 +803,48 @@ func (s *Store) Migrate(ctx context.Context) error {
 	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('073_sandbox_mutations') ON CONFLICT DO NOTHING`); err != nil {
 		return err
 	}
+	var ciApplied bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version='074_ci')`).Scan(&ciApplied); err != nil {
+		return err
+	}
+	if !ciApplied {
+		if _, err := tx.Exec(ctx, ciMigration); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('074_ci') ON CONFLICT DO NOTHING`); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec(ctx, ciConnectStatesMigration); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('075_ci_connect_states') ON CONFLICT DO NOTHING`); err != nil {
+		return err
+	}
+	var ciRetirementApplied bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version='076_ci_runner_retirement')`).Scan(&ciRetirementApplied); err != nil {
+		return err
+	}
+	if !ciRetirementApplied {
+		if _, err := tx.Exec(ctx, ciRunnerRetirementMigration); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('076_ci_runner_retirement') ON CONFLICT DO NOTHING`); err != nil {
+			return err
+		}
+	}
+	var ciRepoHistoryApplied bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version='077_ci_repository_history')`).Scan(&ciRepoHistoryApplied); err != nil {
+		return err
+	}
+	if !ciRepoHistoryApplied {
+		if _, err := tx.Exec(ctx, ciRepositoryHistoryMigration); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('077_ci_repository_history') ON CONFLICT DO NOTHING`); err != nil {
+			return err
+		}
+	}
 	var desktopApplied bool
 	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version='078_sandbox_desktops')`).Scan(&desktopApplied); err != nil {
 		return err
@@ -785,6 +866,114 @@ func (s *Store) Migrate(ctx context.Context) error {
 			return err
 		}
 		if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('079_sandbox_environment') ON CONFLICT DO NOTHING`); err != nil {
+			return err
+		}
+	}
+	var admissionRegistrationApplied bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version='079_ci_runner_admission_registration')`).Scan(&admissionRegistrationApplied); err != nil {
+		return err
+	}
+	if !admissionRegistrationApplied {
+		if _, err := tx.Exec(ctx, ciRunnerAdmissionRegistrationMigration); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('079_ci_runner_admission_registration') ON CONFLICT DO NOTHING`); err != nil {
+			return err
+		}
+	}
+	var admissionDecisionsApplied bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version='080_ci_admission_decisions')`).Scan(&admissionDecisionsApplied); err != nil {
+		return err
+	}
+	if !admissionDecisionsApplied {
+		if _, err := tx.Exec(ctx, ciAdmissionDecisionsMigration); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('080_ci_admission_decisions') ON CONFLICT DO NOTHING`); err != nil {
+			return err
+		}
+	}
+	var runnerLifecyclesApplied bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version='081_ci_runner_lifecycles')`).Scan(&runnerLifecyclesApplied); err != nil {
+		return err
+	}
+	if !runnerLifecyclesApplied {
+		if _, err := tx.Exec(ctx, ciRunnerLifecyclesMigration); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('081_ci_runner_lifecycles') ON CONFLICT DO NOTHING`); err != nil {
+			return err
+		}
+	}
+	var provisioningBudgetApplied bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version='082_ci_provisioning_budget')`).Scan(&provisioningBudgetApplied); err != nil {
+		return err
+	}
+	if !provisioningBudgetApplied {
+		if _, err := tx.Exec(ctx, ciProvisioningBudgetMigration); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('082_ci_provisioning_budget') ON CONFLICT DO NOTHING`); err != nil {
+			return err
+		}
+	}
+	var creationJournalApplied bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version='083_ci_runner_creation_journal')`).Scan(&creationJournalApplied); err != nil {
+		return err
+	}
+	if !creationJournalApplied {
+		if _, err := tx.Exec(ctx, ciRunnerCreationJournalMigration); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('083_ci_runner_creation_journal') ON CONFLICT DO NOTHING`); err != nil {
+			return err
+		}
+	}
+	var bootstrapGrantsApplied bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version='084_ci_runner_bootstrap_grants')`).Scan(&bootstrapGrantsApplied); err != nil {
+		return err
+	}
+	if !bootstrapGrantsApplied {
+		if _, err := tx.Exec(ctx, ciRunnerBootstrapGrantsMigration); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('084_ci_runner_bootstrap_grants') ON CONFLICT DO NOTHING`); err != nil {
+			return err
+		}
+	}
+	var ciCacheApplied bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version='085_ci_cache')`).Scan(&ciCacheApplied); err != nil {
+		return err
+	}
+	if !ciCacheApplied {
+		if _, err := tx.Exec(ctx, ciCacheMigration); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('085_ci_cache') ON CONFLICT DO NOTHING`); err != nil {
+			return err
+		}
+	}
+	var ciJobLogCollectionsApplied bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version='086_ci_job_log_collections')`).Scan(&ciJobLogCollectionsApplied); err != nil {
+		return err
+	}
+	if !ciJobLogCollectionsApplied {
+		if _, err := tx.Exec(ctx, ciJobLogCollectionsMigration); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('086_ci_job_log_collections') ON CONFLICT DO NOTHING`); err != nil {
+			return err
+		}
+	}
+	var ciJobEvidenceApplied bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version='087_ci_job_evidence')`).Scan(&ciJobEvidenceApplied); err != nil {
+		return err
+	}
+	if !ciJobEvidenceApplied {
+		if _, err := tx.Exec(ctx, ciJobEvidenceMigration); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('087_ci_job_evidence') ON CONFLICT DO NOTHING`); err != nil {
 			return err
 		}
 	}

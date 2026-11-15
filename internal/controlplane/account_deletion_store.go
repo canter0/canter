@@ -111,6 +111,9 @@ func (s *Store) deletePrivateWorkspaceTx(ctx context.Context, tx pgx.Tx, workspa
 	if err := s.CloseWrenAIAllowanceTx(ctx, tx, workspace); err != nil {
 		return err
 	}
+	if err := s.closeCIWorkspaceTx(ctx, tx, workspace); err != nil {
+		return err
+	}
 	if _, err := tx.Exec(ctx, `INSERT INTO account_deletion_artifacts(storage_key) SELECT storage_key FROM deployment_artifacts WHERE workspace_id=$1 ON CONFLICT DO NOTHING`, workspace); err != nil {
 		return err
 	}
@@ -156,6 +159,11 @@ func (s *Store) deletePrivateWorkspaceTx(ctx context.Context, tx pgx.Tx, workspa
 	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM workspace_billing WHERE workspace_id=$1 AND customer_id IS NOT NULL) OR EXISTS(SELECT 1 FROM billing_paid_invoices WHERE workspace_id=$1) OR EXISTS(SELECT 1 FROM billing_usage_events WHERE workspace_id=$1) OR EXISTS(SELECT 1 FROM wren_ai_allowances WHERE workspace_id=$1)`, workspace).Scan(&financial); err != nil {
 		return err
 	}
+	ciFinancial, err := s.ciFinancialHistoryTx(ctx, tx, workspace)
+	if err != nil {
+		return err
+	}
+	financial = financial || ciFinancial
 	if financial {
 		// An inaccessible shell preserves reconciled billing references, rather
 		// than destroying invoices or reopening a canceled subscription.
@@ -165,7 +173,7 @@ func (s *Store) deletePrivateWorkspaceTx(ctx context.Context, tx pgx.Tx, workspa
 		_, err := tx.Exec(ctx, `UPDATE workspaces SET name='Closed workspace' WHERE id=$1`, workspace)
 		return err
 	}
-	_, err := tx.Exec(ctx, `DELETE FROM workspaces WHERE id=$1`, workspace)
+	_, err = tx.Exec(ctx, `DELETE FROM workspaces WHERE id=$1`, workspace)
 	return err
 }
 

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -12,11 +13,13 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
 	"github.com/canter0/canter/internal/controlplane"
 	"github.com/canter0/canter/internal/envfile"
+	"github.com/canter0/canter/internal/provider/compute"
 	"github.com/canter0/canter/sdk"
 )
 
@@ -85,6 +88,60 @@ func main() {
 	googleOAuth := controlplane.OAuthCredentials{ClientID: os.Getenv("CANTER_GOOGLE_CLIENT_ID"), ClientSecret: os.Getenv("CANTER_GOOGLE_CLIENT_SECRET")}
 	githubOAuth := controlplane.OAuthCredentials{ClientID: os.Getenv("CANTER_GITHUB_CLIENT_ID"), ClientSecret: os.Getenv("CANTER_GITHUB_CLIENT_SECRET")}
 	githubApp := controlplane.OAuthCredentials{ClientID: os.Getenv("CANTER_GITHUB_APP_CLIENT_ID"), ClientSecret: os.Getenv("CANTER_GITHUB_APP_CLIENT_SECRET")}
+	var ciAppID int64
+	if raw := os.Getenv("CANTER_CI_GITHUB_APP_ID"); raw != "" {
+		var err error
+		ciAppID, err = strconv.ParseInt(raw, 10, 64)
+		if err != nil {
+			log.Fatal("CANTER_CI_GITHUB_APP_ID must be an integer")
+		}
+	}
+	var ciPrivateKey []byte
+	if keyFile := os.Getenv("CANTER_CI_GITHUB_APP_PRIVATE_KEY_FILE"); keyFile != "" {
+		var err error
+		ciPrivateKey, err = os.ReadFile(keyFile)
+		if err != nil {
+			log.Fatal("CANTER_CI_GITHUB_APP_PRIVATE_KEY_FILE could not be read")
+		}
+	}
+	ciConfig := controlplane.CIConfig{AppID: ciAppID, AppSlug: os.Getenv("CANTER_CI_GITHUB_APP_SLUG"), PrivateKeyPEM: ciPrivateKey, WebhookSecret: []byte(os.Getenv("CANTER_CI_GITHUB_WEBHOOK_SECRET"))}
+	if err := controlplane.ValidateCIConfig(ciConfig); err != nil {
+		log.Fatal(err)
+	}
+	startup, err := ciStartupConfigFromEnv(os.Getenv)
+	if err != nil {
+		log.Fatal(err)
+	}
+	var ciRuntime *controlplane.CIManagedRuntime
+	var ciCache *controlplane.CICacheServer
+	if startup.Managed.Mode != "" && startup.Managed.Mode != controlplane.CIManagedOff {
+		provider, providerErr := compute.NewFromEnv()
+		if providerErr != nil {
+			log.Fatalf("initialize CI compute provider: %v", providerErr)
+		}
+		if region := strings.TrimSpace(os.Getenv("CANTER_CI_COMPUTE_REGION")); region != "" {
+			provider = provider.WithRegion(region)
+		}
+		ciRuntime, err = controlplane.NewCIManagedRuntime(ctx, store, provider, ciConfig, startup.Managed)
+		if err != nil {
+			log.Fatalf("initialize managed CI runtime: %v", err)
+		}
+		ciConfig = ciRuntime.CIConfig(ciConfig)
+		// The runtime and HTTP config hold their own copies; clear the
+		// loader's original key/token buffers.
+		clear(startup.Managed.SigningKey)
+		clear(startup.Managed.EnforcerToken)
+	}
+	if startup.CacheRoot != "" {
+		ciCache, err = controlplane.NewCICacheServer(ctx, controlplane.CICacheServerConfig{
+			Store: store, RootDir: startup.CacheRoot, PublicURL: startup.PublicURL, GitHub: ciConfig,
+		})
+		if err != nil {
+			log.Fatalf("initialize CI cache: %v", err)
+		}
+		ciConfig.Cache = ciCache
+		defer func() { _ = ciCache.Close() }()
+	}
 	for name, credentials := range map[string]controlplane.OAuthCredentials{"Google": googleOAuth, "GitHub": githubOAuth, "GitHub App": githubApp} {
 		if err := controlplane.ValidateOAuthCredentials(name, credentials); err != nil {
 			log.Fatal(err)
@@ -232,7 +289,7 @@ func main() {
 	if err := store.SetInitialWrenAIAllowanceMicroUSD(aiUsage.InitialAllowanceMicroUSD); err != nil {
 		log.Fatal("invalid initial AI allowance policy")
 	}
-	handler := controlplane.NewHTTPServer(service, controlplane.HTTPConfig{AIUsage: aiUsage, Media: controlplane.WrenMediaConfig{Model: os.Getenv("CANTER_WREN_IMAGE_MODEL")}, Audio: controlplane.WrenAudioConfigFromEnv(), Harnesses: harnesses, Computers: computers, Sandboxes: sandboxes, Auth: auth, PublicURL: publicURL, CookieSecure: cookieSecure, RequireInvite: strings.EqualFold(os.Getenv("CANTER_REQUIRE_INVITE"), "true"), GoogleOAuth: googleOAuth, GitHubOAuth: githubOAuth, GitHubApp: githubApp, GitHubAppSlug: os.Getenv("CANTER_GITHUB_APP_SLUG"), Billing: billing, Operator: operator, Secrets: vault})
+	handler := controlplane.NewHTTPServer(service, controlplane.HTTPConfig{AIUsage: aiUsage, Media: controlplane.WrenMediaConfig{Model: os.Getenv("CANTER_WREN_IMAGE_MODEL")}, Audio: controlplane.WrenAudioConfigFromEnv(), Harnesses: harnesses, Computers: computers, Sandboxes: sandboxes, Auth: auth, PublicURL: publicURL, CookieSecure: cookieSecure, RequireInvite: strings.EqualFold(os.Getenv("CANTER_REQUIRE_INVITE"), "true"), GoogleOAuth: googleOAuth, GitHubOAuth: githubOAuth, GitHubApp: githubApp, GitHubAppSlug: os.Getenv("CANTER_GITHUB_APP_SLUG"), CI: ciConfig, Billing: billing, Operator: operator, Secrets: vault})
 	go func() { _ = handler.(*controlplane.HTTPServer).RunAuthMaintenance(ctx) }()
 	go func() { _ = handler.(*controlplane.HTTPServer).RunWrenMessagingMaintenance(ctx) }()
 	go func() {
@@ -272,8 +329,40 @@ func main() {
 		defer cancel()
 		_ = server.Shutdown(shutdownCtx)
 	}()
+	// Bind the listener before starting any managed or cache workers: a
+	// failed bind must never create VMs or begin provisioning work.
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		log.Fatalf("listen on %s: %v", addr, err)
+	}
 	log.Printf("Canter control plane listening on %s", addr)
-	if err = server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+	var ciWorkers sync.WaitGroup
+	if ciRuntime != nil {
+		ciWorkers.Add(1)
+		go func() {
+			defer ciWorkers.Done()
+			if err := ciRuntime.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+				log.Printf("managed CI runtime stopped: %v", err)
+				stop()
+			}
+		}()
+	}
+	if ciCache != nil {
+		ciWorkers.Add(1)
+		go func() {
+			defer ciWorkers.Done()
+			if err := ciCache.Run(ctx); err != nil && ctx.Err() == nil {
+				log.Printf("CI cache worker stopped: %v", err)
+				stop()
+			}
+		}()
+	}
+	// Joined before the cache Close and store Close defers registered above.
+	defer func() {
+		stop()
+		ciWorkers.Wait()
+	}()
+	if err = server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatal(err)
 	}
 }
