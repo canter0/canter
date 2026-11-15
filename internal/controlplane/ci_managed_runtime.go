@@ -36,7 +36,10 @@ type CIManagedRuntime struct {
 	appID             atomic.Int64
 	httpClient        *http.Client
 	allowLoopbackHTTP bool
-	running           atomic.Bool
+	// enforcerLoopbackHTTP applies only to enforcer calls, never to GitHub
+	// log downloads, which allowLoopbackHTTP covers in tests.
+	enforcerLoopbackHTTP bool
+	running              atomic.Bool
 }
 
 // NewCIManagedRuntime is the production factory: real compute provider,
@@ -72,17 +75,19 @@ func newCIManagedRuntime(ctx context.Context, store *Store, compute ciManagedPro
 	if cfg.EnforcerURL == "" || len(cfg.EnforcerToken) < 32 {
 		return nil, ErrConflict
 	}
-	enforcer, err := newCIEnforcerClient(cfg.EnforcerURL, cfg.EnforcerToken, cfg.HTTPClient, allowLoopbackHTTP)
+	enforcerLoopbackHTTP := allowLoopbackHTTP || cfg.EnforcerLoopbackHTTP
+	enforcer, err := newCIEnforcerClient(cfg.EnforcerURL, cfg.EnforcerToken, cfg.HTTPClient, enforcerLoopbackHTTP)
 	if err != nil {
 		return nil, ErrConflict
 	}
 	r := &CIManagedRuntime{
-		store:             store,
-		mode:              mode,
-		enforcer:          enforcer,
-		compute:           compute,
-		httpClient:        cfg.HTTPClient,
-		allowLoopbackHTTP: allowLoopbackHTTP,
+		store:                store,
+		mode:                 mode,
+		enforcer:             enforcer,
+		compute:              compute,
+		httpClient:           cfg.HTTPClient,
+		allowLoopbackHTTP:    allowLoopbackHTTP,
+		enforcerLoopbackHTTP: enforcerLoopbackHTTP,
 	}
 	if mode == CIManagedRecover {
 		// Physical recovery only: lifecycle reconciliation against the
@@ -337,7 +342,7 @@ func (r *CIManagedRuntime) CIConfig(base CIConfig) CIConfig {
 			EnforcerURL:       r.enforcer.base,
 			EnforcerToken:     append([]byte(nil), r.enforcer.token...),
 			HTTPClient:        r.httpClient,
-			AllowLoopbackHTTP: r.allowLoopbackHTTP,
+			AllowLoopbackHTTP: r.enforcerLoopbackHTTP,
 		}
 		out.Bootstrap = &CIBootstrapConfig{ProfileDigest: r.profileDigest}
 	} else {

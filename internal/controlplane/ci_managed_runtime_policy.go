@@ -27,6 +27,10 @@ type CIManagedRuntimeConfig struct {
 	EnforcerURL   string
 	EnforcerToken []byte
 	HTTPClient    *http.Client
+	// EnforcerLoopbackHTTP permits a plain-HTTP enforcer on this host's
+	// loopback interface when both services share one machine. Remote
+	// enforcers always require HTTPS.
+	EnforcerLoopbackHTTP bool
 }
 
 const ciManagedFundingPoolSQL = `

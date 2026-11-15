@@ -315,3 +315,19 @@ func TestCIStartupConfigFromEnv(t *testing.T) {
 		}
 	})
 }
+
+func TestCIStartupEnforcerLoopbackHTTP(t *testing.T) {
+	for value, want := range map[string]bool{"": false, "false": false, "true": true} {
+		env := ciRunEnv(t, t.TempDir())
+		env["CANTER_CI_ENFORCER_LOOPBACK_HTTP"] = value
+		cfg, err := ciStartupConfigFromEnv(ciEnvMap(env))
+		if err != nil || cfg.Managed.EnforcerLoopbackHTTP != want {
+			t.Fatalf("%q: loopback=%v err=%v", value, cfg.Managed.EnforcerLoopbackHTTP, err)
+		}
+	}
+	env := ciRunEnv(t, t.TempDir())
+	env["CANTER_CI_ENFORCER_LOOPBACK_HTTP"] = "yes"
+	if _, err := ciStartupConfigFromEnv(ciEnvMap(env)); err == nil || !strings.Contains(err.Error(), "CANTER_CI_ENFORCER_LOOPBACK_HTTP") {
+		t.Fatalf("invalid value must be rejected by name: %v", err)
+	}
+}

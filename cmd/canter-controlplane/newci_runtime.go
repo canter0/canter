@@ -68,6 +68,13 @@ func ciStartupConfigFromEnv(getenv func(string) string) (ciStartupConfig, error)
 		return out, fmt.Errorf("CANTER_CI_ENFORCER_URL is required")
 	}
 	out.Managed.EnforcerURL = enforcerURL
+	switch strings.TrimSpace(getenv("CANTER_CI_ENFORCER_LOOPBACK_HTTP")) {
+	case "", "false":
+	case "true":
+		out.Managed.EnforcerLoopbackHTTP = true
+	default:
+		return out, fmt.Errorf("CANTER_CI_ENFORCER_LOOPBACK_HTTP is invalid")
+	}
 	tokenPath := strings.TrimSpace(getenv("CANTER_CI_ENFORCER_TOKEN_FILE"))
 	if tokenPath == "" {
 		return out, fmt.Errorf("CANTER_CI_ENFORCER_TOKEN_FILE is required")

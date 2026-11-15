@@ -978,3 +978,36 @@ func TestCIManagedRuntimeOverview(t *testing.T) {
 		}
 	})
 }
+
+func TestCIManagedRuntimeEnforcerLoopbackHTTP(t *testing.T) {
+	fx := newCIRuntimeFixture(t, 100000, 0, true, nil)
+	if !strings.HasPrefix(fx.enforcerURL, "http://127.0.0.1:") {
+		t.Fatalf("fixture enforcer must be loopback HTTP, got %q", fx.enforcerURL)
+	}
+	cfg := CIManagedRuntimeConfig{
+		Mode:          CIManagedRun,
+		ProfileJSON:   fx.profileJSON,
+		PublicURL:     "https://ci.example.test",
+		SigningKey:    []byte(strings.Repeat("z", 32)),
+		EnforcerURL:   fx.enforcerURL,
+		EnforcerToken: append([]byte(nil), fx.enforcerToken...),
+	}
+	if _, err := newCIManagedRuntime(fx.ctx, fx.s, fx.compute, fx.ciConfig, cfg, false); err == nil {
+		t.Fatal("loopback HTTP enforcer must require the explicit opt-in")
+	}
+	cfg.EnforcerLoopbackHTTP = true
+	rt, err := newCIManagedRuntime(fx.ctx, fx.s, fx.compute, fx.ciConfig, cfg, false)
+	if err != nil {
+		t.Fatalf("loopback enforcer opt-in: %v", err)
+	}
+	if rt.allowLoopbackHTTP {
+		t.Fatal("enforcer opt-in must not allow loopback GitHub log downloads")
+	}
+	if out := rt.CIConfig(CIConfig{}); out.Admission == nil || !out.Admission.AllowLoopbackHTTP {
+		t.Fatalf("admission must reach the same loopback enforcer: %+v", out.Admission)
+	}
+	cfg.EnforcerURL = "http://203.0.113.10:8097"
+	if _, err := newCIManagedRuntime(fx.ctx, fx.s, fx.compute, fx.ciConfig, cfg, false); err == nil {
+		t.Fatal("non-loopback HTTP enforcer must stay rejected")
+	}
+}
