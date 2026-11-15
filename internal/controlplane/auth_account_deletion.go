@@ -213,6 +213,16 @@ func (h *HTTPServer) accountDeletion(w http.ResponseWriter, r *http.Request, rou
 		writeError(w, http.StatusBadRequest, errors.New("invalid verification code"))
 		return
 	}
+	// Erase remote checkpoints while their scope and encrypted-object handles
+	// still exist. A storage failure leaves the account intact for a retry.
+	if err = h.PurgeWrenComputerCheckpoints(ctx, workspaces, a.ID); err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	if err = h.purgeSandboxSnapshots(ctx, workspaces); err != nil {
+		writeStoreError(w, err)
+		return
+	}
 	if err = h.deleteAccountTx(ctx, tx, a, workspaces); err == nil {
 		err = tx.Commit(ctx)
 	}
@@ -226,10 +236,18 @@ func (h *HTTPServer) accountDeletion(w http.ResponseWriter, r *http.Request, rou
 	writeJSON(w, http.StatusOK, map[string]string{"stage": "deleted"})
 }
 
-// Lock every membership's workspace before checking ownership or resources. FK
-// inserts cannot introduce new resources while final deletion holds these locks.
+// Lock membership and owned-room workspaces before checking ownership. Former
+// members can still own a room; leaving must not bypass team-history protection.
+// These locks also fence new members and resources during final deletion.
 func (s *Store) accountDeletionWorkspacesTx(ctx context.Context, tx pgx.Tx, account string) ([]string, error) {
-	rows, err := tx.Query(ctx, `SELECT w.id,w.name,m.role FROM workspaces w JOIN memberships m ON m.workspace_id=w.id WHERE m.account_id=$1 ORDER BY w.id FOR UPDATE OF w`, account)
+	var privateComputer bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM wren_computers WHERE owner_id=$1 AND scope_kind='private' AND phase<>'deleted')`, account).Scan(&privateComputer); err != nil {
+		return nil, err
+	}
+	if privateComputer {
+		return nil, accountDeletionBlocked{"Remove your private Wren computers before deleting your account. Saved workspaces can remain until account deletion."}
+	}
+	rows, err := tx.Query(ctx, `SELECT w.id,w.name,COALESCE(m.role,'') FROM workspaces w LEFT JOIN memberships m ON m.workspace_id=w.id AND m.account_id=$1 WHERE m.account_id=$1 OR EXISTS(SELECT 1 FROM wren_rooms r WHERE r.workspace_id=w.id AND r.account_id=$1) ORDER BY w.id FOR UPDATE OF w`, account)
 	if err != nil {
 		return nil, err
 	}
@@ -249,8 +267,18 @@ func (s *Store) accountDeletionWorkspacesTx(ctx context.Context, tx pgx.Tx, acco
 	if err != nil {
 		return nil, err
 	}
+	var sharedRooms bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM wren_rooms r WHERE r.account_id=$1 AND ((r.kind='channel' AND EXISTS(SELECT 1 FROM memberships m WHERE m.workspace_id=r.workspace_id AND m.account_id<>$1)) OR EXISTS(SELECT 1 FROM wren_room_members rm JOIN memberships m ON m.workspace_id=r.workspace_id AND m.account_id=rm.account_id WHERE rm.room_id=r.id AND rm.account_id<>$1)))`, account).Scan(&sharedRooms); err != nil {
+		return nil, err
+	}
+	if sharedRooms {
+		return nil, accountDeletionBlocked{"Arrange transfer of the shared rooms you own before deleting your account. A workspace owner who already belongs to the room can recover its management after you leave."}
+	}
 	var private []string
 	for _, item := range memberships {
+		if item.role == "" {
+			continue
+		}
 		var members, owners int
 		if err = tx.QueryRow(ctx, `SELECT count(*),count(*) FILTER(WHERE m.role='owner' AND a.disabled_at IS NULL) FROM memberships m JOIN accounts a ON a.id=m.account_id WHERE m.workspace_id=$1 AND m.account_id<>$2`, item.id, account).Scan(&members, &owners); err != nil {
 			return nil, err
@@ -263,7 +291,7 @@ func (s *Store) accountDeletionWorkspacesTx(ctx context.Context, tx pgx.Tx, acco
 		}
 		// These rows may represent real resources even when an execution failed.
 		var resources bool
-		if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM systems WHERE workspace_id=$1) OR EXISTS(SELECT 1 FROM node_installations WHERE workspace_id=$1 AND revoked_at IS NULL) OR EXISTS(SELECT 1 FROM initial_deployment_executions WHERE workspace_id=$1 AND phase IN ('queued','running')) OR EXISTS(SELECT 1 FROM workspace_vps WHERE workspace_id=$1 AND phase NOT IN ('drafted','deleted'))`, item.id).Scan(&resources); err != nil {
+		if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM systems WHERE workspace_id=$1) OR EXISTS(SELECT 1 FROM node_installations WHERE workspace_id=$1 AND revoked_at IS NULL) OR EXISTS(SELECT 1 FROM initial_deployment_executions WHERE workspace_id=$1 AND phase IN ('queued','running')) OR EXISTS(SELECT 1 FROM workspace_vps WHERE workspace_id=$1 AND phase NOT IN ('drafted','deleted')) OR EXISTS(SELECT 1 FROM wren_computers WHERE workspace_id=$1 AND phase<>'deleted') OR EXISTS(SELECT 1 FROM sandboxes WHERE workspace_id=$1 AND phase<>'deleted')`, item.id).Scan(&resources); err != nil {
 			return nil, err
 		}
 		if resources {

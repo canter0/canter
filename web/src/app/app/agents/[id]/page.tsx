@@ -61,14 +61,14 @@ export default function AgentInstallationPage() {
       {loading ? <div className={styles.empty} role="status">Loading agent details…</div> : !installation ? <div className={styles.empty}>
         <WorkspaceIcon name="agent" width="28" height="28" />
         <h1>{error ? "Couldn’t load this agent" : "Agent not found"}</h1>
-        <p>{error || "This agent is no longer available in your workspace."}</p>
+        <p>{error || "This agent is no longer available in your organization."}</p>
         <button className={styles.button} onClick={retry}>Try again</button>
       </div> : <>
         <header className={styles.header}>
           <span className={styles.avatar}><WorkspaceIcon name="agent" width="28" height="28" /></span>
           <div className={styles.identity}>
             <div className={styles.titleRow}><h1>{installation.name}</h1><span className={styles.status} data-active={authorized}><span />{status}</span></div>
-            <p>Manage this agent’s access to your workspace.</p>
+            <p>Manage this agent’s access to your organization.</p>
           </div>
         </header>
 
@@ -77,7 +77,7 @@ export default function AgentInstallationPage() {
         <div className={styles.columns}>
           <div className={styles.primary}>
             <section aria-labelledby="permissions-heading">
-              <div className={styles.sectionHeading}><h2 id="permissions-heading">Permissions</h2><p>{authorized ? "What this agent can do in your workspace." : "This agent no longer has access to your workspace."}</p></div>
+              <div className={styles.sectionHeading}><h2 id="permissions-heading">Permissions</h2><p>{authorized ? "What this agent can do in your organization." : "This agent no longer has access to your organization."}</p></div>
               <Link className={styles.button} href={`/app/settings/agent#${encodeURIComponent(installation.id)}`}>Edit permissions</Link>
               <ul className={styles.permissions}>
                 <Permission icon="apps" title="Inspect apps" description="View your apps, their status, and configuration." value={authorized && installation.authority.inspect ? "Allowed" : "Not allowed"} tone={authorized && installation.authority.inspect ? "allowed" : undefined} />
@@ -95,7 +95,7 @@ export default function AgentInstallationPage() {
 
             <section className={styles.continuity} aria-labelledby="access-heading">
               <div className={styles.sectionHeading}><h2 id="access-heading">{authorized ? installation.expiresAt ? "Temporary access" : "Remembered connection" : "Access ended"}</h2></div>
-              <p>{!authorized ? "This agent needs a new connection to access your workspace again." : installation.expiresAt ? "This connection ends when its task finishes or its access expires, whichever comes first." : "This agent can reconnect without another setup until you revoke its access."} Your task history and activity stay in Canter.</p>
+              <p>{!authorized ? "This agent needs a new connection to access your organization again." : installation.expiresAt ? "This connection ends when its task finishes or its access expires, whichever comes first." : "This agent can reconnect without another setup until you revoke its access."} Your task history and activity stay in Canter.</p>
             </section>
           </div>
 

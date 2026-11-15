@@ -37,6 +37,7 @@ export const shortcutPages = [
   { id: "agents", title: "Agents", key: "g", href: "/app/agents", icon: "agent" },
   { id: "billing", title: "Billing", key: "b", href: "/app/billing", icon: "file" },
   { id: "settings", title: "Workspace settings", key: "w", href: "/app/settings", icon: "settings" },
+  { id: "customize", title: "Customize", key: "c", href: "/app/customize", icon: "customize" },
   { id: "profile", title: "Profile", key: "p", href: "/app/account", icon: "agent" },
   { id: "security", title: "Account security", href: "/app/account/security", icon: "lock" },
   { id: "connections", title: "Connected accounts", href: "/app/account/connections", icon: "apps" },

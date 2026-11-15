@@ -1,0 +1,12 @@
+.avatar { display: block; flex-shrink: 0; overflow: visible; }
+.body { transform-origin: 32px 37px; }
+.eyes { transform-box: fill-box; transform-origin: center; }
+.avatar[data-animated="true"] .body { animation: breathe 6s ease-in-out var(--phase) infinite; }
+.avatar[data-animated="true"] .eyes { animation: blink 7s ease-in-out var(--phase) infinite; }
+.avatar[data-animated="true"][data-state="working"] .body { animation: working 1.5s ease-in-out infinite; }
+.avatar[data-animated="true"] .gaze { animation: glance 12s ease-in-out var(--phase) infinite; }
+@keyframes breathe { 0%,100% { transform: translateY(0) rotate(-2deg); } 50% { transform: translateY(-1.5px) rotate(2deg); } }
+@keyframes blink { 0%,44%,48%,100% { transform: scaleY(1); } 46% { transform: scaleY(.12); } }
+@keyframes working { 0%,100% { transform: rotate(-5deg) scaleY(.98); } 50% { transform: rotate(4deg) scaleY(1.02); } }
+@keyframes glance { 0%,22%,100% { transform: translate(0,0); } 29%,45% { transform: translate(4px,-3px); } 54%,70% { transform: translate(-3px,1px); } 77%,90% { transform: translate(2px,1px); } }
+@media(prefers-reduced-motion:reduce) { .avatar[data-animated="true"] :is(.body,.eyes,.gaze) { animation: none; } }

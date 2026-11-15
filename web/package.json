@@ -4,14 +4,18 @@
   "private": true,
   "license": "AGPL-3.0-only",
   "scripts": {
-    "dev": "next dev --webpack",
-    "build": "next build",
+    "dev": "node scripts/prepare-pdf-assets.mjs && next dev --webpack",
+    "build": "node scripts/prepare-pdf-assets.mjs && next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "postinstall": "node scripts/prepare-pdf-assets.mjs"
   },
   "dependencies": {
+    "@xterm/addon-fit": "0.11.0",
+    "@xterm/xterm": "6.0.0",
     "highlight.js": "^11.12.0",
     "next": "16.3.8",
+    "pdfjs-dist": "6.4.299",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "react-markdown": "^10.1.0",

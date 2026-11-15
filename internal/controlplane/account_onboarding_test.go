@@ -134,3 +134,34 @@ func TestAccountOnboardingMigrationPreservesEstablishedAccounts(t *testing.T) {
 		t.Fatal("onboarding backfill ran again", complete, err)
 	}
 }
+
+// Wrens was added locally before upstream's independently named 034 migration.
+// Applying onboarding must retain both version keys and existing Wren state.
+func TestAccountOnboardingMigrationRetainsAlreadyAppliedWrens(t *testing.T) {
+	s, private, w, shared, _ := knowledgeFixture(t)
+	ctx := context.Background()
+	if _, err := s.pool.Exec(ctx, `DELETE FROM schema_migrations WHERE version='034_account_onboarding'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.pool.Exec(ctx, `UPDATE accounts SET onboarding_completed_at=NULL WHERE id=$1`, private.AccountID); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var versions int
+	if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM schema_migrations WHERE version IN ('034_account_onboarding','034_wrens')`).Scan(&versions); err != nil || versions != 2 {
+		t.Fatalf("migration identities %d %v", versions, err)
+	}
+	retained, err := s.Wren(ctx, private.WorkspaceID, private.AccountID, w.ID)
+	if err != nil || retained.ConversationID != private.ID || retained.Name != w.Name {
+		t.Fatalf("existing Wren changed %+v %v", retained, err)
+	}
+	rooms, err := s.Rooms(ctx, shared.WorkspaceID, shared.AccountID)
+	if err != nil || len(rooms) != 1 || rooms[0].ConversationID != shared.ID {
+		t.Fatalf("existing room changed %+v %v", rooms, err)
+	}
+	if complete, err := s.onboardingComplete(ctx, private.AccountID); err != nil || !complete {
+		t.Fatalf("established Wren account redirected into first-run onboarding %v %v", complete, err)
+	}
+}

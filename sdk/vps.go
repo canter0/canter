@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/netip"
 	"strings"
@@ -30,6 +31,8 @@ type VPSRequest struct {
 	SSHPublicKey string `json:"sshPublicKey"`
 	SSHCIDR      string `json:"sshCidr"`
 	ForSeconds   int    `json:"forSeconds"`
+	// ImageID pins a specific provider image instead of the default alias.
+	ImageID string `json:"imageId,omitempty"`
 }
 
 func (r *VPSRequest) Validate() error {
@@ -72,8 +75,24 @@ func (c *Client) PlanVPS(ctx context.Context, workspace, id string, request VPSR
 	if err != nil {
 		return VPSPlan{}, err
 	}
+	if request.ImageID != "" {
+		validator, ok := c.compute.(interface {
+			ResolveImageID(context.Context, string) error
+		})
+		if !ok {
+			return VPSPlan{}, fmt.Errorf("pinned VM images are unavailable")
+		}
+		if err := validator.ResolveImageID(ctx, request.ImageID); err != nil {
+			return VPSPlan{}, err
+		}
+		image = request.ImageID
+	}
 	identity := sha256.Sum256([]byte(workspace + "/" + id))
-	spec := Spec{APIVersion: APIVersion, Kind: "Sandbox", Metadata: Metadata{Name: "vps-" + hex.EncodeToString(identity[:16])}, Spec: Desired{Intent: "Standalone VPS " + request.Name, Compute: ComputeSpec{Class: "vps", Image: "ubuntu-24.04", Replicas: 1, Bootstrap: vpsBootstrap(request)}, M1: M1Spec{Prefix: "workspaces/" + workspace + "/vps/" + id}, Policy: Policy{MaxReplicas: 1}}}
+	imageLabel := "ubuntu-24.04"
+	if request.ImageID != "" {
+		imageLabel = request.ImageID
+	}
+	spec := Spec{APIVersion: APIVersion, Kind: "Sandbox", Metadata: Metadata{Name: "vps-" + hex.EncodeToString(identity[:16])}, Spec: Desired{Intent: "Standalone VPS " + request.Name, Compute: ComputeSpec{Class: "vps", Image: imageLabel, Replicas: 1, Bootstrap: vpsBootstrap(request)}, M1: M1Spec{Prefix: "workspaces/" + workspace + "/vps/" + id}, Policy: Policy{MaxReplicas: 1}}}
 	return VPSPlan{Spec: spec, Shape: shape, ImageID: image, Networks: networks}, nil
 }
 
@@ -133,15 +152,63 @@ func (c *Client) ApplyVPS(ctx context.Context, plan VPSPlan) (State, error) {
 			return state, err
 		}
 	}
+	result := ApplyResult{State: state}
+	if state.Phase == "escalated" {
+		if err := c.recoverVPSSSHExposure(ctx, spec, &result); err != nil {
+			return result.State, err
+		}
+		return result.State, nil
+	}
 	if state.Phase != "ready" {
 		return state, fmt.Errorf("VM needs attention in phase %s", state.Phase)
 	}
-	result := ApplyResult{State: state}
 	sum := sha256.Sum256([]byte(spec.Spec.M1.Prefix))
 	if err = c.exposeSpecTCP(ctx, spec, &result, false, 22, spec.Metadata.Name+"-ssh", fmt.Sprintf("sha256:%x", sum)); err != nil {
+		var ambiguous *compute.AmbiguousManagedResourceError
+		if errors.As(err, &ambiguous) && ambiguous.OwnedPolicy != nil && ambiguous.OwnedPolicy.ID != "" && ambiguous.OwnedPolicy.PortID != "" && ambiguous.OwnedPolicy.Port == 22 {
+			if recoverErr := c.recoverVPSSSHExposure(ctx, spec, &result); recoverErr != nil {
+				return result.State, recoverErr
+			}
+			return result.State, nil
+		}
 		return result.State, err
 	}
 	return result.State, nil
+}
+
+// recoverVPSSSHExposure resumes the same previously approved named and owned
+// sandbox SSH policy after a provider response escalated it (policy and rule
+// created, the attachment interrupted). It never allocates a new VM; the owned
+// partial must be provably visible to lookup, then the existing fenced
+// exposure path completes the same durable intent.
+func (c *Client) recoverVPSSSHExposure(ctx context.Context, spec Spec, result *ApplyResult) error {
+	state := result.State
+	intent := state.ExposureIntent
+	if state.CreationIntent == nil || state.CreationIntent.Phase != "ready" || state.Phase != "escalated" ||
+		intent == nil || intent.Phase != "escalated" || !intent.MutationUnresolved ||
+		len(state.Resources) != 1 || state.Resources[0].Status == "DELETED" {
+		return fmt.Errorf("sandbox %q cannot recover its SSH endpoint from phase %s", spec.Metadata.Name, state.Phase)
+	}
+	name := spec.Metadata.Name + "-ssh"
+	sum := sha256.Sum256([]byte(spec.Spec.M1.Prefix))
+	ownership := fmt.Sprintf("sha256:%x", sum)
+	if intent.ServerID != state.Resources[0].ID || intent.Name != name || intent.Ownership != ownership || intent.Protocol != "tcp" || intent.Port != 22 {
+		return fmt.Errorf("sandbox %q escalated SSH endpoint does not match the approved policy", spec.Metadata.Name)
+	}
+	if err := validateCreationIntent(spec, state); err != nil {
+		return err
+	}
+	request := compute.ManagedTCPExposureRequest{ServerID: intent.ServerID, Name: intent.Name, Ownership: intent.Ownership, Port: intent.Port}
+	_, recovered, err := c.compute.FindManagedTCPExposure(ctx, request)
+	if err != nil {
+		var ambiguous *compute.AmbiguousManagedResourceError
+		if !errors.As(err, &ambiguous) || ambiguous.OwnedPolicy == nil || ambiguous.OwnedPolicy.ID == "" || ambiguous.OwnedPolicy.PortID == "" || ambiguous.OwnedPolicy.Port != 22 {
+			return err
+		}
+	} else if !recovered {
+		return fmt.Errorf("sandbox %q SSH endpoint intent has no visible exact managed policy", spec.Metadata.Name)
+	}
+	return c.exposeSpecTCP(ctx, spec, result, true, 22, name, ownership)
 }
 
 func (c *Client) VPSHostFingerprint(ctx context.Context, plan VPSPlan) (string, error) {

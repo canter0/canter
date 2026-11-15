@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -22,7 +23,7 @@ func (h *HTTPServer) conversations(w http.ResponseWriter, r *http.Request, p Pri
 		return
 	}
 	if len(parts) == 0 && r.Method == http.MethodPost {
-		if !h.workspaceOperatorReady(r.Context(), workspace) {
+		if !h.workspaceOperatorReady(r.Context(), workspace) && h.config.Secrets == nil {
 			writeError(w, http.StatusServiceUnavailable, errOperatorUnavailable)
 			return
 		}
@@ -38,12 +39,12 @@ func (h *HTTPServer) conversations(w http.ResponseWriter, r *http.Request, p Pri
 		if !decodeLimit(w, r, &input, 8<<20) {
 			return
 		}
-		model, err := selectedOperatorModel(input.Model, h.config.Operator.Model)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, err)
+		if strings.HasPrefix(input.ID, "conv_job_") {
+			writeStoreError(w, ErrForbidden)
 			return
 		}
-		if err := validateOperatorModelOptions(model, input.ModelOptions); err != nil {
+		model, options, err := h.conversationModel(r.Context(), workspace, input.ID, input.Model, input.ModelOptions)
+		if err != nil {
 			writeError(w, http.StatusBadRequest, err)
 			return
 		}
@@ -56,7 +57,7 @@ func (h *HTTPServer) conversations(w http.ResponseWriter, r *http.Request, p Pri
 			writeStoreError(w, err)
 			return
 		}
-		run, err := h.service.Store.EnqueueOperatorWithOptions(r.Context(), c, input.RequestID, input.Message, model, input.ModelOptions, input.Surface, input.Attachments...)
+		run, err := h.service.Store.EnqueueOperatorWithOptions(r.Context(), c, input.RequestID, input.Message, model, options, input.Surface, input.Attachments...)
 		if err != nil {
 			writeStoreError(w, err)
 			return
@@ -71,6 +72,31 @@ func (h *HTTPServer) conversations(w http.ResponseWriter, r *http.Request, p Pri
 	c, err := h.service.Store.Conversation(r.Context(), workspace, p.Account.ID, parts[0])
 	if err != nil {
 		writeStoreError(w, err)
+		return
+	}
+	if strings.HasPrefix(c.ID, "conv_job_") && r.Method != http.MethodGet && !(len(parts) == 2 && parts[1] == "stop") {
+		writeStoreError(w, ErrForbidden)
+		return
+	}
+	if len(parts) == 2 && parts[1] == "dictation" {
+		h.wrenDictation(w, r, p, c)
+		return
+	}
+	if len(parts) == 2 && parts[1] == "share" && (r.Method == http.MethodPost || r.Method == http.MethodDelete) {
+		share := r.Method == http.MethodPost
+		changed, err := h.service.Store.ShareConversation(r.Context(), workspace, p.Account.ID, c.ID, share)
+		if err != nil {
+			writeStoreError(w, err)
+			return
+		}
+		if changed {
+			action := "conversation.unshared"
+			if share {
+				action = "conversation.shared"
+			}
+			_ = h.service.Store.Audit(r.Context(), workspace, p.Actor, action, c.ID, map[string]any{})
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"shared": share})
 		return
 	}
 	if len(parts) == 1 && r.Method == http.MethodGet {
@@ -90,8 +116,29 @@ func (h *HTTPServer) conversations(w http.ResponseWriter, r *http.Request, p Pri
 			writeStoreError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"conversation": c, "messages": messages.Messages, "hasMore": messages.HasMore, "nextCursor": messages.NextCursor, "run": run})
+		ownRun, err := h.service.Store.ownActiveOperatorRun(r.Context(), c.ID, p.Account.ID)
+		if err != nil {
+			writeStoreError(w, err)
+			return
+		}
+		activeRuns, runSequence, err := h.service.Store.activeOperatorRuns(r.Context(), c.ID)
+		if err != nil {
+			writeStoreError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"conversation": c, "messages": messages.Messages, "hasMore": messages.HasMore, "nextCursor": messages.NextCursor, "run": run, "ownRun": ownRun, "activeRuns": activeRuns, "runSequence": runSequence})
 		return
+	}
+	if len(parts) == 1 && (r.Method == http.MethodPatch || r.Method == http.MethodDelete) {
+		var room bool
+		if err = h.service.Store.pool.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM wren_rooms WHERE conversation_id=$1)`, c.ID).Scan(&room); err != nil {
+			writeStoreError(w, err)
+			return
+		}
+		if room {
+			writeStoreError(w, ErrForbidden)
+			return
+		}
 	}
 	if len(parts) == 1 && r.Method == http.MethodPatch {
 		var input struct {
@@ -117,31 +164,35 @@ func (h *HTTPServer) conversations(w http.ResponseWriter, r *http.Request, p Pri
 		return
 	}
 	if len(parts) == 2 && parts[1] == "messages" && r.Method == http.MethodPost {
-		if !h.workspaceOperatorReady(r.Context(), workspace) {
-			writeError(w, http.StatusServiceUnavailable, errOperatorUnavailable)
-			return
-		}
 		var input struct {
-			RequestID    string               `json:"requestId"`
-			Model        string               `json:"model"`
-			ModelOptions OperatorModelOptions `json:"modelOptions"`
-			Message      string               `json:"message"`
-			Surface      *OperatorSurface     `json:"surface"`
-			Attachments  []OperatorAttachment `json:"attachments"`
+			ReplyToMessageID string               `json:"replyToMessageId"`
+			PostOnly         bool                 `json:"postOnly"`
+			RecipientIDs     []string             `json:"recipientIds"`
+			RequestID        string               `json:"requestId"`
+			Model            string               `json:"model"`
+			ModelOptions     OperatorModelOptions `json:"modelOptions"`
+			Message          string               `json:"message"`
+			Surface          *OperatorSurface     `json:"surface"`
+			Attachments      []OperatorAttachment `json:"attachments"`
 		}
 		if !decodeLimit(w, r, &input, 8<<20) {
 			return
 		}
-		model, err := selectedOperatorModel(input.Model, h.config.Operator.Model)
+		if !input.PostOnly && !h.workspaceOperatorReady(r.Context(), workspace) && h.config.Secrets == nil {
+			writeError(w, http.StatusServiceUnavailable, errOperatorUnavailable)
+			return
+		}
+		model := ""
+		options := OperatorModelOptions{}
+		var err error
+		if !input.PostOnly {
+			model, options, err = h.conversationModel(r.Context(), workspace, c.ID, input.Model, input.ModelOptions)
+		}
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err)
 			return
 		}
-		if err := validateOperatorModelOptions(model, input.ModelOptions); err != nil {
-			writeError(w, http.StatusBadRequest, err)
-			return
-		}
-		run, err := h.service.Store.EnqueueOperatorWithOptions(r.Context(), c, input.RequestID, input.Message, model, input.ModelOptions, input.Surface, input.Attachments...)
+		run, err := h.service.Store.enqueueOperatorWithRecipientsAndReply(r.Context(), c, input.RequestID, input.Message, model, options, input.Surface, input.RecipientIDs, input.PostOnly, input.ReplyToMessageID, input.Attachments...)
 		if err != nil {
 			writeStoreError(w, err)
 			return
@@ -150,7 +201,31 @@ func (h *HTTPServer) conversations(w http.ResponseWriter, r *http.Request, p Pri
 		return
 	}
 	if len(parts) == 2 && parts[1] == "stop" && r.Method == http.MethodPost {
-		if err = h.service.Store.cancelOperator(r.Context(), c.ID); err != nil {
+		if err = h.service.Store.RequireWorkspaceWriter(r.Context(), workspace, p.Account.ID); err != nil {
+			writeStoreError(w, err)
+			return
+		}
+		if strings.HasPrefix(c.ID, "conv_job_") {
+			var jobID string
+			if err = h.service.Store.pool.QueryRow(r.Context(), `SELECT id FROM wren_jobs WHERE child_conversation_id=$1 AND workspace_id=$2 AND requester_account_id=$3`, c.ID, workspace, p.Account.ID).Scan(&jobID); err != nil {
+				writeStoreError(w, ErrNotFound)
+				return
+			}
+			job, err := h.service.Store.CancelWrenJob(r.Context(), workspace, p.Account.ID, jobID)
+			if err != nil {
+				writeStoreError(w, err)
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"stopped": job.Status == "cancelled", "status": job.Status, "job": job})
+			return
+		}
+		var input struct {
+			RunID string `json:"runId"`
+		}
+		if r.ContentLength != 0 && !decodeLimit(w, r, &input, 4096) {
+			return
+		}
+		if err = h.service.Store.cancelOperatorRequest(r.Context(), workspace, p.Account.ID, c.ID, input.RunID); err != nil {
 			writeStoreError(w, err)
 			return
 		}
@@ -185,6 +260,10 @@ func (h *HTTPServer) conversations(w http.ResponseWriter, r *http.Request, p Pri
 			}
 			// Membership may change while a long poll is waiting.
 			if err = h.allowWorkspace(r, p, workspace, false); err != nil {
+				writeStoreError(w, err)
+				return
+			}
+			if _, err = h.service.Store.Conversation(r.Context(), workspace, p.Account.ID, c.ID); err != nil {
 				writeStoreError(w, err)
 				return
 			}

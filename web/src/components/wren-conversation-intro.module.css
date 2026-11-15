@@ -1,0 +1,11 @@
+.intro { max-width:520px; padding:clamp(24px,7vh,72px) 0 36px; color:rgb(var(--ui-text-primary)); font-family:var(--font-interface); }
+.identity { display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; margin:20px 0 12px; }
+.identity h2 { margin:0; font-size:27px; font-weight:500; line-height:1.25; letter-spacing:-.6px; overflow-wrap:anywhere; }
+.identity>span { color:#a1a1a1; font-size:12px; }
+.purpose { display:-webkit-box; -webkit-line-clamp:5; -webkit-box-orient:vertical; overflow:hidden; margin:0; font-size:14px; line-height:1.85; color:#b8b8b8; white-space:pre-wrap; overflow-wrap:anywhere; }
+.actions { display:flex; align-items:center; flex-wrap:wrap; gap:8px 20px; margin-top:16px; }
+.actions button { display:inline-flex; align-items:center; gap:10px; min-height:36px; padding:7px 11px; border:1px solid #ffffff1a; border-radius:7px; background:rgb(var(--ui-tint-tertiary)); color:#e0e0e0; font:inherit; font-size:12px; cursor:pointer; }
+.actions button:hover { background:rgb(var(--ui-tint-secondary)); }
+.actions .settings { padding-inline:0; border:0; background:transparent; color:#aaa; }
+.actions button:focus-visible { outline:2px solid var(--focus); outline-offset:4px; }
+@media(max-width:600px) { .intro { padding:24px 0; }.actions button { min-height:44px; }.identity h2 { font-size:24px; } }

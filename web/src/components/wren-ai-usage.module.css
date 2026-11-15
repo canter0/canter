@@ -1,0 +1,12 @@
+.section { margin:30px 0;color:rgb(var(--ui-text-primary)); }
+.section header { display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px; }
+.section h2 { margin:0;font-size:15px;font-weight:400; }
+.section header>span { font-size:11px;color:rgb(var(--ui-text-secondary)); }
+.card { padding:20px;border:1px solid rgb(var(--ui-border-secondary));border-radius:16px;background:rgb(var(--ui-bg-elevated)); }
+.metrics { display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:16px;margin:0; }
+.metrics>div { display:flex;flex-direction:column;gap:6px;min-width:0; }
+.metrics dt { color:rgb(var(--ui-text-secondary));font-size:11px; }
+.metrics dd { margin:0;font-size:22px;font-weight:400;overflow-wrap:anywhere;font-variant-numeric:tabular-nums; }
+.note { margin:12px 0 0;font-size:12px;color:rgb(var(--ui-text-secondary));line-height:1.7; }
+.note button,.refresh { padding:0;border:0;background:transparent;color:inherit;text-decoration:underline;text-underline-offset:3px;font:inherit;cursor:pointer; }
+.refresh { margin-top:12px;font-size:11px;color:rgb(var(--ui-text-secondary)); }

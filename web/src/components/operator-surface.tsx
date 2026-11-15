@@ -1,5 +1,13 @@
 "use client";
+import { WrenMessagingPanel } from "./wren-messaging-panel";
+import { WrenProjectsPanel } from "./wren-projects-panel";
+import { WrenExtensionsPanel } from "./wren-extensions-panel";
+import { WrenLibraryPanel } from "./wren-library-panel";
+import { WrenMembersPanel } from "./wren-members-panel";
+import { WrenKnowledgePanel } from "./wren-knowledge-panel";
 import Link from "next/link";
+import { WrenResponsibilityPanel } from "./wren-responsibility-panel";
+import { WrenJobView, WrenComputerView, WrenArtifactView } from "./wren-surfaces";
 import { VPSReview } from "./vps-review";
 import { RepositoryOverview } from "./repository-overview";
 import { RepositoryCode } from "./repository-code";
@@ -17,7 +25,7 @@ import { WorkspaceIcon } from "./workspace-icon";
 import styles from "./operator-workspace.module.css";
 
 type Lists = { systems?: SystemRecord[]; installations?: Installation[]; initialDeployments?: InitialDeploymentSummary[]; changes?: ChangeSummary[]; actions?: WorkspaceAction[] };
-export function OperatorSurfaceView({ surface, workspaceId, onSelect, conversationId, githubResult, busy, onDeploy }: { surface: OperatorSurface; workspaceId: string; onSelect: (surface: OperatorSurface) => void; conversationId?: string; githubResult?: string; busy: boolean; onDeploy: (repository: string) => Promise<void> }) {
+export function OperatorSurfaceView({ surface, workspaceId, onSelect, conversationId, githubResult, busy, onDeploy, computerChrome, onUseApp, openRequest, onOpenRun }: { onOpenRun?: (runId: string) => Promise<void>; openRequest?: number; onUseApp?: (prompt:string)=>void; computerChrome?: {close:()=>void;expand:()=>void;wide:boolean}; surface: OperatorSurface; workspaceId: string; onSelect: (surface: OperatorSurface) => void; conversationId?: string; githubResult?: string; busy: boolean; onDeploy: (repository: string) => Promise<void> }) {
   const [data, setData] = useState<Lists | null>(null);
   const [error, setError] = useState("");
   const [retry, setRetry] = useState(0);
@@ -44,6 +52,16 @@ export function OperatorSurfaceView({ surface, workspaceId, onSelect, conversati
   return <EmbeddedAppSurface workspaceId={workspaceId}><div className={styles.embedded} key={surfaceKey(surface)}>
     {surface.kind === "file" || surface.kind === "repository-changes" ? <RepositoryCode surface={surface} workspaceId={workspaceId} onSelect={onSelect} /> : null}
     {surface.kind === "github" ? <GitHubRepositories workspaceId={workspaceId} conversationId={conversationId} result={githubResult} busy={busy} onDeploy={onDeploy} /> : null}
+    {surface.kind==="wren-messaging" ? <WrenMessagingPanel workspaceId={workspaceId} conversationId={conversationId}/>:null}
+    {surface.kind==="wren-projects" ? <WrenProjectsPanel workspaceId={workspaceId} conversationId={conversationId}/>:null}
+    {surface.kind==="wren-extensions" ? <WrenExtensionsPanel workspaceId={workspaceId} conversationId={conversationId} installationId={surface.id} catalogSlug={surface.catalogSlug} openRequest={openRequest} onUse={onUseApp} githubResult={githubResult}/>:null}
+    {surface.kind==="wren-library" ? <WrenLibraryPanel workspaceId={workspaceId} conversationId={conversationId} onSelect={onSelect}/>:null}
+    {surface.kind==="wren-members" ? <WrenMembersPanel workspaceId={workspaceId}/>:null}
+    {surface.kind==="wren-memory" || surface.kind==="wren-skills" ? <WrenKnowledgePanel onUse={onUseApp} workspaceId={workspaceId} conversationId={conversationId} memoryId={surface.kind==="wren-memory"?surface.id:undefined} kind={surface.kind==="wren-memory" ? "memory" : "skills"}/> : null}
+    {surface.kind==="wren-responsibility" ? <WrenResponsibilityPanel onOpenRun={onOpenRun} workspaceId={workspaceId} conversationId={conversationId} id={surface.id}/> : null}
+    {surface.kind==="wren-job" && surface.id ? <WrenJobView workspaceId={workspaceId} id={surface.id}/> : null}
+    {surface.kind==="computer" ? <WrenComputerView chrome={computerChrome} workspaceId={workspaceId} conversationId={conversationId} id={conversationId?undefined:surface.id}/> : null}
+    {surface.kind==="wren-artifact" && surface.id ? <WrenArtifactView workspaceId={workspaceId} id={surface.id}/> : null}
     {surface.kind === "billing" ? <BillingSettings initialPlan="payg" checkoutReturned={false} /> : null}
     {surface.kind === "vps" && surface.id ? <VPSReview key={surface.id} id={surface.id} workspaceId={workspaceId} /> : null}
     {surface.kind === "deployment" && surface.id ? <InitialDeploymentReview id={surface.id} /> : null}

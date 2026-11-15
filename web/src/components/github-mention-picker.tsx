@@ -51,7 +51,7 @@ export function GitHubMentionPicker({ workspaceId, query, category, systems, dep
       const rank = (item: Choice) => item.label.toLowerCase().startsWith(search) ? 0 : item.label.toLowerCase().includes(search) ? 1 : 2;
       return rank(left) - rank(right);
     });
-  const reminder = data && !data.connection.connected && ((!section && !normalized) || section === "github") ? <div className={styles.connect}><strong>Connect GitHub</strong><p>Connect your account to find and attach repositories.</p>{data.connection.enabled && workspaceId ? <a href={githubConnectURL(data.connection, workspaceId, typeof window === "undefined" ? "/app" : window.location.pathname)}>Connect GitHub ↗</a> : <p>GitHub access is not configured on this server.</p>}<small>Choose repositories for Canter to read and deploy. GitHub will show the permissions before you connect.</small></div> : null;
+  const reminder = data && !data.connection.connected && ((!section && !normalized) || section === "github") ? <div className={styles.connect}><strong>Connect GitHub</strong><p>Connect your account to find and attach repositories.</p>{data.connection.enabled && workspaceId ? <a href={githubConnectURL(data.connection, workspaceId, typeof window === "undefined" ? "/app" : window.location.pathname)}>Connect GitHub ↗</a> : <p>GitHub access is not configured on this server.</p>}<small>GitHub will show repository access and permissions before you connect.</small></div> : null;
   useEffect(() => {
     const input = inputRef.current;
     const keyboard = (event: KeyboardEvent) => {

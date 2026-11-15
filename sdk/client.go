@@ -1045,10 +1045,41 @@ func (c *Client) Destroy(ctx context.Context, spec Spec) (State, error) {
 		request := compute.ManagedTCPExposureRequest{ServerID: intent.ServerID, Name: intent.Name, Ownership: intent.Ownership, Port: intent.Port}
 		policy, recovered, lookupErr := c.compute.FindManagedTCPExposure(ctx, request)
 		if lookupErr != nil {
-			return escalate(fmt.Errorf("reconcile public endpoint before destroy: %w", lookupErr))
+			// A proven-owned partial (created but never attached) is safe to
+			// use for cleanup only: deleting it removes the leftover policy.
+			// Everything else still fails closed.
+			var ambiguous *compute.AmbiguousManagedResourceError
+			if errors.As(lookupErr, &ambiguous) && ambiguous.OwnedPolicy != nil && ambiguous.OwnedPolicy.ID != "" && ambiguous.OwnedPolicy.PortID != "" && ambiguous.OwnedPolicy.Port == intent.Port {
+				policy, recovered = *ambiguous.OwnedPolicy, true
+			} else if compute.IsDuplicateManagedResource(lookupErr) {
+				return escalate(fmt.Errorf("reconcile public endpoint before destroy: %w", lookupErr))
+			} else {
+				// A retry after the VM was already deleted cannot rediscover
+				// the policy by server port. Continue only when the VM is
+				// provably gone and an exact owned policy was persisted.
+				if _, serverErr := c.compute.Server(ctx, intent.ServerID); serverErr == nil || !compute.IsNotFound(serverErr) || len(policies) == 0 {
+					return escalate(fmt.Errorf("reconcile public endpoint before destroy: %w", lookupErr))
+				}
+			}
 		}
 		if recovered {
-			policies[policy.ID] = NetworkPolicy{ID: policy.ID, PortID: policy.PortID, RuleID: policy.RuleID, Name: intent.Name, Ownership: intent.Ownership, Protocol: intent.Protocol, Port: policy.Port}
+			mapped := NetworkPolicy{ID: policy.ID, PortID: policy.PortID, RuleID: policy.RuleID, Name: intent.Name, Ownership: intent.Ownership, Protocol: intent.Protocol, Port: policy.Port}
+			policies[policy.ID] = mapped
+			// Record the adopted policy under the destroy fence before any VM
+			// delete so a later failed policy delete can still be completed.
+			persisted, persistErr := c.mutateDestroyState(ctx, key, creationOperationID, exposureOperationID, func(current *State) (bool, error) {
+				for _, existing := range current.NetworkPolicies {
+					if existing.ID == mapped.ID {
+						return false, nil
+					}
+				}
+				current.NetworkPolicies = append(current.NetworkPolicies, mapped)
+				return true, nil
+			})
+			if persistErr != nil {
+				return state, fmt.Errorf("persist recovered public endpoint policy %s: %w", policy.ID, persistErr)
+			}
+			state = persisted
 		} else if intent.MutationUnresolved && len(policies) == 0 {
 			return escalate(fmt.Errorf("public endpoint operation %s is still in flight with no visible exact managed policy", exposureOperationID))
 		}
@@ -1209,15 +1240,27 @@ type proofStore interface {
 }
 
 func waitForProof(ctx context.Context, store proofStore, key string) error {
-	tick := time.NewTicker(2 * time.Second)
+	return waitForProofInterval(ctx, store, key, 2*time.Second)
+}
+
+func waitForProofInterval(ctx context.Context, store proofStore, key string, interval time.Duration) error {
+	tick := time.NewTicker(interval)
 	defer tick.Stop()
+	readFailures := 0
 	for {
 		var proof BootProof
 		found, err := store.GetOptional(ctx, key, &proof)
 		if err != nil {
-			return fmt.Errorf("read compute boot proof: %w", err)
+			// A failed read is not a failed guest. Retry briefly before giving up;
+			// only a successfully read receipt can establish boot success.
+			readFailures++
+			if readFailures >= 3 {
+				return fmt.Errorf("read compute boot proof: %w", err)
+			}
+		} else {
+			readFailures = 0
 		}
-		if found {
+		if err == nil && found {
 			if proof.Status != "booted" || proof.ExitCode != 0 {
 				message := "bootstrap reported failure"
 				if decoded, decodeErr := base64.StdEncoding.DecodeString(proof.MessageBase64); decodeErr == nil && strings.TrimSpace(string(decoded)) != "" {

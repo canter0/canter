@@ -316,6 +316,7 @@ func (h *HTTPServer) agentPairings(w http.ResponseWriter, r *http.Request, parts
 			return
 		}
 		_ = h.service.Store.Audit(r.Context(), out.WorkspaceID, p.Actor, "agent.authorized", out.ID, map[string]any{"harness": out.Harness})
+		h.notifyWorkspaceOwners(r.Context(), out.WorkspaceID, p.Actor, "New agent connected to Canter", out.Name+" ("+out.Harness+") was connected to your organization by "+p.Actor.DisplayName+".\n\nManage agent access: "+strings.TrimRight(h.config.PublicURL, "/")+"/app/settings/agent\n")
 		writeJSON(w, http.StatusOK, map[string]any{"installation": out})
 		return
 	}

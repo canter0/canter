@@ -50,3 +50,21 @@
 }
 @keyframes menuIn { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .menu, .row, .row *, .empty { animation: none; transition: none; } }
+
+/* Two-line session geometry; the existing hover/collapse motion above is retained. */
+.row { min-height: 44px; margin: 1px 0; padding: 3px 8px; border-radius: 6px; }
+.row:hover, .row[data-open="true"], .row[data-active="true"] { background: rgb(var(--ui-tint-secondary)); }
+.sessionLeading { display: flex; align-self: flex-start; justify-content: center; flex: 0 0 16px; width: 16px; height: 20px; margin: 0 8px 0 0; }
+.sessionLeading > span { width: 3px; height: 3px; margin-top: 9px; border-radius: 50%; background: rgb(var(--ui-text-tertiary)); opacity: .55; }
+.link { padding: 0; font-size: 14px; line-height: 20px; color: rgb(var(--ui-text-primary)); letter-spacing: -.005em; }
+.link > span { max-width: 100%; }
+.link .sessionMetadata { display: flex; align-items: center; gap: 5px; margin-top: 0; color: rgb(var(--ui-text-secondary)); font-size: 13px; line-height: 18px; white-space: nowrap; }
+.sessionAgent { display: inline-block; flex: 0 0 14px; width: 14px; height: 14px; background: currentColor; mask: url("/canter-mark.svg") center / contain no-repeat; opacity: .9; }
+.more { width: 0; height: 24px; margin-left: 0; overflow: hidden; }
+.row:hover .more, .row:focus-within .more, .row[data-open="true"] .more { width: 24px; }
+@media (hover: none) { .more { width: 34px; height: 34px; } }
+@media (min-width: 1024px) {
+  .row[data-compact="true"] { min-height: 28px; }
+  .row[data-compact="true"] .sessionLeading { display: none; }
+}
+.sharedMarker { color: rgb(var(--ui-text-tertiary)); }

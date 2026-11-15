@@ -39,13 +39,16 @@ func (b *modelToolCallBuilder) modelToolCall() modelToolCall {
 }
 
 type modelMessage struct {
-	Role             string               `json:"role"`
-	Content          string               `json:"content"`
-	Attachments      []OperatorAttachment `json:"attachments,omitempty"`
-	ToolCalls        []modelToolCall      `json:"tool_calls,omitempty"`
-	ToolCallID       string               `json:"tool_call_id,omitempty"`
-	ReasoningDetails json.RawMessage      `json:"reasoning_details,omitempty"`
-	Usage            *operatorModelUsage  `json:"usage,omitempty"`
+	ProviderID          string               `json:"-"`
+	ContextKey          string               `json:"contextKey,omitempty"`
+	ComputerObservation bool                 `json:"computerObservation,omitempty"`
+	Role                string               `json:"role"`
+	Content             string               `json:"content"`
+	Attachments         []OperatorAttachment `json:"attachments,omitempty"`
+	ToolCalls           []modelToolCall      `json:"tool_calls,omitempty"`
+	ToolCallID          string               `json:"tool_call_id,omitempty"`
+	ReasoningDetails    json.RawMessage      `json:"reasoning_details,omitempty"`
+	Usage               *operatorModelUsage  `json:"usage,omitempty"`
 }
 
 type operatorModelUsage struct {
@@ -58,19 +61,23 @@ type operatorModelUsage struct {
 	} `json:"prompt_tokens_details,omitempty"`
 }
 type OperatorConfig struct {
-	APIKey          string
-	ExaAPIKey       string
-	exaTransport    http.RoundTripper // Test seam; the production destination is fixed.
-	modelTimeout    time.Duration     // Test seam; production defaults to three minutes.
-	modelRetryDelay time.Duration     // Test seam; production starts at one second.
-	BaseURL         string
-	Model           string
-	TitleModel      string
-	StaticBinary    string
-	ShellRunner     string
-	ShellNode       string
-	ShellSocket     string
-	ReasoningEffort string
+	projectAuthority func(context.Context) error
+	aiPurpose        string
+	aiUsage          func(context.Context, string, []byte, int, string) (*WrenAIPaidRequest, error)
+	APIKey           string
+	ExaAPIKey        string
+	exaTransport     http.RoundTripper // Test seam; the production destination is fixed.
+	modelTimeout     time.Duration     // Test seam; production defaults to three minutes.
+	modelRetryDelay  time.Duration     // Test seam; production starts at one second.
+	BaseURL          string
+	Model            string
+	WrenModel        string
+	TitleModel       string
+	StaticBinary     string
+	ShellRunner      string
+	ShellNode        string
+	ShellSocket      string
+	ReasoningEffort  string
 }
 
 func (c OperatorConfig) Ready() bool { return c.APIKey != "" && c.Model != "" && c.BaseURL != "" }
@@ -114,6 +121,28 @@ func (c OperatorConfig) completeWithLimit(ctx context.Context, messages []modelM
 		timeout = 3 * time.Minute
 	}
 	client := &http.Client{Timeout: timeout, CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}
+	if c.projectAuthority != nil {
+		if err = c.projectAuthority(ctx); err != nil {
+			return out, err
+		}
+	}
+	var paid *WrenAIPaidRequest
+	if c.aiUsage != nil {
+		paid, err = c.aiUsage(ctx, c.Model, body, maxTokens, c.aiPurpose)
+		if err != nil {
+			return out, err
+		}
+		defer func() {
+			var usage json.RawMessage
+			if out.Usage != nil {
+				usage, _ = json.Marshal(out.Usage)
+			}
+			_ = paid.Finish(ctx, usage, out.ProviderID)
+		}()
+		if err = paid.MarkDispatched(ctx); err != nil {
+			return out, err
+		}
+	}
 	response, err := client.Do(req)
 	if err != nil {
 		if ctx.Err() != nil {
@@ -148,6 +177,7 @@ func (c OperatorConfig) completeWithLimit(ctx context.Context, messages []modelM
 			break
 		}
 		var chunk struct {
+			ID      string              `json:"id"`
 			Error   json.RawMessage     `json:"error"`
 			Usage   *operatorModelUsage `json:"usage"`
 			Choices []struct {
@@ -179,6 +209,9 @@ func (c OperatorConfig) completeWithLimit(ctx context.Context, messages []modelM
 			}
 			_ = json.Unmarshal(chunk.Error, &providerError)
 			return out, &operatorModelError{kind: "provider", message: "the model provider interrupted the response; please retry", retryable: operatorModelRetryableStatus(providerError.Code), cause: fmt.Errorf("stream provider status %d", providerError.Code)}
+		}
+		if chunk.ID != "" {
+			out.ProviderID = chunk.ID
 		}
 		if chunk.Usage != nil {
 			out.Usage = chunk.Usage

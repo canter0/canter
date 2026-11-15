@@ -28,7 +28,7 @@ func integrationStore(t *testing.T) *Store {
 	if err := store.Migrate(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	_, err = store.pool.Exec(context.Background(), `TRUNCATE account_deletion_artifacts,auth_rate_windows,auth_email_suppressions,oauth_login_states,oauth_identities,change_approval_capabilities,audit_events,change_records,executions,systems,agent_sessions,agent_credentials,device_authorizations,agent_installations,human_sessions,memberships,workspaces,accounts,beta_invites CASCADE`)
+	_, err = store.pool.Exec(context.Background(), `TRUNCATE sandbox_snapshot_parts,sandbox_template_versions,sandbox_templates,sandbox_snapshots,sandbox_storage_erasures,account_deletion_artifacts,auth_rate_windows,auth_email_suppressions,oauth_login_states,oauth_identities,change_approval_capabilities,audit_events,change_records,executions,systems,agent_sessions,agent_credentials,device_authorizations,agent_installations,human_sessions,memberships,workspaces,accounts,beta_invites CASCADE`)
 	if err != nil {
 		t.Fatal(err)
 	}
