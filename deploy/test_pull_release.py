@@ -311,6 +311,8 @@ class ActivationTests(unittest.TestCase):
             content = 'User=canter-web\nGroup=canter-web\n' if name == 'canter-web.service' else 'new-unit'
             (self.next / 'deploy' / name).write_text(content)
         (self.next / 'canter-static-linux').write_text('new-static')
+        (self.next / 'canter-ci-enforcer').write_text('new-enforcer')
+        (self.next / 'deploy' / release.ENFORCER_UNIT).write_text('new-enforcer-unit')
         p = patch.object(release, 'unit_state', return_value=False)
         p.start()
         self.addCleanup(p.stop)
@@ -409,6 +411,35 @@ class ActivationTests(unittest.TestCase):
         self.assertFalse((self.harness / 'current').is_symlink())
         for name in release.HARNESS_UNITS:
             self.assertFalse((self.systemd / name).exists())
+
+    @patch.object(release.subprocess, 'run')
+    @patch.object(release, 'run')
+    @patch.object(release, 'healthy', return_value=True)
+    def test_success_installs_enforcer_and_restarts_only_an_active_unit(self, health, run, subprocess):
+        release.activate(self.next, self.sha)
+        self.assertEqual((self.root / 'bin/canter-ci-enforcer').read_text(), 'new-enforcer')
+        self.assertEqual((self.systemd / release.ENFORCER_UNIT).read_text(), 'new-enforcer-unit')
+        self.assertNotIn(('systemctl', 'restart', release.ENFORCER_UNIT), [c.args for c in run.call_args_list])
+
+    @patch.object(release.subprocess, 'run')
+    @patch.object(release, 'run')
+    @patch.object(release, 'healthy', return_value=True)
+    def test_success_restarts_an_active_enforcer(self, health, run, subprocess):
+        with patch.object(release, 'unit_state', return_value=True):
+            release.activate(self.next, self.sha)
+        run.assert_any_call('systemctl', 'restart', release.ENFORCER_UNIT)
+
+    @patch.object(release.time, 'sleep')
+    @patch.object(release.subprocess, 'run')
+    @patch.object(release, 'run')
+    @patch.object(release, 'healthy', return_value=False)
+    def test_failed_health_restores_previous_enforcer(self, health, run, subprocess, sleep):
+        (self.root / 'bin/canter-ci-enforcer').write_text('old-enforcer')
+        (self.systemd / release.ENFORCER_UNIT).write_text('old-enforcer-unit')
+        with self.assertRaisesRegex(RuntimeError, 'readiness'):
+            release.activate(self.next, self.sha)
+        self.assertEqual((self.root / 'bin/canter-ci-enforcer').read_text(), 'old-enforcer')
+        self.assertEqual((self.systemd / release.ENFORCER_UNIT).read_text(), 'old-enforcer-unit')
 
     @patch.object(release.subprocess, 'run', side_effect=RuntimeError('backup failed'))
     @patch.object(release, 'run')

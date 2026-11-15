@@ -1,0 +1,32 @@
+[Unit]
+Description=Canter CI enforcer
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=canter-ci-enforcer
+Group=canter-ci-enforcer
+# Provider credentials and CANTER_CI_GITHUB_APP_ID. Secret files under
+# /etc/canter/ci-enforcer must be 0600 and owned by canter-ci-enforcer.
+EnvironmentFile=/etc/canter/ci-enforcer.env
+ExecStart=/opt/canter/bin/canter-ci-enforcer --state-dir /var/lib/canter-ci-enforcer --listen 127.0.0.1:8097 --token-file /etc/canter/ci-enforcer/token --github-app-id ${CANTER_CI_GITHUB_APP_ID} --github-key-file /etc/canter/ci-enforcer/github-app.pem
+StateDirectory=canter-ci-enforcer
+StateDirectoryMode=0700
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=15
+MemoryHigh=64M
+MemoryMax=96M
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

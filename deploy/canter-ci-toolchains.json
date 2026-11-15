@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "platform": "linux-x64",
+  "go": {
+    "version": "1.26.8",
+    "url": "https://dl.google.com/go/go1.26.8.linux-amd64.tar.gz",
+    "algorithm": "sha256",
+    "digest": "d0f743b33e8d8945e6b1f432edd15785c70507121d6e2a723b21285eddf8b57b",
+    "stripPrefix": "go/"
+  },
+  "node": {
+    "version": "22.23.4",
+    "url": "https://nodejs.org/dist/v22.23.4/node-v22.23.4-linux-x64.tar.gz",
+    "algorithm": "sha256",
+    "digest": "b8492284c76a54baf58d61668dd0e41ee0fc98adabf9503d30f05d08f55b4406",
+    "stripPrefix": "node-v22.23.4-linux-x64/"
+  },
+  "pnpm": {
+    "version": "11.19.0",
+    "url": "https://registry.npmjs.org/pnpm/-/pnpm-11.19.0.tgz",
+    "algorithm": "sha512",
+    "digest": "7881f3ed590d472c4a955e2b88b2121791116066dcc88cbca3849ec9b60f1bbaa6d2ccb221fa91da4e1c65bef2bcbe379365aea7ac539c7bf86dedc3a1b22dce",
+    "stripPrefix": "package/"
+  },
+  "runner": {
+    "version": "2.338.2",
+    "url": "https://github.com/actions/runner/releases/download/v2.338.2/actions-runner-linux-x64-2.338.2.tar.gz",
+    "algorithm": "sha256",
+    "digest": "baebf204307bac6193480852732f0aba2ae97b6c5597c244f4d5558390147c40",
+    "stripPrefix": ""
+  }
+}

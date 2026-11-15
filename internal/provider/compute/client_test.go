@@ -440,3 +440,11 @@ func TestWaitActiveContextDeadlineWrapsTransient(t *testing.T) {
 		t.Fatalf("deadline during transients must wrap the cause: %v", err)
 	}
 }
+
+func TestWithRegionPinsOnlyTheRegion(t *testing.T) {
+	base := &Client{config: config{AuthURL: "https://identity.example/v3", Username: "u", Region: "eu-west2"}, http: providerHTTPClient(time.Second)}
+	pinned := base.WithRegion("eu-north1")
+	if pinned.config.Region != "eu-north1" || base.config.Region != "eu-west2" || pinned.config.AuthURL != base.config.AuthURL || pinned.http != base.http {
+		t.Fatalf("WithRegion changed more than the region: %+v %+v", base.config, pinned.config)
+	}
+}

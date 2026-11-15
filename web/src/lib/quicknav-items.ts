@@ -6,6 +6,7 @@ export type QuicknavItem = { href: string; label: string; icon?: WorkspaceIconNa
 const productNav: Record<string, { href: string; icon: WorkspaceIconName }> = {
   wrens: { href: "/app/wrens", icon: "agent" },
   sandboxes: { href: "/app/sandboxes", icon: "terminal" },
+  ci: { href: "/app/ci", icon: "changes" },
 };
 
 // Quicknav shows Home, then one item per enabled product in catalog order,

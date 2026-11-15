@@ -9,6 +9,13 @@ permissions:
   contents: read
 
 jobs:
+  ci-tools:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - run: python3 -m unittest discover -s scripts -p 'test_canter_ci_*.py'
+      - run: bash -n scripts/canter-ci-public-benchmark.sh
+
   sdks:
     runs-on: ubuntu-latest
     steps:
