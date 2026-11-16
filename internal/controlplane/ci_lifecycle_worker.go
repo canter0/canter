@@ -117,13 +117,18 @@ func (w *ciRunnerLifecycleWorker) Reconcile(ctx context.Context, workspace, runn
 	// lock, and Store transactions keep their own pool slots so a
 	// MaxConns=1 store cannot deadlock behind the held session.
 	session := conn.Hijack()
+	key := "ci/" + workspace + "/" + runner
+	var locked bool
 	defer func() {
 		closeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
+		if locked {
+			// Wait for PostgreSQL to release the lock before returning;
+			// closing the connection alone leaves a disconnect race.
+			_, _ = session.Exec(closeCtx, `SELECT pg_advisory_unlock(hashtextextended($1,948))`, key)
+		}
 		_ = session.Close(closeCtx)
 	}()
-	key := "ci/" + workspace + "/" + runner
-	var locked bool
 	if err = session.QueryRow(ctx, `SELECT pg_try_advisory_lock(hashtextextended($1,948))`, key).Scan(&locked); err != nil {
 		return err
 	}
