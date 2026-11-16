@@ -90,15 +90,16 @@ func (v *SecretVault) open(key string, value, binding []byte) ([]byte, error) {
 }
 
 type workspaceSecret struct {
-	ID         string     `json:"id"`
-	Name       string     `json:"name"`
-	Purpose    string     `json:"purpose"`
-	Note       string     `json:"note"`
-	Version    int        `json:"version"`
-	UpdatedBy  string     `json:"updatedBy"`
-	CreatedAt  time.Time  `json:"createdAt"`
-	UpdatedAt  time.Time  `json:"updatedAt"`
-	LastUsedAt *time.Time `json:"lastUsedAt"`
+	ID             string     `json:"id"`
+	Name           string     `json:"name"`
+	Purpose        string     `json:"purpose"`
+	Note           string     `json:"note"`
+	Version        int        `json:"version"`
+	SandboxAllowed bool       `json:"sandboxAllowed"`
+	UpdatedBy      string     `json:"updatedBy"`
+	CreatedAt      time.Time  `json:"createdAt"`
+	UpdatedAt      time.Time  `json:"updatedAt"`
+	LastUsedAt     *time.Time `json:"lastUsedAt"`
 }
 
 func (h *HTTPServer) workspaceSecrets(w http.ResponseWriter, r *http.Request, p Principal, workspace string, parts []string) {
@@ -109,7 +110,7 @@ func (h *HTTPServer) workspaceSecrets(w http.ResponseWriter, r *http.Request, p 
 		owner = err == nil && role == "owner"
 	}
 	if len(parts) == 0 && r.Method == http.MethodGet {
-		rows, err := h.service.Store.pool.Query(r.Context(), `SELECT id,name,purpose,note,version,COALESCE(updated_by,''),created_at,updated_at,last_used_at FROM workspace_secrets WHERE workspace_id=$1 AND revoked_at IS NULL ORDER BY updated_at DESC`, workspace)
+		rows, err := h.service.Store.pool.Query(r.Context(), `SELECT id,name,purpose,note,version,sandbox_allowed,COALESCE(updated_by,''),created_at,updated_at,last_used_at FROM workspace_secrets WHERE workspace_id=$1 AND revoked_at IS NULL ORDER BY updated_at DESC`, workspace)
 		if err != nil {
 			writeStoreError(w, err)
 			return
@@ -118,7 +119,7 @@ func (h *HTTPServer) workspaceSecrets(w http.ResponseWriter, r *http.Request, p 
 		items := []workspaceSecret{}
 		for rows.Next() {
 			var item workspaceSecret
-			if err = rows.Scan(&item.ID, &item.Name, &item.Purpose, &item.Note, &item.Version, &item.UpdatedBy, &item.CreatedAt, &item.UpdatedAt, &item.LastUsedAt); err != nil {
+			if err = rows.Scan(&item.ID, &item.Name, &item.Purpose, &item.Note, &item.Version, &item.SandboxAllowed, &item.UpdatedBy, &item.CreatedAt, &item.UpdatedAt, &item.LastUsedAt); err != nil {
 				writeStoreError(w, err)
 				return
 			}
@@ -138,25 +139,42 @@ func (h *HTTPServer) workspaceSecrets(w http.ResponseWriter, r *http.Request, p 
 	create := len(parts) == 0 && r.Method == http.MethodPost
 	rotate := len(parts) == 1 && r.Method == http.MethodPut
 	revoke := len(parts) == 1 && r.Method == http.MethodDelete
-	if h.config.Secrets == nil && !revoke {
+	access := len(parts) == 1 && r.Method == http.MethodPatch
+	if h.config.Secrets == nil && !revoke && !access {
 		writeError(w, http.StatusServiceUnavailable, errors.New("workspace secret storage is not configured"))
 		return
 	}
-	if !create && !rotate && !revoke {
+	if !create && !rotate && !revoke && !access {
 		writeStoreError(w, ErrNotFound)
 		return
 	}
 	if !h.requireRecent(w, r, p) {
 		return
 	}
+	if access {
+		var input struct {
+			Version        int   `json:"version"`
+			SandboxAllowed *bool `json:"sandboxAllowed"`
+		}
+		if !decodeLimit(w, r, &input, 4096) {
+			return
+		}
+		h.updateSecretSandboxAccess(w, r, p, workspace, parts[0], input.SandboxAllowed, input.Version)
+		return
+	}
 	var input struct {
-		Name    string `json:"name"`
-		Purpose string `json:"purpose"`
-		Note    string `json:"note"`
-		Value   string `json:"value"`
-		Version int    `json:"version"`
+		Name           string `json:"name"`
+		Purpose        string `json:"purpose"`
+		Note           string `json:"note"`
+		Value          string `json:"value"`
+		Version        int    `json:"version"`
+		SandboxAllowed *bool  `json:"sandboxAllowed"`
 	}
 	if !decodeLimit(w, r, &input, 24<<10) {
+		return
+	}
+	if input.SandboxAllowed != nil && *input.SandboxAllowed && input.Purpose == "openrouter" {
+		writeError(w, http.StatusBadRequest, errors.New("OpenRouter credentials cannot be enabled for sandbox use"))
 		return
 	}
 	if !revoke && (len(input.Value) == 0 || len(input.Value) > 8192 || strings.TrimSpace(input.Value) == "") {
@@ -174,6 +192,15 @@ func (h *HTTPServer) workspaceSecrets(w http.ResponseWriter, r *http.Request, p 
 		return
 	}
 	defer tx.Rollback(ctx)
+	role, err := h.service.Store.lockWorkspace(ctx, tx, workspace, p.Account.ID)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	if role != "owner" {
+		writeStoreError(w, ErrForbidden)
+		return
+	}
 	id := ""
 	purpose := input.Purpose
 	version := 1
@@ -196,6 +223,10 @@ func (h *HTTPServer) workspaceSecrets(w http.ResponseWriter, r *http.Request, p 
 		writeStoreError(w, err)
 		return
 	}
+	if purpose != "stored" && input.SandboxAllowed != nil && *input.SandboxAllowed {
+		writeError(w, http.StatusBadRequest, errors.New("Only stored secrets can be enabled for sandbox use"))
+		return
+	}
 	if revoke {
 		action = "secret.revoked"
 		_, err = tx.Exec(ctx, `UPDATE workspace_secrets SET ciphertext=NULL,revoked_at=now(),updated_at=now(),updated_by=$3,version=version+1 WHERE workspace_id=$1 AND id=$2`, workspace, id, p.Account.ID)
@@ -213,10 +244,10 @@ func (h *HTTPServer) workspaceSecrets(w http.ResponseWriter, r *http.Request, p 
 			return
 		}
 		if create {
-			_, err = tx.Exec(ctx, `INSERT INTO workspace_secrets(id,workspace_id,name,purpose,note,ciphertext,key_id,updated_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`, id, workspace, input.Name, purpose, input.Note, sealed, key, p.Account.ID)
+			_, err = tx.Exec(ctx, `INSERT INTO workspace_secrets(id,workspace_id,name,purpose,note,ciphertext,key_id,updated_by,sandbox_allowed) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`, id, workspace, input.Name, purpose, input.Note, sealed, key, p.Account.ID, input.SandboxAllowed != nil && *input.SandboxAllowed)
 		} else {
 			action = "secret.rotated"
-			_, err = tx.Exec(ctx, `UPDATE workspace_secrets SET ciphertext=$3,key_id=$4,version=version+1,updated_by=$5,updated_at=now() WHERE workspace_id=$1 AND id=$2`, workspace, id, sealed, key, p.Account.ID)
+			_, err = tx.Exec(ctx, `UPDATE workspace_secrets SET ciphertext=$3,key_id=$4,version=version+1,updated_by=$5,updated_at=now(),sandbox_allowed=COALESCE($6,sandbox_allowed) WHERE workspace_id=$1 AND id=$2`, workspace, id, sealed, key, p.Account.ID, input.SandboxAllowed)
 		}
 	}
 	if err != nil {
@@ -254,6 +285,10 @@ func (h *HTTPServer) workspaceModelConfig(ctx context.Context, workspace string,
 		return config, err
 	}
 	defer tx.Rollback(ctx)
+	var lockedWorkspace string
+	if err := tx.QueryRow(ctx, `SELECT id FROM workspaces WHERE id=$1 FOR KEY SHARE`, workspace).Scan(&lockedWorkspace); err != nil {
+		return config, err
+	}
 	var id, key string
 	var sealed []byte
 	err = tx.QueryRow(ctx, `SELECT id,key_id,ciphertext FROM workspace_secrets WHERE workspace_id=$1 AND purpose='openrouter' AND revoked_at IS NULL FOR UPDATE`, workspace).Scan(&id, &key, &sealed)
@@ -291,4 +326,56 @@ func (h *HTTPServer) workspaceOperatorReady(ctx context.Context, workspace strin
 	var found bool
 	err := h.service.Store.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM workspace_secrets WHERE workspace_id=$1 AND purpose='openrouter' AND revoked_at IS NULL)`, workspace).Scan(&found)
 	return err == nil && found
+}
+
+// updateSecretSandboxAccess is the owner-only PATCH that enables or disables a
+// stored secret for sandbox use. It revalidates the owner role inside the
+// workspace transaction (a membership change between read and write cannot
+// slip through), applies the optimistic version fence, and never touches the
+// secret value.
+func (h *HTTPServer) updateSecretSandboxAccess(w http.ResponseWriter, r *http.Request, p Principal, workspace, id string, allowed *bool, version int) {
+	if allowed == nil {
+		writeError(w, http.StatusBadRequest, errors.New("sandboxAllowed is required"))
+		return
+	}
+	ctx := r.Context()
+	tx, err := h.service.Store.pool.Begin(ctx)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	defer tx.Rollback(ctx)
+	if p.Account == nil {
+		writeStoreError(w, ErrForbidden)
+		return
+	}
+	role, err := h.service.Store.lockWorkspace(ctx, tx, workspace, p.Account.ID)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	if role != "owner" {
+		writeStoreError(w, ErrForbidden)
+		return
+	}
+	result, err := tx.Exec(ctx,
+		`UPDATE workspace_secrets SET sandbox_allowed=$3,updated_at=now(),updated_by=$4,version=version+1 WHERE workspace_id=$1 AND id=$2 AND version=$5 AND purpose='stored' AND revoked_at IS NULL`,
+		workspace, id, *allowed, p.Account.ID, version)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	if result.RowsAffected() == 0 {
+		writeStoreError(w, ErrConflict)
+		return
+	}
+	if err = secretAudit(ctx, tx, workspace, p.Actor, "secret.sandbox_access_updated", id); err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	if err = tx.Commit(ctx); err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"updated": true})
 }

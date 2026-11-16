@@ -9,6 +9,31 @@ permissions:
   contents: read
 
 jobs:
+  ci-tools:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - run: python3 -m unittest discover -s scripts -p 'test_canter_ci_*.py'
+      - run: bash -n scripts/canter-ci-public-benchmark.sh
+
+  sdks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: sdk/typescript/package-lock.json
+      - run: npm ci --prefix sdk/typescript --ignore-scripts --no-audit --no-fund
+      - run: npm test --prefix sdk/typescript
+      - run: npm pack --dry-run
+        working-directory: sdk/typescript
+      - run: python3 -m unittest discover -s sdk/python/tests -v
+        env:
+          PYTHONPATH: sdk/python
+      - run: python3 -m pip wheel --no-deps --wheel-dir "$RUNNER_TEMP/canter-sdk-wheels" ./sdk/python
+
   go:
     runs-on: ubuntu-latest
     services:
@@ -38,8 +63,8 @@ jobs:
           cache-dependency-path: harness/package-lock.json
       - run: npm ci --prefix harness --ignore-scripts --no-audit --no-fund
       - run: npm test --prefix harness
-      - run: go test ./...
-      - run: go test -race ./...
+      - run: go test -timeout 30m ./...
+      - run: go test -race -timeout 30m ./...
       - run: go vet ./...
       - run: python3 deploy/test_pull_release.py
       - run: python3 scripts/test_production_status.py

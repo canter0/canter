@@ -244,6 +244,10 @@ func TestOperatorRuntimeModelRetryDoesNotRepeatCompletedTask(t *testing.T) {
 	if _, err := s.RenameConversation(ctx, conversation.WorkspaceID, conversation.AccountID, conversation.ID, conversation.Title); err != nil {
 		t.Fatal(err)
 	}
+	// canter_create_task only creates when an external agent is connected.
+	if _, err := s.pool.Exec(ctx, `INSERT INTO agent_installations(id,workspace_id,name,harness,created_by) VALUES('external_retry_fixture',$1,'External fixture','codex',$2)`, conversation.WorkspaceID, conversation.AccountID); err != nil {
+		t.Fatal(err)
+	}
 	var calls atomic.Int32
 	requests := make(chan string, 3)
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -294,7 +298,12 @@ func TestOperatorRuntimeModelRetryDoesNotRepeatCompletedTask(t *testing.T) {
 	if err := json.Unmarshal([]byte(third), &request); err != nil {
 		t.Fatal(err)
 	}
-	last := request.Messages[len(request.Messages)-1]
+	// The conversation tail may be followed by a runtime system notice.
+	tail := len(request.Messages)
+	if tail > 0 && request.Messages[tail-1].Role == "system" && tail > 1 {
+		tail--
+	}
+	last := request.Messages[tail-1]
 	if last.Role != "tool" || last.ToolCallID != "created_task" || !strings.Contains(last.Content, "executorStarted") {
 		t.Fatalf("completed tool evidence missing on retry: %+v", last)
 	}

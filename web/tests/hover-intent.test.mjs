@@ -30,3 +30,19 @@ test('near-horizontal paths across the gap and upward diagonals are protected',(
   follow([{x:140,y:200},{x:190,y:200},{x:228,y:200}],card,{x:90,y:200});
   follow([{x:130,y:275},{x:180,y:235},{x:228,y:200}],card,{x:90,y:310});
 });
+
+test('a tall grouped menu keeps the preview when aiming through the top of the card',()=>{
+  const target={left:636,right:916,top:577,bottom:672};
+  const start={x:520,y:332};
+  follow(Array.from({length:20},(_,i)=>({x:520+(i+1)*17,y:332+(i+1)*14.4})),target,start);
+  const mirror=point=>({x:1280-point.x,y:point.y});
+  follow(Array.from({length:20},(_,i)=>mirror({x:520+(i+1)*17,y:332+(i+1)*14.4})),{left:364,right:644,top:577,bottom:672},mirror(start),'left');
+});
+
+test('aiming through the bottom of a card above the row stays protected',()=>{
+  follow(Array.from({length:20},(_,i)=>({x:520+(i+1)*17,y:620-(i+1)*14.4})),{left:636,right:916,top:280,bottom:375},{x:520,y:620});
+});
+
+test('small pointer jitter during a diagonal does not switch rows',()=>{
+  follow([{x:130,y:110},{x:160,y:150},{x:160,y:151},{x:159,y:152},{x:190,y:200},{x:228,y:230}]);
+});

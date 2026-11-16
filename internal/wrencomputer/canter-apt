@@ -1,0 +1,98 @@
+#!/usr/bin/env python3
+"""Root helper for sandbox package installs. Runs apt-get as root for the
+unprivileged wren user with a strict allowlist-shaped interface."""
+import os
+import pwd
+import re
+import stat
+import subprocess
+import sys
+
+NAME = re.compile(r"^[a-z0-9][a-z0-9+.\-]{0,99}$")
+BLOCKED = re.compile(r"^(docker.*|podman.*|containerd.*|runc|lxd.*|lxc.*|firewalld|ufw|nftables|iptables.*|netfilter-persistent|iptables-persistent|sudo.*|polkit.*|policykit.*|openssh-server|systemd-container|qemu.*|libvirt.*)$")
+TRACKED = "/workspace/.canter-packages"
+
+
+def valid(name):
+    return isinstance(name, str) and bool(NAME.match(name)) and not name.startswith("-")
+
+
+def blocked(name):
+    return bool(BLOCKED.match(name))
+
+
+def _open_tracked(tracked, flags, mode=0o644):
+    """Open the tracked file without following symlinks. Returns a file object
+    or None when the path is unsafe (symlink, hardlink, non-regular)."""
+    try:
+        fd = os.open(tracked, flags | os.O_NOFOLLOW | os.O_NOCTTY, mode)
+    except OSError as error:
+        if error.errno == 2 and not flags & (os.O_WRONLY | os.O_RDWR | os.O_CREAT):
+            return None  # tracked file simply does not exist yet
+        sys.stderr.write("canter-apt: cannot open %s safely: %s\n" % (tracked, error))
+        return None
+    info = os.fstat(fd)
+    if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+        os.close(fd)
+        sys.stderr.write("canter-apt: refusing %s: not a plain single-link file\n" % tracked)
+        return None
+    return os.fdopen(fd, "r+" if flags & os.O_RDWR else ("r" if not flags & os.O_WRONLY else "w"))
+
+
+def read_tracked(tracked=TRACKED):
+    """Names recorded for reinstall-on-wake. Untrusted input."""
+    stream = _open_tracked(tracked, os.O_RDONLY)
+    if stream is None:
+        return set()
+    with stream:
+        return set(stream.read().split())
+
+
+def record(names, tracked=TRACKED):
+    """Merge names into the tracked file as a regular wren-owned file.
+    A symlink or otherwise suspicious file is refused with a warning; the
+    install itself is not affected."""
+    existing = read_tracked(tracked)
+    stream = _open_tracked(tracked, os.O_WRONLY | os.O_CREAT | os.O_TRUNC)
+    if stream is None:
+        return
+    try:
+        try:
+            account = pwd.getpwnam("wren")
+            os.fchown(stream.fileno(), account.pw_uid, account.pw_gid)
+        except (KeyError, OSError):
+            pass
+        os.fchmod(stream.fileno(), 0o644)
+        existing.update(names)
+        stream.write("\n".join(sorted(existing)) + "\n")
+    finally:
+        stream.close()
+
+
+def main():
+    args = sys.argv[1:]
+    if not args or args[0] not in ("install", "update"):
+        sys.stderr.write("usage: canter-apt install <pkg>... | canter-apt update\n")
+        return 2
+    env = dict(os.environ, DEBIAN_FRONTEND="noninteractive")
+    if args[0] == "update":
+        return subprocess.run(["apt-get", "update"], env=env, timeout=600).returncode
+    names = args[1:]
+    if not names:
+        sys.stderr.write("canter-apt: at least one package name is required\n")
+        return 2
+    for name in names:
+        if not valid(name):
+            sys.stderr.write("canter-apt: invalid package name %r\n" % name)
+            return 2
+        if blocked(name):
+            sys.stderr.write("canter-apt: package %r is not permitted in a sandbox\n" % name)
+            return 1
+    rc = subprocess.run(["apt-get", "install", "-y", "--no-install-recommends", "--"] + names, env=env, timeout=600).returncode
+    if rc == 0:
+        record(names)
+    return rc
+
+
+if __name__ == "__main__":
+    sys.exit(main())

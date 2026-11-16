@@ -12,8 +12,9 @@ import (
 	"time"
 )
 
-const DefaultModel = "openai/gpt-5.6-luna"
+const DefaultModel = "openai/gpt-6.1-sol"
 
+// https://openrouter.ai/openai/gpt-6.1-sol
 const maxModelResponseBytes = 1 << 20
 
 type Client struct {

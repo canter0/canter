@@ -1,0 +1,32 @@
+.panel { color:rgb(var(--ui-text-primary));padding:24px var(--wren-panel-inset,24px);max-width:850px;margin:auto;font-size:13px; }
+.panel h2 { font-size:16px;font-weight:500;margin:0 0 12px; }
+.panel p,.panel small { color:var(--muted);line-height:1.6; }
+.panel input,.panel select,.panel textarea { border:1px solid var(--rule);border-radius:7px;padding:8px;background:transparent;color:inherit;min-width:0; }
+.panel label { display:grid;gap:6px; }
+.panel button { background:transparent;border:1px solid var(--rule);border-radius:7px;color:inherit;padding:7px 10px;cursor:pointer; }
+.panel button:disabled { opacity:.45;cursor:default; }
+.filters,.actions { display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:12px 0; }
+.filters>input { flex:1; }
+.filters>label { display:flex;align-items:center;gap:5px; }
+.entry { display:flex;gap:8px;align-items:center;padding:14px 0;border-bottom:1px solid var(--rule); }
+.entry>button:first-child { flex:1;text-align:start;border:0;min-width:0;padding:0; }
+.entry strong,.entry small { display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.entry strong { font-weight:500; }
+.editor { margin:18px 0;border-top:1px solid var(--rule);padding-top:12px; }
+.editor summary { cursor:pointer; }
+.editor textarea { width:100%;resize:vertical;font-family:var(--font-mono),monospace;font-size:12px;line-height:1.6; }
+.table { overflow:auto;max-height:500px; }
+.table table { border-collapse:collapse; }
+.table th { color:var(--muted);font-size:10px;font-weight:400;padding:5px; }
+.table td { padding:0;border:1px solid var(--rule); }
+.table input { border:0;border-radius:0;width:140px;min-width:90px;font-family:inherit;font-size:12px; }
+.conflict { border-inline-start:2px solid var(--rule);padding:8px 12px; }
+.conflict h3 { font-size:14px;font-weight:500;margin:4px 0; }
+.conflict details { margin-block:12px; }
+.conflict .reviewCheck { display:flex;align-items:flex-start;gap:8px;margin-block:12px;line-height:1.5; }
+.reviewCheck input { margin-top:3px;flex:none; }
+.table .savedCell { padding:8px;min-width:100px;max-width:320px;white-space:pre-wrap;overflow-wrap:anywhere; }
+.conflict textarea { max-height:300px; }
+@media(max-width:640px) { .panel button,.editor summary { min-height:40px; } .editor summary { padding-block:10px;box-sizing:border-box; } }
+
+.panel.editor { padding-inline:0; }

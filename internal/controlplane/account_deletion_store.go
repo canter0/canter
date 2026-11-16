@@ -19,13 +19,14 @@ func (h *HTTPServer) deleteAccountTx(ctx context.Context, tx pgx.Tx, a authAccou
 		`UPDATE agent_credentials SET revoked_at=COALESCE(revoked_at,$2) WHERE installation_id IN (SELECT id FROM agent_installations WHERE created_by=$1)`,
 		`UPDATE agent_installations SET revoked_at=COALESCE(revoked_at,$2) WHERE created_by=$1`,
 		`UPDATE standing_policies SET revoked_at=COALESCE(revoked_at,$2) WHERE created_by_account=$1`,
+		`UPDATE wren_message_connections SET enabled=false,revoked_at=COALESCE(revoked_at,$2),ciphertext=NULL,revision=revision+1,updated_at=$2 WHERE owner_id=$1 AND revoked_at IS NULL`,
 	} {
 		if _, err := tx.Exec(ctx, query, a.ID, now); err != nil {
 			return err
 		}
 	}
 	for _, workspace := range privateWorkspaces {
-		if err := deletePrivateWorkspaceTx(ctx, tx, workspace); err != nil {
+		if err := h.service.Store.deletePrivateWorkspaceTx(ctx, tx, workspace); err != nil {
 			return err
 		}
 	}
@@ -106,7 +107,13 @@ func (h *HTTPServer) deleteLegacyAccountMailTx(ctx context.Context, tx pgx.Tx, e
 	return err
 }
 
-func deletePrivateWorkspaceTx(ctx context.Context, tx pgx.Tx, workspace string) error {
+func (s *Store) deletePrivateWorkspaceTx(ctx context.Context, tx pgx.Tx, workspace string) error {
+	if err := s.CloseWrenAIAllowanceTx(ctx, tx, workspace); err != nil {
+		return err
+	}
+	if err := s.closeCIWorkspaceTx(ctx, tx, workspace); err != nil {
+		return err
+	}
 	if _, err := tx.Exec(ctx, `INSERT INTO account_deletion_artifacts(storage_key) SELECT storage_key FROM deployment_artifacts WHERE workspace_id=$1 ON CONFLICT DO NOTHING`, workspace); err != nil {
 		return err
 	}
@@ -133,6 +140,11 @@ func deletePrivateWorkspaceTx(ctx context.Context, tx pgx.Tx, workspace string) 
 		`DELETE FROM usage_reservations WHERE workspace_id=$1`,
 		`DELETE FROM workspace_usage_caps WHERE workspace_id=$1`,
 		`DELETE FROM workspace_vps WHERE workspace_id=$1`,
+		`DELETE FROM sandbox_template_versions WHERE workspace_id=$1`,
+		`DELETE FROM sandbox_templates WHERE workspace_id=$1`,
+		`UPDATE sandboxes SET current_snapshot_id=NULL,pending_snapshot_id=NULL,checkpoint_object_ref=NULL,checkpoint_key_version='',checkpoint_nonce=NULL,checkpoint_manifest=NULL WHERE workspace_id=$1`,
+		`DELETE FROM sandbox_snapshots WHERE workspace_id=$1 AND state='deleted'`,
+		`DELETE FROM wren_projects WHERE workspace_id=$1`,
 		`DELETE FROM systems WHERE workspace_id=$1`,
 		`DELETE FROM deployment_artifacts WHERE workspace_id=$1`,
 		`DELETE FROM account_acquisition WHERE workspace_id=$1`,
@@ -144,9 +156,14 @@ func deletePrivateWorkspaceTx(ctx context.Context, tx pgx.Tx, workspace string) 
 		}
 	}
 	var financial bool
-	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM workspace_billing WHERE workspace_id=$1 AND customer_id IS NOT NULL) OR EXISTS(SELECT 1 FROM billing_paid_invoices WHERE workspace_id=$1) OR EXISTS(SELECT 1 FROM billing_usage_events WHERE workspace_id=$1)`, workspace).Scan(&financial); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM workspace_billing WHERE workspace_id=$1 AND customer_id IS NOT NULL) OR EXISTS(SELECT 1 FROM billing_paid_invoices WHERE workspace_id=$1) OR EXISTS(SELECT 1 FROM billing_usage_events WHERE workspace_id=$1) OR EXISTS(SELECT 1 FROM wren_ai_allowances WHERE workspace_id=$1)`, workspace).Scan(&financial); err != nil {
 		return err
 	}
+	ciFinancial, err := s.ciFinancialHistoryTx(ctx, tx, workspace)
+	if err != nil {
+		return err
+	}
+	financial = financial || ciFinancial
 	if financial {
 		// An inaccessible shell preserves reconciled billing references, rather
 		// than destroying invoices or reopening a canceled subscription.
@@ -156,7 +173,7 @@ func deletePrivateWorkspaceTx(ctx context.Context, tx pgx.Tx, workspace string) 
 		_, err := tx.Exec(ctx, `UPDATE workspaces SET name='Closed workspace' WHERE id=$1`, workspace)
 		return err
 	}
-	_, err := tx.Exec(ctx, `DELETE FROM workspaces WHERE id=$1`, workspace)
+	_, err = tx.Exec(ctx, `DELETE FROM workspaces WHERE id=$1`, workspace)
 	return err
 }
 

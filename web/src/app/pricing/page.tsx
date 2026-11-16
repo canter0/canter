@@ -8,7 +8,7 @@ import styles from "./pricing.module.css";
 export const metadata = publicPageMetadata("/pricing", "App Hosting Pricing — Canter", "Compare Canter's pay-as-you-go hosting and Pro plan. See compute and object storage prices, included usage, and how your hosting bill is calculated.");
 
 const questions = [
-  { question: "When do I add a payment method?", answer: "Every workspace starts on pay as you go. You can choose Pro for $20/month, including $20 of infrastructure usage. Before deploying paid resources, the owner adds a card securely through Stripe." },
+  { question: "When do I add a payment method?", answer: "Every organization starts on pay as you go. You can choose Pro for $20/month, including $20 of infrastructure usage. Before deploying paid resources, the owner adds a card securely through Stripe." },
   { question: "Is pay as you go free?", answer: "There is no monthly subscription fee. You pay for the compute, object storage and transfer your apps use or reserve." },
   { question: "What will my app cost?", answer: "Your bill follows the resource prices below. Compute starts at $3 per month for 1 vCPU and 1 GB of RAM. Object storage costs $0.014/GB per month, with free reads, writes and direct downloads." },
   { question: "Is my coding agent included?", answer: "Bring your own coding agent. Your agent or model provider bills you separately from Canter hosting." },

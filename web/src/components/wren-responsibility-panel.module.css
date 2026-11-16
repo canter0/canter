@@ -1,0 +1,58 @@
+.panel { min-width: 0; padding: 24px var(--wren-panel-inset,20px) 36px; color: rgb(var(--ui-text-primary)); font-size: 13px; line-height: 1.7; }
+.panel :is(button,input,textarea,select):focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+.back { border: 0; background: transparent; color: rgb(var(--ui-text-secondary)); padding: 0; margin: 0 0 22px; font: inherit; font-size: 11px; cursor: pointer; }
+.heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 16px; }
+.heading h2,.form h2 { margin: 0; color: rgb(var(--ui-text-primary)); font-weight: 500; font-size: 16px; line-height: 1.5; overflow-wrap: anywhere; }
+.state { flex-shrink: 0; color: rgb(var(--ui-text-secondary)); font-size: 10px; }
+.state[data-state=active] { color: rgb(var(--ui-text-secondary)); }
+.state[data-state=revoked] { color: #8a8176; }
+.note { color: rgb(var(--ui-text-secondary)); font-size: 11px; line-height: 1.8; margin: 13px 0; }
+.instruction { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; line-height: 1.85; margin: 20px 0; }
+.schedule { color: rgb(var(--ui-text-secondary)); font-size: 12px; margin: 18px 0 12px; }
+.schedule > span { display: block; font-size: 10px; color: rgb(var(--ui-text-tertiary)); margin-top: 3px; }
+.next { font-size: 11px; color: rgb(var(--ui-text-secondary)); line-height: 1.8; }
+.wren > span { display: flex; align-items: center; gap: 8px; font-size: 11px; color: rgb(var(--ui-text-secondary)); }
+.wren strong { color: rgb(var(--ui-text-primary)); font-weight: 500; }
+.wren small { color: rgb(var(--ui-text-tertiary)); font-size: 10px; }
+.actions { display: flex; flex-wrap: wrap; gap: 6px; margin: 22px 0; }
+.secondary,.primary,.danger { display: inline-flex; justify-content: center; align-items: center; border: 1px solid rgb(var(--ui-border-primary)); border-radius: 7px; background: transparent; color: rgb(var(--ui-text-primary)); padding: 6px 11px; font: inherit; font-size: 11px; cursor: pointer; }
+.secondary:hover { background: rgb(var(--ui-tint-tertiary)); }
+.primary { background: color-mix(in srgb, rgb(var(--ui-text-primary)) 92%, rgb(var(--ui-bg-page))); border-color: rgb(var(--ui-text-primary)); color: rgb(var(--ui-bg-page)); }
+.primary:hover { background: rgb(var(--ui-text-primary)); }
+.danger { color: #c39581; border-color: #c3958125; }
+:is(.secondary,.primary,.danger):disabled { opacity: .4; cursor: default; }
+.error { color: #d4a18c; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
+.error button { background: transparent; border: 0; padding: 0; color: inherit; font: inherit; text-decoration: underline; cursor: pointer; }
+.row { display: flex; align-items: start; justify-content: space-between; gap: 12px; width: 100%; padding: 14px 1px; background: transparent; border: 0; border-bottom: 1px solid rgb(var(--ui-border-secondary)); text-align: left; cursor: pointer; }
+.row:hover { background: rgb(var(--ui-tint-tertiary)); }
+.row > span:first-child { min-width: 0; display: grid; gap: 4px; }
+.row strong { font-size: 12px; color: rgb(var(--ui-text-primary)); font-weight: 500; overflow-wrap: anywhere; }
+.row small { font-size: 10px; color: rgb(var(--ui-text-secondary)); }
+.history { margin-top: 30px; }
+.history h3 { margin: 0 0 12px; font-size: 11px; font-weight: 400; color: rgb(var(--ui-text-secondary)); }
+.run { padding: 12px 0; border-top: 1px solid rgb(var(--ui-border-secondary)); }
+.run summary { display: flex; align-items: start; justify-content: space-between; gap: 12px; cursor: pointer; list-style: none; color: rgb(var(--ui-text-secondary)); font-size: 11px; }
+.run summary > span { min-width: 0; display: grid; gap: 3px; }
+.run time { font-size: 10px; color: rgb(var(--ui-text-tertiary)); }
+.run summary > small { flex-shrink: 0; color: rgb(var(--ui-text-secondary)); font-size: 10px; }
+.run small[data-status=running] { color: rgb(var(--ui-text-primary)); }
+.run small[data-status=failed],.run small[data-status=blocked] { color: #c1947f; }
+.run > .instruction { font-size: 11px; }
+.advanced { margin-top: 28px; font-size: 11px; }
+.advanced summary { color: rgb(var(--ui-text-secondary)); cursor: pointer; }
+.confirm { color: rgb(var(--ui-text-secondary)); font-size: 11px; }
+.confirm > button { margin-right: 6px; margin-bottom: 5px; }
+.form h2 { margin-bottom: 24px; }
+.form fieldset { border: 0; padding: 0; margin: 0; }
+.form label { display: grid; gap: 6px; margin-bottom: 17px; color: rgb(var(--ui-text-secondary)); font-size: 11px; }
+.form :is(input,select,textarea) { width: 100%; min-width: 0; border: 1px solid rgb(var(--ui-border-primary)); border-radius: 7px; background: rgb(var(--ui-tint-tertiary)); padding: 8px 9px; color: rgb(var(--ui-text-primary)); font: inherit; font-size: 12px; line-height: 1.7; }
+.form select { background: rgb(var(--ui-bg-elevated)); }
+.form textarea { resize: vertical; }
+.form label > small { color: rgb(var(--ui-text-tertiary)); font-size: 10px; }
+.whenRow { display: flex; gap: 10px; }
+.whenRow > label { flex: 1; min-width: 0; }
+.form label.checkbox { display: flex; align-items: center; gap: 8px; margin: 20px 0; }
+.form .checkbox input { width: 13px; height: 13px; accent-color: rgb(var(--ui-text-primary)); }
+.form footer { display: flex; gap: 7px; justify-content: end; margin-top: 24px; }
+.conflict { font-size: 11px; color: rgb(var(--ui-text-secondary)); margin: 16px 0; }
+@media(max-width:600px) { .panel { padding: 20px 16px 30px; } .panel :is(button,summary),.panel .form [aria-haspopup="menu"],.panel .form [role="menuitemradio"] { min-height: 40px; } }

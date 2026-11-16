@@ -77,6 +77,8 @@ class RetentionTests(unittest.TestCase):
             previous = self.shas[number - 1] if number else '9' * 40
             (public / 'release.json').write_text(json.dumps({'commit': previous}))
             (path / 'canter-controlplane').write_bytes(b'executable')
+            (path / 'canter-ci-enforcer').write_bytes(b'executable')
+            (path / 'previous-ci-enforcer').write_bytes(b'executable')
             (path / 'database.dump').write_bytes(('database-' + sha).encode())
             (self.runtimes / sha).mkdir()
         (self.state / 'current').write_text(self.shas[4])
@@ -102,9 +104,13 @@ class RetentionTests(unittest.TestCase):
         for path in self.paths[2:]:
             self.assertTrue((path / 'previous-web').is_dir())
             self.assertTrue((path / 'canter-controlplane').is_file())
+            self.assertTrue((path / 'canter-ci-enforcer').is_file())
+            self.assertTrue((path / 'previous-ci-enforcer').is_file())
         for path in self.paths[:2]:
             self.assertFalse((path / 'previous-web').exists())
             self.assertFalse((path / 'canter-controlplane').exists())
+            self.assertFalse((path / 'canter-ci-enforcer').exists())
+            self.assertFalse((path / 'previous-ci-enforcer').exists())
         self.assertFalse((self.runtimes / self.shas[0]).exists())
         for sha in self.shas[1:]:
             self.assertTrue((self.runtimes / sha).is_dir())
@@ -311,6 +317,8 @@ class ActivationTests(unittest.TestCase):
             content = 'User=canter-web\nGroup=canter-web\n' if name == 'canter-web.service' else 'new-unit'
             (self.next / 'deploy' / name).write_text(content)
         (self.next / 'canter-static-linux').write_text('new-static')
+        (self.next / 'canter-ci-enforcer').write_text('new-enforcer')
+        (self.next / 'deploy' / release.ENFORCER_UNIT).write_text('new-enforcer-unit')
         p = patch.object(release, 'unit_state', return_value=False)
         p.start()
         self.addCleanup(p.stop)
@@ -409,6 +417,89 @@ class ActivationTests(unittest.TestCase):
         self.assertFalse((self.harness / 'current').is_symlink())
         for name in release.HARNESS_UNITS:
             self.assertFalse((self.systemd / name).exists())
+
+    @patch.object(release.subprocess, 'run')
+    @patch.object(release, 'run')
+    @patch.object(release, 'healthy', return_value=True)
+    def test_success_installs_enforcer_and_restarts_only_an_active_unit(self, health, run, subprocess):
+        release.activate(self.next, self.sha)
+        self.assertEqual((self.root / 'bin/canter-ci-enforcer').read_text(), 'new-enforcer')
+        self.assertEqual((self.systemd / release.ENFORCER_UNIT).read_text(), 'new-enforcer-unit')
+        self.assertNotIn(('systemctl', 'restart', release.ENFORCER_UNIT), [c.args for c in run.call_args_list])
+
+    @patch.object(release.subprocess, 'run')
+    @patch.object(release, 'run')
+    @patch.object(release, 'healthy', return_value=True)
+    def test_success_restarts_an_active_enforcer(self, health, run, subprocess):
+        with patch.object(release, 'unit_state', return_value=True):
+            release.activate(self.next, self.sha)
+        run.assert_any_call('systemctl', 'restart', release.ENFORCER_UNIT)
+
+    @patch.object(release.time, 'sleep')
+    @patch.object(release.subprocess, 'run')
+    @patch.object(release, 'run')
+    @patch.object(release, 'healthy', return_value=False)
+    def test_failed_health_restores_previous_enforcer(self, health, run, subprocess, sleep):
+        (self.root / 'bin/canter-ci-enforcer').write_text('old-enforcer')
+        (self.systemd / release.ENFORCER_UNIT).write_text('old-enforcer-unit')
+        with self.assertRaisesRegex(RuntimeError, 'readiness'):
+            release.activate(self.next, self.sha)
+        self.assertEqual((self.root / 'bin/canter-ci-enforcer').read_text(), 'old-enforcer')
+        self.assertEqual((self.systemd / release.ENFORCER_UNIT).read_text(), 'old-enforcer-unit')
+
+    @patch.object(release.subprocess, 'run')
+    @patch.object(release, 'run')
+    @patch.object(release, 'healthy', return_value=True)
+    def test_failed_enforcer_restart_restores_and_restarts_active_original(self, health, run, subprocess):
+        (self.root / 'bin/canter-ci-enforcer').write_text('old-enforcer')
+        (self.systemd / release.ENFORCER_UNIT).write_text('old-enforcer-unit')
+        # Active at snapshot and installation, inactive after the failed restart.
+        active = [True]
+        release.unit_state.side_effect = \
+            lambda unit, state: active[0] if unit == release.ENFORCER_UNIT else False
+        restarts = []
+
+        def command(*args):
+            if args == ('systemctl', 'restart', release.ENFORCER_UNIT):
+                restarts.append(args)
+                if len(restarts) == 1:
+                    active[0] = False
+                    raise RuntimeError('enforcer restart failed')
+
+        run.side_effect = command
+        with self.assertRaisesRegex(RuntimeError, 'enforcer restart failed'):
+            release.activate(self.next, self.sha)
+        self.assertEqual((self.root / 'bin/canter-ci-enforcer').read_text(), 'old-enforcer')
+        self.assertEqual((self.systemd / release.ENFORCER_UNIT).read_text(), 'old-enforcer-unit')
+        self.assertEqual(len(restarts), 2)
+
+    @patch.object(release.time, 'sleep')
+    @patch.object(release.subprocess, 'run')
+    @patch.object(release, 'run')
+    @patch.object(release, 'healthy', return_value=False)
+    def test_failed_health_does_not_restart_inactive_original_enforcer(self, health, run, subprocess, sleep):
+        (self.root / 'bin/canter-ci-enforcer').write_text('old-enforcer')
+        (self.systemd / release.ENFORCER_UNIT).write_text('old-enforcer-unit')
+        # Inactive at snapshot and installation; the new unit is live-active once
+        # activation fails (the rollback-path stop call marks that boundary).
+        active = [False]
+        release.unit_state.side_effect = \
+            lambda unit, state: active[0] if unit == release.ENFORCER_UNIT else False
+        stops = []
+
+        def command(*args):
+            if args == ('systemctl', 'stop', 'canter-web', 'canter-controlplane'):
+                stops.append(args)
+                if len(stops) == 2:
+                    active[0] = True
+
+        run.side_effect = command
+        with self.assertRaisesRegex(RuntimeError, 'readiness'):
+            release.activate(self.next, self.sha)
+        self.assertEqual((self.root / 'bin/canter-ci-enforcer').read_text(), 'old-enforcer')
+        self.assertEqual((self.systemd / release.ENFORCER_UNIT).read_text(), 'old-enforcer-unit')
+        self.assertNotIn(('systemctl', 'restart', release.ENFORCER_UNIT),
+                         [call.args for call in run.call_args_list])
 
     @patch.object(release.subprocess, 'run', side_effect=RuntimeError('backup failed'))
     @patch.object(release, 'run')

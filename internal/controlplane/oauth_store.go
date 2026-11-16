@@ -121,13 +121,7 @@ func (s *Store) signinOAuth(ctx context.Context, identity oauthIdentity, login o
 				if _, err = tx.Exec(ctx, `INSERT INTO accounts(id,email,password_hash,created_at,email_verified_at) VALUES($1,$2,'!oauth',$3,$3)`, accountID, email, s.now()); err != nil {
 					return "", err
 				}
-				if _, err = tx.Exec(ctx, `INSERT INTO workspaces(id,name,created_at) VALUES($1,'default',$2)`, workspaceID, s.now()); err != nil {
-					return "", err
-				}
-				if _, err = tx.Exec(ctx, `INSERT INTO workspace_usage_caps(workspace_id,limit_cents,created_at,updated_at) VALUES($1,500,$2,$2)`, workspaceID, s.now()); err != nil {
-					return "", err
-				}
-				if _, err = tx.Exec(ctx, `INSERT INTO memberships(account_id,workspace_id,role) VALUES($1,$2,'owner')`, accountID, workspaceID); err != nil {
+				if _, err = s.createWorkspaceTx(ctx, tx, workspaceID, "default", accountID); err != nil {
 					return "", err
 				}
 			}

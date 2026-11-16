@@ -171,6 +171,6 @@ export function ResponseText({ text, streaming = false }: { text: unknown; strea
 
   if (!visible) return null;
   return <div ref={root} className={chat.markdown} data-streaming={streaming}>
-    <Markdown remarkPlugins={[remarkGfm]} rehypePlugins={revealing ? REVEAL_PLUGINS : undefined} skipHtml disallowedElements={["img", "hr"]} components={{ a: ({ href, children }) => <a href={href} target="_blank" rel="noopener noreferrer">{children}</a> }}>{visible}</Markdown>
+    <Markdown remarkPlugins={[remarkGfm]} rehypePlugins={revealing ? REVEAL_PLUGINS : undefined} skipHtml disallowedElements={["img", "hr"]} components={{ table: ({ children }) => <table tabIndex={0} aria-label="Scrollable table">{children}</table>, a: ({ href, children }) => <a href={href} target="_blank" rel="noopener noreferrer">{children}</a> }}>{visible}</Markdown>
   </div>;
 }

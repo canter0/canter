@@ -47,9 +47,13 @@ export function WorkspaceProvider({ children, initial }: { children: ReactNode; 
   // screen's title while the destination shell is still mounting.
   const conversationTitle = overview.data?.conversations.find(item => pathname === `/app/conversations/${encodeURIComponent(item.id)}`)?.title;
   const routeTitle = conversationTitle ?? (pathname === "/app" ? "New conversation"
+    : pathname === "/app/customize" ? "Customize"
     : pathname === "/app/account" ? "Profile settings"
     : pathname.startsWith("/app/account/connections") ? "Connections settings"
     : pathname.startsWith("/app/settings/secrets") ? "Secrets settings"
+    : pathname.startsWith("/app/settings/people") ? "People settings"
+    : pathname.startsWith("/app/settings/memory") ? "Memory settings"
+    : pathname.startsWith("/app/settings/audit") ? "Audit log settings"
     : pathname.startsWith("/app/settings/agent") ? "Agents settings"
     : pathname.startsWith("/app/settings") ? "General settings"
     : pathname.startsWith("/app/billing") ? `${searchParams.get("view") === "plans" ? "Plans" : searchParams.get("view") === "invoices" ? "Invoices" : "Usage"} settings`

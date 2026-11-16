@@ -1,0 +1,16 @@
+.controls { font-size:12px;border-top:1px solid var(--rule);padding-top:12px;margin-top:14px; }
+.controls details { margin:12px 0; }
+.controls summary { cursor:pointer;padding:5px 0; }
+.controls p,.controls small { color:var(--muted);line-height:1.6; }
+.controls button,.controls a { border:1px solid var(--rule);border-radius:7px;background:transparent;color:inherit;font-size:12px;padding:7px 10px;text-decoration:none;display:inline-block;cursor:pointer; }
+.controls button:disabled { opacity:.45;cursor:default; }
+.controls pre { white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;max-height:240px;overflow:auto;color:var(--muted); }
+.actions { display:flex;gap:8px;flex-wrap:wrap;margin:10px 0; }
+.member { display:flex!important;align-items:center;gap:8px;margin:7px 0; }
+.member input { width:auto!important; }
+.library { max-width:760px;padding:38px 28px;margin:0 auto; }
+.library h1 { font-size:23px;font-weight:500;margin:0 0 10px; }
+.library h2 { font-size:15px;margin:28px 0 10px; }
+.item { border-bottom:1px solid var(--rule);padding:15px 0; }
+.item>summary { display:flex;align-items:center;gap:12px; }
+.item strong { font-weight:500;flex:1; }
