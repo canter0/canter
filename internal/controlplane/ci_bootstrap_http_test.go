@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -436,19 +437,22 @@ func (fx *ciBootstrapHTTPFixture) grant(t *testing.T) ciBootstrapGrant {
 	return ciBootstrapScopeGet(t, fx.s, fx.workspace, fx.runner, fx.policy, fx.plan, false).Grant
 }
 
-// waitAttempted polls the durable grant until the one-shot claim commits,
-// tolerating advisory-lock contention from the in-flight handler. Each probe
-// is bounded so a held connection can never hang the test.
+// Observe the committed grant without taking the lifecycle advisory lock:
+// winning that lock could reject the one-shot request this probe waits for.
 func (fx *ciBootstrapHTTPFixture) waitAttempted(t *testing.T, timeout time.Duration) ciBootstrapGrant {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
 	for {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		scope, err := fx.s.ciBootstrapScope(ctx, fx.workspace, fx.runner,
-			fx.policy.ProfileDigest, fx.plan, false)
+		var grant ciBootstrapGrant
+		tx, err := fx.s.pool.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
+		if err == nil {
+			grant, err = loadCIBootstrapGrantTx(ctx, tx, fx.plan.OperationID)
+			_ = tx.Rollback(ctx)
+		}
 		cancel()
-		if err == nil && scope.Grant.AttemptedAt != nil {
-			return scope.Grant
+		if err == nil && grant.AttemptedAt != nil {
+			return grant
 		}
 		if time.Now().After(deadline) {
 			t.Fatalf("grant never attempted: %v", err)
