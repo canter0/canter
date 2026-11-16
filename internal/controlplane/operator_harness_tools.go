@@ -69,10 +69,10 @@ func operatorPolicy(name string) (operatorToolPolicy, bool) {
 		return operatorToolPolicy{Effect: "task", RetrySafe: true, RequireDraft: true}, true
 	case "canter_prepare_vps", "canter_draft_change", "canter_prepare_repository_deployment":
 		return operatorToolPolicy{Effect: "draft", RequireDraft: true}, true
-	case "canter_list_products", "canter_sandbox_list", "canter_sandbox_job", "canter_sandbox_read_file", "canter_sandbox_metrics", "canter_sandbox_preview_list",
+	case "canter_super_sandbox_list", "canter_super_sandbox_inspect", "canter_list_products", "canter_sandbox_list", "canter_sandbox_job", "canter_sandbox_read_file", "canter_sandbox_metrics", "canter_sandbox_preview_list",
 		"canter_sandbox_snapshots", "canter_sandbox_snapshot_get", "canter_sandbox_templates", "canter_sandbox_screenshot":
 		return operatorToolPolicy{Effect: "read", RetrySafe: true}, true
-	case "canter_enable_product", "canter_sandbox_create", "canter_sandbox_sleep", "canter_sandbox_wake", "canter_sandbox_delete", "canter_sandbox_write_file", "canter_sandbox_preview_create", "canter_sandbox_preview_revoke", "canter_sandbox_update",
+	case "canter_super_sandbox_create", "canter_super_sandbox_cancel", "canter_enable_product", "canter_sandbox_create", "canter_sandbox_sleep", "canter_sandbox_wake", "canter_sandbox_delete", "canter_sandbox_write_file", "canter_sandbox_preview_create", "canter_sandbox_preview_revoke", "canter_sandbox_update",
 		"canter_sandbox_snapshot_update", "canter_sandbox_template_create", "canter_sandbox_template_version_add",
 		"canter_sandbox_template_delete", "canter_sandbox_template_version_delete", "canter_sandbox_restore", "canter_sandbox_input":
 		return operatorToolPolicy{Effect: "sandbox", RequireDraft: true}, true
@@ -104,6 +104,9 @@ func (o *OperatorRuntime) harnessTools() []mcpTool {
 	}
 	if o.Config.shellReady() {
 		out = append(out, tool("canter_bash", "Execute a bounded Bash command in this conversation's private virtual workspace. Use rg/grep, jq, sed, awk, pipes, loops, and text files to inspect context and saved evidence. /workspace/context.json contains working notes; history.jsonl has recent messages; results.json lists recent tool-result files under /results. Only text files under /scratch persist across calls and restarts (64 files, 256 KiB). Variables/cwd reset; start in /workspace. No host filesystem, network, secrets, native programs, package installs, Python/JS, or infrastructure mutation. Use actual Canter tools for live operations. Do not run a shell command when a direct answer/tool suffices.", map[string]any{"command": str}, "command"))
+	}
+	if o.Server != nil && o.Server.service != nil && o.Server.service.Store != nil && !o.Server.service.Store.wrensAvailable() {
+		return append(out, o.webTools()...)
 	}
 	return append(append(append(append(out, o.webTools()...), wrenJobTools()...), wrenComputerTools()...), append(append(wrenStandingTools(), wrenOutcomeTools()...), append(wrenMediaTools(), wrenMessagingTools()...)...)...)
 }

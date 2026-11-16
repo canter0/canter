@@ -21,6 +21,10 @@ import { BillingSettings } from "./billing-settings";
 import { EmbeddedAppSurface } from "./embedded-app-surface";
 import { ActionFeed } from "./action-feed";
 import { GitHubRepositories } from "./github-repositories";
+import { SandboxDashboard } from "./sandbox-dashboard";
+import { SandboxWorkbench } from "./sandbox-workbench";
+import { SuperSandboxDashboard } from "./super-sandbox-dashboard";
+import { SuperSandboxWorkbench } from "./super-sandbox-workbench";
 import { WorkspaceIcon } from "./workspace-icon";
 import styles from "./operator-workspace.module.css";
 
@@ -67,6 +71,10 @@ export function OperatorSurfaceView({ surface, workspaceId, onSelect, conversati
     {surface.kind === "deployment" && surface.id ? <InitialDeploymentReview id={surface.id} /> : null}
     {surface.kind === "change" && surface.id && surface.system ? <ChangeReview id={surface.id} system={surface.system} /> : null}
     {surface.kind === "app" && surface.system ? <SystemDetail name={surface.system} /> : null}
+    {surface.kind === "sandboxes" ? <SandboxDashboard workspaceId={workspaceId} onSelect={onSelect} onRequest={onUseApp} /> : null}
+    {surface.kind === "sandbox" && surface.id ? <SandboxWorkbench workspaceId={workspaceId} id={surface.id} onRequest={onUseApp} /> : null}
+    {surface.kind === "super-sandboxes" ? <SuperSandboxDashboard workspaceId={workspaceId} onSelect={onSelect} onRequest={onUseApp} /> : null}
+    {surface.kind === "super-sandbox" && surface.id ? <SuperSandboxWorkbench workspaceId={workspaceId} id={surface.id} onRequest={onUseApp} /> : null}
     {surface.kind === "repository" ? <RepositoryOverview surface={surface} workspaceId={workspaceId} onSelect={onSelect} /> : null}
     {error ? <p className={styles.error} role="alert">{error} <button onClick={() => setRetry(value => value + 1)}>Retry</button></p> : null}
     {!data && !error && ["apps", "deployments", "activity", "agents"].includes(surface.kind) ? <p className={styles.note} role="status">Loading current workspace state…</p> : null}

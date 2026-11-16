@@ -1,5 +1,6 @@
 "use client";
 import { WrenShell } from "./wren-shell";
+import { SandboxShell } from "./sandbox-shell";
 import {selectWorkspace,openSelectedWorkspace,workspaceDisplayName} from "@/lib/workspace-selection";
 import { CreateOrganizationDialog } from "./create-organization-dialog";
 
@@ -112,7 +113,7 @@ export function AppShell({ active, context, children, onNewInstruction, agentVie
   usePopover(accountOpen, accountMenu, closeAccount);
   const pathname = usePathname();
   const isSettings = pathname.startsWith("/app/settings") || pathname.startsWith("/app/account") || pathname.startsWith("/app/billing");
-  const settingsActive = pathname.startsWith("/app/settings/people") ? "People" : pathname.startsWith("/app/settings/memory") ? "Memory" : pathname.startsWith("/app/settings/audit") ? "Audit log" : pathname.startsWith("/app/settings/agent") ? "Agents" : pathname.startsWith("/app/settings/secrets") ? "Secrets" : pathname.startsWith("/app/account/connections") ? "Connections" : pathname.startsWith("/app/account") ? "Profile" : pathname.startsWith("/app/billing") ? "Usage" : "General";
+  const settingsActive = pathname.startsWith("/app/settings/people") ? "People" : pathname.startsWith("/app/settings/products") ? "Products" : pathname.startsWith("/app/settings/memory") ? "Memory" : pathname.startsWith("/app/settings/audit") ? "Audit log" : pathname.startsWith("/app/settings/agent") ? "Agents" : pathname.startsWith("/app/settings/secrets") ? "Secrets" : pathname.startsWith("/app/account/connections") ? "Connections" : pathname.startsWith("/app/account") ? "Profile" : pathname.startsWith("/app/billing") ? "Usage" : "General";
   const sidebarSettings = settingsNavigation ?? (isSettings ? <SettingsNavigation active={settingsActive} /> : null);
   const navActive = pathname.startsWith("/app/conversations/") ? "Task" : pathname.startsWith("/app/customize") ? "Customize" : pathname.startsWith("/app/agents") ? "Agents" : pathname.startsWith("/app/system") ? "System" : pathname.startsWith("/app/changes") ? "Changes" : pathname === "/app" ? "Home" : active;
   const conversationTitle = data?.conversations.find(item => pathname === `/app/conversations/${encodeURIComponent(item.id)}`)?.title;
@@ -173,6 +174,7 @@ export function AppShell({ active, context, children, onNewInstruction, agentVie
 
   if (embedded) return <>{children}</>;
   if (navActive === "Wrens") return <><WrenShell title={title} icon={pageIcon} actions={<>{pageAction}<ReleaseUpdateNotice update={releaseUpdate}/></>} onDetails={pageTitleAction}>{loading ? <WorkspaceLoading variant="rows"/> : error && unavailable ? <section className={styles.loadFailure} role="alert"><h1>Couldn’t load this view</h1><p>{error}</p><button onClick={retry}>Try again</button></section> : children}</WrenShell>{searchOpen ? <ConversationSearch conversations={data?.conversations ?? []} commands={commands} shortcutsEnabled={shortcuts.enabled} onShortcutsChange={shortcuts.setEnabled} onClose={closeSearch} onNavigate={closeNavigation}/> : null}</>;
+  if (navActive === "Sandboxes") return <><SandboxShell actions={<>{pageAction}<ReleaseUpdateNotice update={releaseUpdate}/></>}>{loading ? <WorkspaceLoading variant="rows"/> : error && unavailable ? <section className={styles.loadFailure} role="alert"><h1>Couldn’t load this view</h1><p>{error}</p><button onClick={retry}>Try again</button></section> : children}</SandboxShell>{searchOpen ? <ConversationSearch conversations={data?.conversations ?? []} commands={commands} shortcutsEnabled={shortcuts.enabled} onShortcutsChange={shortcuts.setEnabled} onClose={closeSearch} onNavigate={closeNavigation}/> : null}</>;
 
   return (
     <div className={`dashboard-theme ${styles.shell}`} data-page-inactive={!pageFocused} data-collapsed={collapsed} data-mobile-open={mobileOpen} data-agent-view={agentView} data-settings={!!sidebarSettings} data-onboarding={onboarding || undefined} data-onboarding-transition={onboardingTransition || undefined}>

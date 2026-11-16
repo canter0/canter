@@ -11,6 +11,7 @@ import {CanterSelect} from "./canter-select";
 
 import { useCallback, useEffect, useEffectEvent, useLayoutEffect, useId, useRef, useState, useSyncExternalStore, type FormEvent, type ReactNode } from "react";
 import { useMediaQuery } from "./use-media-query";
+import { playMotion } from "@/lib/motion";
 import { usePopover } from "./use-popover";
 import { useFocusContainment } from "./use-focus-containment";
 import { moveMenuFocus } from "@/lib/interaction";
@@ -49,12 +50,15 @@ import { mergeConversationHistory, mergeEarlierConversationPage } from "@/lib/co
 import { pendingRepositoryPicker, takeReviewSurface } from "@/lib/operator-surface-events";
 import { roomAudience, roomMentions, restoredRoomRecipient } from "@/lib/room-audience";
 import { surfaceResultName } from "@/lib/surface-result-name";
+import { appendDashboardRequestText, commitDashboardRequestToDraft, composerOriginMatchesViewport, dashboardRequestMatches, readDashboardRequest, type DashboardRequestComposerOrigin, type DashboardRequestStore } from "@/lib/dashboard-requests";
 import { displayName } from "@/lib/display-name";
 import { type WrenLifecycle, wrenLifecycleEvent } from "@/lib/wren-lifecycle";
 import styles from "./operator-workspace.module.css";
 
 const welcomeFallback = "Welcome to Canter. Work with people and Wrens—AI teammates you shape around what you need.\n\nCreate your first Wren, or skip to a general conversation. GitHub is optional when you want to work with code.";
-function projectWelcomeFallback(value: GitHubRepositoryResult) {
+const computeWelcomeFallback = "Welcome to Canter. Ask for what you need in chat, then inspect your Sandboxes and CI work as it happens.\n\nStart a conversation, or connect GitHub when you want to work with code.";
+function projectWelcomeFallback(value: GitHubRepositoryResult, wrensEnabled: boolean) {
+  if (!wrensEnabled) return "GitHub is connected. What would you like to work on in chat?";
   const names = value.repositories.slice(0, 2).map(repo => repo.full_name);
   return names.length ? `GitHub is connected. I can see ${names.join(" and ")} in your shared repositories. What would you like to work on with a Wren, or in a general conversation?` : "GitHub is connected. No repositories are shared with Canter yet, but you can start with a Wren or a general conversation. What would you like to work on?";
 }
@@ -98,6 +102,8 @@ export function OperatorWorkspace({ id: initialId, githubResult, focusComposer, 
   const onboardingMotion = useRef(false);
   const { data, conversationCache, retry: refreshWorkspace } = useWorkspace();
   const workspace = data?.workspace.id;
+  const wrensAvailable = !!data?.products?.some(product => product.id === "wrens" && product.enabled);
+  const fallbackWelcome = wrensAvailable ? welcomeFallback : computeWelcomeFallback;
   const [lifecycle,setLifecycle]=useState<{key:string;value:WrenLifecycle}|null>(null);
   const archived=lifecycle?.key===`${workspace}:${id}`&&lifecycle.value.archived;
   const personaUnavailable=wren?.sharedAvailable===false;
@@ -181,23 +187,23 @@ export function OperatorWorkspace({ id: initialId, githubResult, focusComposer, 
         canterFetch<GitHubRepositoryResult>(`${base}/github/repositories`, { signal: controller.signal }),
       ]);
       if (controller.signal.aborted) return;
-      setIntroText(greeting.status === "fulfilled" ? greeting.value.text.trim() || welcomeFallback : welcomeFallback);
+      setIntroText(greeting.status === "fulfilled" ? greeting.value.text.trim() || fallbackWelcome : fallbackWelcome);
       const connected = github.status === "fulfilled" ? github.value : null;
       setWelcomeGitHub(connected);
       setWelcomeGitHubChecked(true);
       if (!connected?.connection.connected) return;
       try {
         const response = await canterFetch<{ text: string }>(`${base}/welcome?stage=projects`, { method: "POST", signal: controller.signal });
-        if (!controller.signal.aborted) setProjectWelcome(response.text.trim() || projectWelcomeFallback(connected));
+        if (!controller.signal.aborted) setProjectWelcome(response.text.trim() || projectWelcomeFallback(connected, wrensAvailable));
       } catch {
-        if (!controller.signal.aborted) setProjectWelcome(projectWelcomeFallback(connected));
+        if (!controller.signal.aborted) setProjectWelcome(projectWelcomeFallback(connected, wrensAvailable));
       }
       if (!controller.signal.aborted) setWelcomeReady(true);
     }
     // Strict Mode's setup/cleanup probe must not consume a generation budget.
     const timer = window.setTimeout(() => void introduce(), 0);
     return () => { window.clearTimeout(timer); controller.abort(); };
-  }, [welcome, onboarding, initialId, workspace]);
+  }, [welcome, onboarding, initialId, workspace, fallbackWelcome, wrensAvailable]);
   const overlayPanel = useMediaQuery("(max-width: 1100px)");
   const surfacePanel = useRef<HTMLElement>(null);
   const panelTrigger = useRef<HTMLButtonElement>(null);
@@ -359,6 +365,73 @@ export function OperatorWorkspace({ id: initialId, githubResult, focusComposer, 
 
   const audience = room ? roomAudience(roomRecipient, draft, room.wrens) : undefined;
   const mentionedWrens = room ? roomMentions(draft, room.wrens) : [];
+
+  // Dashboard requests arrive as ?dashboardRequest=<nonce>&workspaceId=<id> and
+  // are applied once, after account/workspace/draft/context restoration. They
+  // only append unsent text — nothing is ever sent by opening a link.
+  const dashboardNonce = searchParams.get("dashboardRequest");
+  const dashboardWorkspace = searchParams.get("workspaceId");
+  const [dashboardRequestError, setDashboardRequestError] = useState("");
+  const appliedDashboardRequest = useRef<string | null>(null);
+  // The rect the request composer occupied in the Ask Canter takeover — the
+  // destination composer morphs in from it once, purely cosmetic.
+  const dashboardHandoffOrigin = useRef<DashboardRequestComposerOrigin | null>(null);
+  const [handoffMorph, setHandoffMorph] = useState(0);
+  const applyDashboardRequest = useEffectEvent(() => {
+    if (!dashboardNonce || !data || appliedDashboardRequest.current === dashboardNonce) return;
+    const clearParams = () => {
+      const params = new URLSearchParams(window.location.search);
+      params.delete("dashboardRequest");
+      params.delete("workspaceId");
+      const query = params.toString();
+      router.replace(`${window.location.pathname}${query ? `?${query}` : ""}`, { scroll: false });
+    };
+    const fail = (message: string) => {
+      appliedDashboardRequest.current = dashboardNonce;
+      clearParams();
+      queueMicrotask(() => setDashboardRequestError(message));
+    };
+    // Acquiring sessionStorage itself can throw in locked-down contexts.
+    let store: DashboardRequestStore | null = null;
+    try { store = window.sessionStorage; } catch { store = null; }
+    if (!store) {
+      fail("This browser could not keep the request — nothing was changed.");
+      return;
+    }
+    const lookup = readDashboardRequest(dashboardNonce, store);
+    if (lookup.error) {
+      fail(lookup.error === "expired" ? "That request expired — start it again from the dashboard." : lookup.error === "invalid" ? "That request could not be read." : "That request was already handled or is no longer available.");
+      return;
+    }
+    const request = lookup.request;
+    if (dashboardWorkspace !== workspace || !dashboardRequestMatches(request, { accountId: data.account.id, workspaceId: workspace ?? "", conversationId: id ?? null })) {
+      fail("That request belongs to a different conversation or organization.");
+      return;
+    }
+    if (data.workspace.role === "viewer" || archived || personaUnavailable) {
+      fail("This conversation cannot take requests — the request was left unsent.");
+      return;
+    }
+    // The draft write must verifiably land before the envelope is consumed, so
+    // a failed storage commit can never silently drop the request or apply it
+    // twice — on failure the previous draft and the envelope are left intact.
+    const nextDraft = appendDashboardRequestText(draft, request.prompt);
+    if (!storageKey || !commitDashboardRequestToDraft(request.nonce, store, storageKey, nextDraft)) {
+      fail("This browser could not keep the request — nothing was changed.");
+      return;
+    }
+    dashboardHandoffOrigin.current = request.composerOrigin ?? null;
+    editDraft(nextDraft);
+    if (request.composerOrigin) setHandoffMorph(value => value + 1);
+    if (request.surface && attachedContext == null) { const surface = request.surface; queueMicrotask(() => setAttachedContext(surface)); }
+    appliedDashboardRequest.current = dashboardNonce;
+    clearParams();
+    requestAnimationFrame(() => composer.current?.focus());
+  });
+  useEffect(() => {
+    if (!dashboardNonce || !data || !attachmentDraft.loaded || appliedDashboardRequest.current === dashboardNonce) return;
+    applyDashboardRequest();
+  }, [dashboardNonce, data, attachmentDraft.loaded]);
   const peopleOnly = audience?.postOnly ?? false;
   const roomRecipientIDs = audience?.recipientIds;
 
@@ -483,6 +556,25 @@ export function OperatorWorkspace({ id: initialId, githubResult, focusComposer, 
     ] : [{ transform: `translateY(${origin.top - destination.top}px)` }, { transform: "translateY(0)" }], { duration: morphing ? 820 : 240, easing: "cubic-bezier(.22,.8,.18,1)" });
     return () => animation.cancel();
   }, [submittedPrompt, reducedMotion, welcomeStage]);
+
+  // Dashboard handoff morph: the composer travels in from where the request
+  // composer sat in the takeover. Consumed once; skipped on reduced motion, a
+  // changed viewport, or a missing/empty destination composer.
+  useLayoutEffect(() => {
+    if (!handoffMorph) return;
+    const origin = dashboardHandoffOrigin.current;
+    dashboardHandoffOrigin.current = null;
+    const element = composer.current?.closest<HTMLElement>("[data-operator-composer]");
+    if (!origin || !element || reducedMotion) return;
+    if (!composerOriginMatchesViewport(origin, window.innerWidth, window.innerHeight)) return;
+    const destination = element.getBoundingClientRect();
+    if (!destination.width) return;
+    const animation = playMotion(element, [
+      { transform: `translate(${origin.x - destination.left}px, ${origin.y - destination.top}px)`, width: `${origin.width}px` },
+      { transform: "translate(0,0)", width: `${destination.width}px` },
+    ], { duration: 820, easing: "cubic-bezier(.22,.8,.18,1)" });
+    return () => animation?.cancel();
+  }, [handoffMorph, reducedMotion]);
 
   async function createFirstWren(){
     if(firstWrenLock.current||!onboarding)return;
@@ -730,7 +822,7 @@ export function OperatorWorkspace({ id: initialId, githubResult, focusComposer, 
   const tabLabel = (surface: OperatorSurface) => surfaceNames[surfaceKey(surface)] ?? surfaceResultName(surface, events) ?? surface.path?.split("/").at(-1) ?? (surface.kind === "repository" ? surface.repository?.split("/").at(-1) : undefined) ?? surface.system ?? surfaceLabels[surface.kind];
   const githubRequest = pendingRepositoryPicker(events);
   const githubRun = githubRequest && githubRequest.sequence > dismissedGitHubSequence ? githubRequest.runId : undefined;
-  const welcomeText = introText || (data && !data.agent.available ? welcomeFallback : "");
+  const welcomeText = introText || (data && !data.agent.available ? fallbackWelcome : "");
   const introPending = !welcomeText || (!!welcomeGitHub?.connection.connected && !welcomeReady);
   const hasMessages = !!detail?.messages.length;
   const showConversationWelcome = welcomeStage === "done" && !wren && !id && !hasMessages && !inlineGitHub && !submittedPrompt;
@@ -792,9 +884,14 @@ export function OperatorWorkspace({ id: initialId, githubResult, focusComposer, 
               <div className={styles.onboardingIdentity}><span className={`wordmark ${styles.onboardingWordmark}`}>canter</span>{introPending ? <span className={styles.onboardingThinking} role="status">Thinking</span> : null}</div>
               {welcomeText ? <div className={styles.onboardingGreeting}><ResponseText text={welcomeText} /></div> : null}
               <div className={styles.onboardingChoices}>
-                <button type="button" className={`${styles.onboardingConnect} ${styles.onboardingCreate}`} disabled={creatingFirstWren||!onboarding} onClick={()=>void createFirstWren()}>{creatingFirstWren?"Opening Wrens…":"Create a Wren"}<WorkspaceIcon name="right" width="16" height="16"/></button>
-                <p>An AI teammate with its own purpose. Work together privately or bring people and Wrens into shared conversations.</p>
-                {onboardingActionError?<p role="alert">{onboardingActionError}</p>:null}
+                {wrensAvailable ? <>
+                  <button type="button" className={`${styles.onboardingConnect} ${styles.onboardingCreate}`} disabled={creatingFirstWren||!onboarding} onClick={()=>void createFirstWren()}>{creatingFirstWren?"Opening Wrens…":"Create a Wren"}<WorkspaceIcon name="right" width="16" height="16"/></button>
+                  <p>An AI teammate with its own purpose. Work together privately or bring people and Wrens into shared conversations.</p>
+                  {onboardingActionError?<p role="alert">{onboardingActionError}</p>:null}
+                </> : <>
+                  <button type="button" className={`${styles.onboardingConnect} ${styles.onboardingCreate}`} onClick={enterWorkspace}>Start with Canter<WorkspaceIcon name="right" width="16" height="16"/></button>
+                  <p>Ask Canter to work with Sandboxes and CI. GitHub is optional.</p>
+                </>}
               </div>
               {welcomeText && welcomeGitHubChecked && !welcomeReady && !welcomeGitHub?.connection.connected ? <div className={styles.onboardingGitHub}>
                 {welcomeGitHub?.connection.enabled && workspace ? <a className={styles.onboardingConnect} href={githubConnectURL(welcomeGitHub.connection, workspace, "/app?welcome=1")}><ProviderIcon provider="github" />{welcomeGitHub.connection.reconnect ? "Reconnect GitHub" : "Connect GitHub"}<WorkspaceIcon name="external" width="14" height="14" /></a> : <button className={styles.onboardingConnect} disabled><ProviderIcon provider="github" />Connect GitHub</button>}
@@ -814,7 +911,7 @@ export function OperatorWorkspace({ id: initialId, githubResult, focusComposer, 
             {showScroll ? <button type="button" className={styles.scrollLatest} aria-label="Scroll to latest message" onClick={() => { followScroll.current = true; setShowScroll(false); transcript.current?.dispatchEvent(new Event("canter-follow-latest")); }}><WorkspaceIcon name="down" width="16" height="16" /></button> : null}
             {error ? <p className={styles.error} role="alert">{error}</p> : null}
             {connectionError ? <p className={styles.error} role="status">{deliveryNotice || connectionError} <button onClick={() => setAttempt(value => value + 1)}>Reconnect</button></p> : null}
-            {!onboarding && data && !data.agent.available ? <p className={styles.error} role="alert">{managedModel ? "Wrens are temporarily unavailable. You can keep your message here and try again shortly." : "The workspace agent is unavailable. Ask your administrator to configure its model connection."}</p> : null}
+            {!onboarding && data && !data.agent.available ? <p className={styles.error} role="alert">{wrenWorkspace ? "Wrens are temporarily unavailable. You can keep your message here and try again shortly." : managedModel ? "Canter is temporarily unavailable. You can keep your message here and try again shortly." : "The workspace agent is unavailable. Ask your administrator to configure its model connection."}</p> : null}
             {attachmentDraft.error ? <p className={styles.error} role="status">{attachmentDraft.error}</p> : null}
             <div className={styles.onboardingComposerReveal} hidden={onboarding && !welcomeReady}>
             {room && room.wrens.length>0 ? <div className={styles.roomComposerContext}>{mentionedWrens.length?<div className={styles.roomMentionAudience} role="status"><span>{mentionedWrens.length>1?"Reply order":"Reply from mention"}</span><strong>{mentionedWrens.map(item=>item.name).join(" → ")}</strong></div>:<><span className={styles.roomParticipants}>{room.wrens.map(wren=><button key={wren.id} type="button" title={`Ask ${wren.name}`} onClick={()=>{editDraft(`${draft}${draft&&!/\s$/.test(draft)?" ":""}@${wren.name} `);composer.current?.focus();}}><WrenAvatar shape={wren.shape} palette={wren.palette} size={19}/><span>{wren.name}</span></button>)}</span><label><CanterSelect ariaLabel="Message audience" className="canter-select-compact" value={roomRecipient} onChange={setRoomRecipient} options={[...room.wrens.map(wren=>({value:wren.id,label:`Ask ${wren.name}`})),...(room.wrens.length>1?[{value:"team",label:"Ask all Wrens"}]:[]),{value:"people",label:"Message the room"}]}/></label></>}</div> : null}
@@ -822,6 +919,7 @@ export function OperatorWorkspace({ id: initialId, githubResult, focusComposer, 
             {archived?<p className={styles.note} role="status">Archived. History and files remain available; restore this conversation in its settings before starting new work.</p>:null}
             {data?.workspace.role==="viewer"&&!archived?<p className={styles.note} role="status">You have read-only access to this organization.</p>:null}
             {replyTo?<div className={styles.replyContext} role="region" aria-label="Reply preview"><span className={styles.replyContextText}><span className={styles.replyContextSender}>{displayName(replyTo.senderName)}:</span> <span>{replyTo.excerpt.replace(/\s+/g," ")}</span></span><button type="button" aria-label="Cancel reply" onClick={()=>{setReplyTo(null);composer.current?.focus();}}><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="m5 5 6 6m0-6-6 6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg></button></div>:null}
+            {dashboardRequestError?<p className={styles.draftHint} role="status">{dashboardRequestError} <button type="button" onClick={()=>setDashboardRequestError("")}>Dismiss</button></p>:null}
             {replyChecking||replyNotice?<p className={styles.draftHint} role="status">{replyNotice||"Checking reply…"}{currentReplyState?.status==="error"?<button type="button" onClick={()=>setReplyAttempt(value=>value+1)}>Retry reply</button>:null}{replyChecking&&!replyTo?<button type="button" onClick={()=>setReplyTo(null,"Reply removed. Your draft is unchanged.")}>Remove reply</button>:null}</p>:null}
             <OperatorComposer wrens={room?.wrens ?? (wren ? [wren] : [])} sharedConversation={!!room} wrenApps={wrenWorkspace} conversationId={id} replying={!!replyTo} managedModel={managedModel} recipient={room ? `${room.kind==="channel"?"#":""}${room.name}` : wren?.name} attachments={attachmentDraft.items} onAttachments={attachmentDraft.update} sending={sending} context={messageContext} onClearContext={() => setAttachedContext(null)} draft={draft} onChange={editDraft} onSend={() => void send()} onStop={() => void stop()} stopping={stopping} running={canStop} stopLabel={room ? ownRun?.status === "queued" ? "Cancel my queued request" : "Stop my request" : "Stop response"} disabled={archived || personaUnavailable || replyChecking || data?.workspace.role === "viewer" || sending || (!data?.agent.available && !(peopleOnly)) || !attachmentDraft.loaded} inputRef={composer} model={selectedModel} onModelChange={selectModel} modelOptions={modelPreferences} onModelOptionsChange={selectModelOptions} onSelect={surface => { setAttachedContext(surface); if (surface.kind === "github") openSurface(surface); }} />
             </div>
@@ -840,13 +938,13 @@ export function OperatorWorkspace({ id: initialId, githubResult, focusComposer, 
           </div>)}</div>}
           <div className={styles.surfaceTools}>
             {wrenWorkspace ? <button type="button" className={`${styles.surfaceTool} ${styles.mobilePanelReturn}`} aria-label="Back to conversation" title="Back to conversation" onClick={closePanel}><WorkspaceIcon name="right" style={{transform:"rotate(180deg)"}} width="16" height="16" /><span>Chat</span></button> : null}
-            <div ref={viewMenuAnchor} className={styles.menuAnchor}><button type="button" className={styles.surfaceTool} aria-label="Open workspace view" aria-haspopup="menu" aria-expanded={viewMenu} onClick={() => setViewMenu(!viewMenu)}><WorkspaceIcon name="plus" width="17" height="17" /></button><MotionPresence open={viewMenu}><div className={styles.viewMenu} role="menu" aria-label="Workspace views" onKeyDown={moveMenuFocus}>{(wrenWorkspace ? ["computer", "wren-responsibility", "wren-projects", "wren-memory", "wren-skills", "wren-extensions", "wren-members", "wren-library"] as const : ["compute", "storage", "github", "apps", "deployments", "activity"] as const).map(kind => <button type="button" role="menuitem" tabIndex={-1} key={kind} onClick={() => { openSurface({kind}); setViewMenu(false); }}>{kind === "github" ? "GitHub repositories" : surfaceLabels[kind]}</button>)}{wrenWorkspace && onEditWren ? <button type="button" role="menuitem" tabIndex={-1} onClick={() => { setViewMenu(false); onEditWren(); }}>{room ? "Room settings" : "Wren settings"}</button> : null}</div></MotionPresence></div>
+            <div ref={viewMenuAnchor} className={styles.menuAnchor}><button type="button" className={styles.surfaceTool} aria-label="Open workspace view" aria-haspopup="menu" aria-expanded={viewMenu} onClick={() => setViewMenu(!viewMenu)}><WorkspaceIcon name="plus" width="17" height="17" /></button><MotionPresence open={viewMenu}><div className={styles.viewMenu} role="menu" aria-label="Workspace views" onKeyDown={moveMenuFocus}>{(wrenWorkspace ? (["computer", "wren-responsibility", "wren-projects", "wren-memory", "wren-skills", "wren-extensions", "wren-members", "wren-library", ...(data?.products?.some(product => product.id === "sandboxes" && product.enabled) ? ["sandboxes" as const, "super-sandboxes" as const] : [])] as const) : (["compute", "storage", "github", "apps", "deployments", "activity", ...(data?.products?.some(product => product.id === "sandboxes" && product.enabled) ? ["sandboxes" as const, "super-sandboxes" as const] : [])] as const)).map(kind => <button type="button" role="menuitem" tabIndex={-1} key={kind} onClick={() => { openSurface({kind}); setViewMenu(false); }}>{kind === "github" ? "GitHub repositories" : surfaceLabels[kind]}</button>)}{wrenWorkspace && onEditWren ? <button type="button" role="menuitem" tabIndex={-1} onClick={() => { setViewMenu(false); onEditWren(); }}>{room ? "Room settings" : "Wren settings"}</button> : null}</div></MotionPresence></div>
             <button type="button" className={styles.surfaceTool} hidden={overlayPanel} aria-label={wide ? "Restore split view" : "Expand workspace view"} aria-pressed={wide} onClick={() => setWide(!wide)}><WorkspaceIcon name={wide ? "collapse" : "expand"} width="17" height="17" /></button>
           </div>
         </div>
         <div className={styles.surfaceContent}>
           {!wrenWorkspace && inspector ? <div className={styles.inspectorContent} hidden={!inspecting}><WrenWorkNavigation.Provider value={openSurface}>{inspector}</WrenWorkNavigation.Provider></div> : null}
-          {opened.length && workspace ? opened.map((surface, index) => <div key={surfaceKey(surface)} role="tabpanel" id={`${panelId}-view-${index}`} aria-labelledby={`${panelId}-tab-${index}`} hidden={(!wrenWorkspace && inspecting) || !selected || surfaceKey(selected) !== surfaceKey(surface)}>{wrenWorkspace && surface.kind === "wren-artifact" || (!inspecting || wrenWorkspace) && showPanel && selected && surfaceKey(selected) === surfaceKey(surface) ? <OperatorSurfaceView onOpenRun={openRunReply} computerChrome={wrenWorkspace?{close:closePanel,expand:()=>setWide(!wide),wide}:undefined} surface={surface} workspaceId={workspace} onSelect={openSurface} conversationId={id} githubResult={githubResult} busy={sending || !data?.agent.available} onDeploy={async repository => { await send(undefined, repository); }} /> : null}</div>) : <div className={styles.surfacePlaceholder} hidden={inspecting}>
+          {opened.length && workspace ? opened.map((surface, index) => <div key={surfaceKey(surface)} role="tabpanel" id={`${panelId}-view-${index}`} aria-labelledby={`${panelId}-tab-${index}`} hidden={(!wrenWorkspace && inspecting) || !selected || surfaceKey(selected) !== surfaceKey(surface)}>{wrenWorkspace && surface.kind === "wren-artifact" || (!inspecting || wrenWorkspace) && showPanel && selected && surfaceKey(selected) === surfaceKey(surface) ? <OperatorSurfaceView onOpenRun={openRunReply} computerChrome={wrenWorkspace?{close:closePanel,expand:()=>setWide(!wide),wide}:undefined} surface={surface} workspaceId={workspace} onSelect={openSurface} conversationId={id} githubResult={githubResult} busy={sending || !data?.agent.available} onUseApp={prompt=>{editDraft(appendDashboardRequestText(draft,prompt));if(overlayPanel)closePanel();requestAnimationFrame(()=>requestAnimationFrame(()=>{composer.current?.focus();composer.current?.setSelectionRange(composer.current.value.length,composer.current.value.length);}));}} onDeploy={async repository => { await send(undefined, repository); }} /> : null}</div>) : <div className={styles.surfacePlaceholder} hidden={inspecting}>
             <div className={styles.surfaceHints}>
               <div><WorkspaceIcon name="apps" /><p>Apps<span>Apps your agent opens</span></p></div>
               <div><WorkspaceIcon name="file" /><p>Files<span>Code and files it works with</span></p></div>

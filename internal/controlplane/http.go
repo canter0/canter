@@ -731,6 +731,10 @@ func (h *HTTPServer) workspaces(w http.ResponseWriter, r *http.Request, parts []
 		writeStoreError(w, err)
 		return
 	}
+	if !h.service.Store.wrensAvailable() && (parts[1] == "wrens" || parts[1] == "rooms" || parts[1] == "computers" || parts[1] == "app-accounts" || (strings.HasPrefix(parts[1], "wren-") && parts[1] != "wren-members")) {
+		writeError(w, http.StatusNotFound, ErrNotFound)
+		return
+	}
 	if parts[1] == "ai-usage" && len(parts) == 2 {
 		h.workspaceWrenAIUsage(w, r, p, workspaceID)
 		return
@@ -798,6 +802,10 @@ func (h *HTTPServer) workspaces(w http.ResponseWriter, r *http.Request, parts []
 	}
 	if parts[1] == "sandboxes" {
 		h.workspaceSandboxes(w, r, p, workspaceID, parts[2:])
+		return
+	}
+	if parts[1] == "super-sandboxes" {
+		h.workspaceSuperSandboxes(w, r, p, workspaceID, parts[2:])
 		return
 	}
 	if parts[1] == "sandbox-snapshots" {

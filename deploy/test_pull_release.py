@@ -77,6 +77,8 @@ class RetentionTests(unittest.TestCase):
             previous = self.shas[number - 1] if number else '9' * 40
             (public / 'release.json').write_text(json.dumps({'commit': previous}))
             (path / 'canter-controlplane').write_bytes(b'executable')
+            (path / 'canter-ci-enforcer').write_bytes(b'executable')
+            (path / 'previous-ci-enforcer').write_bytes(b'executable')
             (path / 'database.dump').write_bytes(('database-' + sha).encode())
             (self.runtimes / sha).mkdir()
         (self.state / 'current').write_text(self.shas[4])
@@ -102,9 +104,13 @@ class RetentionTests(unittest.TestCase):
         for path in self.paths[2:]:
             self.assertTrue((path / 'previous-web').is_dir())
             self.assertTrue((path / 'canter-controlplane').is_file())
+            self.assertTrue((path / 'canter-ci-enforcer').is_file())
+            self.assertTrue((path / 'previous-ci-enforcer').is_file())
         for path in self.paths[:2]:
             self.assertFalse((path / 'previous-web').exists())
             self.assertFalse((path / 'canter-controlplane').exists())
+            self.assertFalse((path / 'canter-ci-enforcer').exists())
+            self.assertFalse((path / 'previous-ci-enforcer').exists())
         self.assertFalse((self.runtimes / self.shas[0]).exists())
         for sha in self.shas[1:]:
             self.assertTrue((self.runtimes / sha).is_dir())

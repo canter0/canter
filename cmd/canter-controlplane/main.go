@@ -48,6 +48,14 @@ func main() {
 	if err = store.Migrate(ctx); err != nil {
 		log.Fatal(err)
 	}
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("CANTER_WRENS_ENABLED"))) {
+	case "", "false":
+		store.SetWrensEnabled(false)
+	case "true":
+		store.SetWrensEnabled(true)
+	default:
+		log.Fatal("CANTER_WRENS_ENABLED must be true or false")
+	}
 	if invite := os.Getenv("CANTER_BETA_INVITE"); invite != "" {
 		if err = store.SeedInvite(ctx, invite, "environment beta invite"); err != nil {
 			log.Fatal(err)
@@ -301,6 +309,12 @@ func main() {
 	go func() {
 		if err := (&controlplane.SandboxDispatcher{Server: handler.(*controlplane.HTTPServer)}).Run(ctx); err != nil && ctx.Err() == nil {
 			log.Printf("sandbox dispatcher stopped: %v", err)
+			stop()
+		}
+	}()
+	go func() {
+		if err := (&controlplane.SuperSandboxDispatcher{Server: handler.(*controlplane.HTTPServer)}).Run(ctx); err != nil && ctx.Err() == nil {
+			log.Printf("super sandbox dispatcher stopped: %v", err)
 			stop()
 		}
 	}()

@@ -1,0 +1,59 @@
+.root { container-type: inline-size; min-width: 0; font-size: 13px; color: var(--ink); }
+.note { color: rgb(var(--ui-text-secondary)); font-size: 12px; line-height: 1.7; margin: 10px 0 16px; }
+.back { display: inline-block; color: rgb(var(--ui-text-secondary)); text-decoration: none; margin-bottom: 18px; font-size: 12px; }
+.identifier { display: block; color: rgb(var(--ui-text-tertiary)); font: 11px var(--font-mono), monospace; margin-top: 4px; overflow-wrap: anywhere; }
+.tableScroll { overflow-x: auto; max-width: 100%; }
+.table { width: 100%; border-collapse: collapse; table-layout: fixed; text-align: left; font-size: 12px; }
+.table th, .table td { padding: 11px 6px; vertical-align: top; border-bottom: 1px solid rgb(var(--ui-border-secondary)); overflow-wrap: anywhere; }
+.table tr:last-child td, .table tr:last-child th { border-bottom: 0; }
+.table thead th { padding: 0 6px 7px; color: rgb(var(--ui-text-tertiary)); font-size: 11px; font-weight: 400; letter-spacing: .04em; }
+.table tbody { border-top: 1px solid rgb(var(--ui-border-secondary)); border-bottom: 1px solid rgb(var(--ui-border-secondary)); }
+.table tbody th { font-size: 13px; font-weight: 500; }
+.table tbody td { color: rgb(var(--ui-text-secondary)); }
+.table tbody tr:hover { background: rgb(var(--ui-tint-secondary)); }
+.batchTable thead th:first-child { width: 28%; }
+.batchTable thead th:nth-child(2) { width: 18%; }
+.batchTable thead th:nth-child(3) { width: 16%; }
+.batchTable thead th:nth-child(4) { width: 20%; }
+.taskTable thead th:first-child { width: 32%; }
+.taskTable thead th:nth-child(2) { width: 17%; }
+.taskTable thead th:nth-child(3) { width: 18%; }
+.taskTable thead th:nth-child(4) { width: 23%; }
+.resourceLink { border: 0; background: none; color: inherit; font: inherit; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: rgb(var(--ui-border-secondary)); cursor: pointer; padding: 0; text-align: left; overflow-wrap: anywhere; }
+.resourceLink:hover { text-decoration-color: currentColor; }
+.resourceLink.code { font: 11px var(--font-mono), monospace; }
+.annotation { display: block; line-height: 1.6; margin-top: 4px; }
+.actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
+.progress { display: block; width: 100%; height: 3px; margin: 0 0 18px; background: rgb(var(--ui-border-secondary)); overflow: hidden; }
+.progressIndicator { height: 100%; background: rgb(var(--ui-text-primary)); }
+.notice { display: block; margin: 12px 0; line-height: 1.7; overflow-wrap: anywhere; }
+.sectionTitle { margin: 26px 0 14px; font-size: 13px; font-weight: 500; }
+.command { display: block; margin-top: 4px; font: 11px/1.6 var(--font-mono), monospace; white-space: pre-wrap; overflow-wrap: anywhere; color: rgb(var(--ui-text-secondary)); }
+.workers { display: flex; flex-wrap: wrap; gap: 10px 22px; padding: 0; list-style: none; font-size: 12px; }
+.timestamps { display: flex; flex-wrap: wrap; gap: 18px 30px; margin-top: 24px; }
+.timestamps dt { color: rgb(var(--ui-text-tertiary)); font-size: 11px; margin-bottom: 4px; }
+.timestamps dd { margin: 0; font: 12px var(--font-mono), monospace; }
+.root :where(button, a, [tabindex]):focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+@media (max-width: 1100px) {
+  /* The general-chat overlay is viewport-fixed, unlike the Wren overlay.
+     Keep these views clear of the persistent 56px Quicknav rail only. */
+  :global([data-has-surface]:not([data-wren="true"])) > :global([data-workspace-surface]):has(.root) { left: 70px; }
+}
+@container (max-width: 640px) {
+  .root > header { flex-wrap: wrap; }
+  .table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .table tbody { display: block; }
+  .table tbody tr { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 12px; padding: 11px 6px; border-bottom: 1px solid rgb(var(--ui-border-secondary)); }
+  .table tbody tr:last-child { border-bottom: 0; }
+  .table tbody th, .table tbody td { display: block; min-width: 0; max-width: none; width: auto; padding: 0; border: 0; }
+  .batchTable tbody td:nth-child(2) { text-align: right; }
+  .batchTable tbody td:last-child { grid-column: 1 / -1; }
+  .table td[data-label]::before { content: attr(data-label); display: block; color: rgb(var(--ui-text-tertiary)); font-size: 11px; margin-bottom: 3px; }
+  .taskTable tbody tr { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); grid-template-areas: "task state" "worker timeout" "result result"; }
+  .taskTable tbody th { grid-area: task; }
+  .taskTable tbody td:nth-child(2) { grid-area: state; text-align: right; }
+  .taskTable tbody td:nth-child(3) { grid-area: worker; }
+  .taskTable tbody td:nth-child(4) { grid-area: result; }
+  .taskTable tbody td:nth-child(5) { grid-area: timeout; text-align: right; }
+  .taskTable td:nth-child(2) > span { justify-content: flex-end; }
+}

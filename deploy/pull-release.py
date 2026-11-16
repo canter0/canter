@@ -458,7 +458,8 @@ def prune_releases(sha):
             runtimes.add(cursor)
         failed = (STATE / 'failed').read_text().strip() if (STATE / 'failed').exists() else None
         artifacts = ('web', 'harness', 'deploy', 'canter-controlplane', 'canter-static-linux',
-                     'previous-controlplane', 'previous-static', 'previous-web')
+                     'previous-controlplane', 'previous-static', 'previous-web',
+                     'canter-ci-enforcer', 'previous-ci-enforcer')
         removed = 0
         for path in releases.iterdir():
             match = re.fullmatch(r'actions-([0-9a-f]{40})', path.name)

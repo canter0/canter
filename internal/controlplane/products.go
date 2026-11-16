@@ -66,6 +66,9 @@ func (s *Store) WorkspaceProducts(ctx context.Context, workspaceID string) ([]pr
 	}
 	out := make([]productEntry, 0, len(productCatalog))
 	for _, p := range productCatalog {
+		if p.ID == "wrens" && !s.wrensAvailable() {
+			continue
+		}
 		entry := p
 		if at, ok := enabled[p.ID]; ok || p.AlwaysOn {
 			entry.Enabled = true
@@ -80,6 +83,9 @@ func (s *Store) WorkspaceProducts(ctx context.Context, workspaceID string) ([]pr
 }
 
 func (s *Store) productEnabled(ctx context.Context, q artifactQueryer, workspaceID, product string) (bool, error) {
+	if product == "wrens" && !s.wrensAvailable() {
+		return false, nil
+	}
 	if productAlwaysOn(product) {
 		return true, nil
 	}
@@ -94,7 +100,7 @@ func (s *Store) productEnabled(ctx context.Context, q artifactQueryer, workspace
 // EnableWorkspaceProduct records enablement. Idempotent: an enabled product
 // stays enabled without error.
 func (s *Store) EnableWorkspaceProduct(ctx context.Context, workspaceID, product string, actor sdk.ActorRef) error {
-	if !productKnown(product) {
+	if !productKnown(product) || (product == "wrens" && !s.wrensAvailable()) {
 		return ErrNotFound
 	}
 	if productAlwaysOn(product) {
@@ -110,7 +116,7 @@ func (s *Store) EnableWorkspaceProduct(ctx context.Context, workspaceID, product
 // account is the human authority, including for the home operator; connected
 // installations pass an empty account and may only use already-enabled products.
 func (s *Store) requireWorkspaceProductForUseTx(ctx context.Context, tx pgx.Tx, workspaceID, product, account string, actor sdk.ActorRef) error {
-	if !productKnown(product) {
+	if !productKnown(product) || (product == "wrens" && !s.wrensAvailable()) {
 		return ErrNotFound
 	}
 	enabled, err := s.productEnabled(ctx, tx, workspaceID, product)
@@ -138,7 +144,7 @@ func (s *Store) requireWorkspaceProductForUseTx(ctx context.Context, tx pgx.Tx, 
 // DisableWorkspaceProduct removes enablement. alwaysOn products and disabling
 // Sandboxes while sandboxes still exist are conflicts. Idempotent.
 func (s *Store) DisableWorkspaceProduct(ctx context.Context, workspaceID, product string) error {
-	if !productKnown(product) {
+	if !productKnown(product) || (product == "wrens" && !s.wrensAvailable()) {
 		return ErrNotFound
 	}
 	if productAlwaysOn(product) {

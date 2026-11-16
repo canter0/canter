@@ -805,7 +805,10 @@ ON CONFLICT DO NOTHING`, sandboxID, jobID, s.now())
 }
 
 func (s *Store) finishSandboxJob(ctx context.Context, sandboxID, jobID string) {
-	_, _ = s.pool.Exec(ctx, `UPDATE sandbox_jobs SET finished_at=now() WHERE sandbox_id=$1 AND job_id=$2 AND finished_at IS NULL`, sandboxID, jobID)
+	// Batch-owned uncertain jobs are closed only by positive reconciler receipts,
+	// not by generic log/status readers which historically treat unknown as done.
+	_, _ = s.pool.Exec(ctx, `UPDATE sandbox_jobs SET finished_at=now() WHERE sandbox_id=$1 AND job_id=$2 AND finished_at IS NULL
+	AND NOT EXISTS(SELECT 1 FROM super_sandbox_tasks WHERE job_id=$2 AND worker_id=$1 AND state IN ('starting','running','unknown'))`, sandboxID, jobID)
 }
 
 type openSandboxJob struct {
@@ -1260,6 +1263,9 @@ func (d *SandboxDispatcher) Reconcile(ctx context.Context, workspace, id string)
 // Transport or status uncertainty is treated conservatively as activity: a
 // possibly running workload is never destroyed because its status RPC failed.
 func (d *SandboxDispatcher) jobsStillRunning(ctx context.Context, v Sandbox) bool {
+	if busy, err := d.Server.service.Store.superSandboxWorkerBusy(ctx, v.ID); err != nil || busy {
+		return true
+	}
 	open, err := d.Server.service.Store.openSandboxJobs(ctx, v.ID)
 	if err != nil {
 		return true

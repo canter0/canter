@@ -385,7 +385,7 @@ var sandboxToolDefs = append([]mcpTool{
 	{Name: "canter_sandbox_preview_create", Description: "Share a public preview link to a port (1024-65535) on the sandbox, so a person can open what runs there. Anyone with the link can open this port.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"workspaceId": map[string]string{"type": "string"}, "id": map[string]string{"type": "string"}, "port": map[string]any{"type": "integer"}}, "required": []string{"id", "port"}, "additionalProperties": false}},
 	{Name: "canter_sandbox_preview_list", Description: "List a sandbox's active preview links.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"workspaceId": map[string]string{"type": "string"}, "id": map[string]string{"type": "string"}}, "required": []string{"id"}, "additionalProperties": false}},
 	{Name: "canter_sandbox_preview_revoke", Description: "Revoke a sandbox preview link so it stops working.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"workspaceId": map[string]string{"type": "string"}, "id": map[string]string{"type": "string"}, "previewId": map[string]string{"type": "string"}}, "required": []string{"id", "previewId"}, "additionalProperties": false}},
-}, append(sandboxLibraryTools(), sandboxDesktopTools()...)...)
+}, append(append(sandboxLibraryTools(), sandboxDesktopTools()...), superSandboxTools()...)...)
 
 func sandboxToolByName(name string) (mcpTool, bool) {
 	for _, t := range sandboxToolDefs {
@@ -397,6 +397,8 @@ func sandboxToolByName(name string) (mcpTool, bool) {
 }
 
 var sandboxMutatingTools = map[string]bool{
+	"canter_super_sandbox_create":            true,
+	"canter_super_sandbox_cancel":            true,
 	"canter_sandbox_create":                  true,
 	"canter_sandbox_run":                     true,
 	"canter_sandbox_start":                   true,
@@ -421,6 +423,12 @@ var sandboxMutatingTools = map[string]bool{
 // the caller's resolved workspace-write permission (role or installation
 // grant); read tools need membership only, which allowWorkspace established.
 func (h *HTTPServer) callSandboxTool(ctx context.Context, workspace, account string, actor sdk.ActorRef, writeGrant bool, name string, raw json.RawMessage) (any, error) {
+	if strings.HasPrefix(name, "canter_super_sandbox_") {
+		if sandboxMutatingTools[name] && !writeGrant {
+			return nil, ErrForbidden
+		}
+		return h.callSuperSandboxTool(ctx, workspace, account, actor, name, raw)
+	}
 	var args struct {
 		ID                 string            `json:"id"`
 		JobID              string            `json:"jobId"`

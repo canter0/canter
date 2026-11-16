@@ -258,6 +258,9 @@ var sandboxDesktopMigration string
 //go:embed migrations/079_sandbox_environment.sql
 var sandboxEnvironmentMigration string
 
+//go:embed migrations/088_super_sandboxes.sql
+var superSandboxesMigration string
+
 //go:embed migrations/079_ci_runner_admission_registration.sql
 var ciRunnerAdmissionRegistrationMigration string
 
@@ -298,9 +301,20 @@ var (
 
 type Store struct {
 	initialAIAllowance atomic.Int64
+	wrensDisabled      atomic.Bool
 	billing            *BillingGateway
 	pool               *pgxpool.Pool
 	now                func() time.Time
+}
+
+// SetWrensEnabled gates the standalone Wrens surface. Catalog data is
+// unchanged; only availability is switched.
+func (s *Store) SetWrensEnabled(enabled bool) {
+	s.wrensDisabled.Store(!enabled)
+}
+
+func (s *Store) wrensAvailable() bool {
+	return !s.wrensDisabled.Load()
 }
 
 func Open(ctx context.Context, databaseURL string) (*Store, error) {
@@ -974,6 +988,18 @@ func (s *Store) Migrate(ctx context.Context) error {
 			return err
 		}
 		if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('087_ci_job_evidence') ON CONFLICT DO NOTHING`); err != nil {
+			return err
+		}
+	}
+	var superSandboxesApplied bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version='088_super_sandboxes')`).Scan(&superSandboxesApplied); err != nil {
+		return err
+	}
+	if !superSandboxesApplied {
+		if _, err := tx.Exec(ctx, superSandboxesMigration); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('088_super_sandboxes')`); err != nil {
 			return err
 		}
 	}

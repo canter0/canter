@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"unicode"
 
 	"github.com/canter0/canter/pricing"
 	"github.com/canter0/canter/sdk"
@@ -30,14 +31,74 @@ func validateOperatorSurface(surface *OperatorSurface) error {
 		return nil
 	}
 	switch surface.Kind {
-	case "wren-messaging", "wren-projects", "wren-extensions", "wren-library", "wren-members", "wren-memory", "wren-skills", "wren-responsibility", "wren-job", "computer", "wren-artifact", "vps", "compute", "storage", "apps", "deployments", "billing", "activity", "agents", "app", "deployment", "change", "repository", "github", "repository-changes", "file", "conversation":
+	case "super-sandboxes", "super-sandbox":
+	case "wren-messaging", "wren-projects", "wren-extensions", "wren-library", "wren-members", "wren-memory", "wren-skills", "wren-responsibility", "wren-job", "computer", "wren-artifact", "vps", "compute", "storage", "apps", "deployments", "billing", "activity", "agents", "app", "deployment", "change", "repository", "github", "repository-changes", "file", "conversation", "sandboxes", "sandbox":
 	default:
 		return fmt.Errorf("unknown workspace view")
 	}
 	if len(surface.ID) > 160 || len(surface.System) > 100 || len(surface.Repository) > 200 || len(surface.Path) > 512 || len(surface.Base) > 40 {
 		return fmt.Errorf("invalid workspace view")
 	}
+	if surface.Kind == "sandbox" && !validSandboxSurfaceID(surface.ID) {
+		return fmt.Errorf("invalid workspace view")
+	}
+	if (surface.Kind == "super-sandbox" && !superSandboxIDPattern.MatchString(surface.ID)) || (surface.Kind == "super-sandboxes" && surface.ID != "") {
+		return fmt.Errorf("invalid workspace view")
+	}
 	return nil
+}
+
+// validSandboxSurfaceID requires a real sandbox identifier — an sbx_ id with a
+// nonempty suffix and no whitespace or control characters.
+func validSandboxSurfaceID(id string) bool {
+	if !strings.HasPrefix(id, "sbx_") || len(id) <= len("sbx_") || len(id) > 160 {
+		return false
+	}
+	return strings.IndexFunc(id, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) < 0
+}
+
+// sandboxResultSurface projects a successfully executed sandbox tool call onto
+// the sandbox views: listing opens the dashboard, and results that carry a
+// sandbox record open that sandbox's work surface. Anything else projects
+// nothing — surfacing is best-effort and never fails the tool call.
+func sandboxResultSurface(name string, value any, workspace string) (OperatorSurface, bool) {
+	if name == "canter_super_sandbox_list" {
+		return OperatorSurface{Kind: "super-sandboxes"}, true
+	}
+	if name == "canter_super_sandbox_create" || name == "canter_super_sandbox_inspect" || name == "canter_super_sandbox_cancel" {
+		var run SuperSandbox
+		switch v := value.(type) {
+		case SuperSandbox:
+			run = v
+		case *SuperSandbox:
+			if v != nil {
+				run = *v
+			}
+		}
+		if run.WorkspaceID == workspace && superSandboxIDPattern.MatchString(run.ID) {
+			return OperatorSurface{Kind: "super-sandbox", ID: run.ID}, true
+		}
+		return OperatorSurface{}, false
+	}
+	if name == "canter_sandbox_list" {
+		return OperatorSurface{Kind: "sandboxes"}, true
+	}
+	var box Sandbox
+	switch v := value.(type) {
+	case Sandbox:
+		box = v
+	case *Sandbox:
+		if v == nil {
+			return OperatorSurface{}, false
+		}
+		box = *v
+	default:
+		return OperatorSurface{}, false
+	}
+	if box.ID == "" || box.WorkspaceID != workspace {
+		return OperatorSurface{}, false
+	}
+	return OperatorSurface{Kind: "sandbox", ID: box.ID}, true
 }
 
 func (o *OperatorRuntime) surface(ctx context.Context, r OperatorRun, surface OperatorSurface) error {
@@ -104,6 +165,11 @@ func (o *OperatorRuntime) localTool(ctx context.Context, r OperatorRun, c Conver
 		role, roleErr := workspaceRole(ctx, s.pool, c.WorkspaceID, c.AccountID, false)
 		write := roleErr == nil && (role == "owner" || role == "operator")
 		value, err := o.Server.callSandboxTool(ctx, c.WorkspaceID, c.AccountID, p.Actor, write, name, raw)
+		if err == nil {
+			if surface, ok := sandboxResultSurface(name, value, c.WorkspaceID); ok {
+				_ = o.surface(ctx, r, surface)
+			}
+		}
 		return value, true, err
 	}
 	switch name {
