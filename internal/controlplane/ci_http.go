@@ -265,7 +265,11 @@ func (h *HTTPServer) ciJobDetail(ctx context.Context, p Principal, workspaceID, 
 	if err != nil {
 		return CIJobDetail{}, err
 	}
-	return CIJobDetail{Job: row.Job, Steps: steps, Logs: logs, Metrics: metrics, Tests: tests, RunnerDiagnostics: diagnostics, LogCollection: collection, RangeLogs: rangeLogs}, nil
+	view := CIJobDetail{Job: row.Job, Steps: steps, Logs: logs, Metrics: metrics, Tests: tests, RunnerDiagnostics: diagnostics, LogCollection: collection, RangeLogs: rangeLogs}
+	if diagnostics != nil && diagnostics.Association == "assigned" {
+		view.PinnedRate = &diagnostics.pinnedRate
+	}
+	return view, nil
 }
 
 func (h *HTTPServer) ciSettingsPatch(w http.ResponseWriter, r *http.Request, p Principal, workspaceID string) {

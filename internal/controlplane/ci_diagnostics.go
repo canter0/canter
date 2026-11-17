@@ -11,27 +11,26 @@ import (
 // CIRunnerDiagnostics exposes recorded lifecycle evidence, never provider
 // inventory, admission capabilities, or a claim that a stop request succeeded.
 type CIRunnerDiagnostics struct {
-	SchemaVersion       int        `json:"schemaVersion"`
-	RunnerID            string     `json:"runnerId"`
-	Association         string     `json:"association"`
-	RateVersion         string     `json:"rateVersion"`
-	RateMicrosPerMinute int64      `json:"rateMicrosPerMinute"`
-	Phase               string     `json:"phase"`
-	CreatedAt           time.Time  `json:"createdAt"`
-	UpdatedAt           time.Time  `json:"updatedAt"`
-	DeleteRequested     bool       `json:"deleteRequested"`
-	CreateAttemptedAt   *time.Time `json:"createAttemptedAt"`
-	CreateSettled       *bool      `json:"createSettled"`
-	SetupDeadlineAt     *time.Time `json:"setupDeadlineAt"`
-	HardDeadlineAt      *time.Time `json:"hardDeadlineAt"`
-	ExecutionStartedAt  *time.Time `json:"executionStartedAt"`
-	ExecutionStoppedAt  *time.Time `json:"executionStoppedAt"`
-	DeadlineAt          *time.Time `json:"deadlineAt"`
-	StopRequestedAt     *time.Time `json:"stopRequestedAt"`
-	StopReason          *string    `json:"stopReason"`
-	BillingStopAt       *time.Time `json:"billingStopAt"`
-	StoppedVerifiedAt   *time.Time `json:"stoppedVerifiedAt"`
-	CleanupVerifiedAt   *time.Time `json:"cleanupVerifiedAt"`
+	SchemaVersion      int    `json:"schemaVersion"`
+	RunnerID           string `json:"runnerId"`
+	Association        string `json:"association"`
+	pinnedRate         CIJobRate
+	Phase              string     `json:"phase"`
+	CreatedAt          time.Time  `json:"createdAt"`
+	UpdatedAt          time.Time  `json:"updatedAt"`
+	DeleteRequested    bool       `json:"deleteRequested"`
+	CreateAttemptedAt  *time.Time `json:"createAttemptedAt"`
+	CreateSettled      *bool      `json:"createSettled"`
+	SetupDeadlineAt    *time.Time `json:"setupDeadlineAt"`
+	HardDeadlineAt     *time.Time `json:"hardDeadlineAt"`
+	ExecutionStartedAt *time.Time `json:"executionStartedAt"`
+	ExecutionStoppedAt *time.Time `json:"executionStoppedAt"`
+	DeadlineAt         *time.Time `json:"deadlineAt"`
+	StopRequestedAt    *time.Time `json:"stopRequestedAt"`
+	StopReason         *string    `json:"stopReason"`
+	BillingStopAt      *time.Time `json:"billingStopAt"`
+	StoppedVerifiedAt  *time.Time `json:"stoppedVerifiedAt"`
+	CleanupVerifiedAt  *time.Time `json:"cleanupVerifiedAt"`
 }
 
 // The assigned runner takes precedence over unassigned provisioning attempts.
@@ -60,7 +59,7 @@ LIMIT 1`
 func (s *Store) ciJobRunnerDiagnostics(ctx context.Context, workspaceID, jobID string) (*CIRunnerDiagnostics, error) {
 	out := &CIRunnerDiagnostics{SchemaVersion: 1}
 	err := s.pool.QueryRow(ctx, ciJobRunnerDiagnosticsSQL, workspaceID, jobID).Scan(
-		&out.RunnerID, &out.Association, &out.RateVersion, &out.RateMicrosPerMinute, &out.Phase, &out.CreatedAt, &out.UpdatedAt,
+		&out.RunnerID, &out.Association, &out.pinnedRate.Version, &out.pinnedRate.MicrosPerMinute, &out.Phase, &out.CreatedAt, &out.UpdatedAt,
 		&out.DeleteRequested, &out.CreateAttemptedAt, &out.CreateSettled,
 		&out.SetupDeadlineAt, &out.HardDeadlineAt, &out.ExecutionStartedAt,
 		&out.ExecutionStoppedAt, &out.DeadlineAt, &out.StopRequestedAt,

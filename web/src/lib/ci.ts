@@ -14,8 +14,6 @@ export type CIRunnerDiagnostics = {
   schemaVersion: number;
   runnerId: string;
   association: string;
-  rateVersion?: string;
-  rateMicrosPerMinute?: number;
   phase: string;
   createdAt: string;
   updatedAt: string;
@@ -34,7 +32,7 @@ export type CIRunnerDiagnostics = {
   cleanupVerifiedAt: string | null;
 };
 export type CILogCollection = { state: string; truncated: boolean; collectedAt?: string | null };
-export type CIJobDetail = { job: CIJob; rangeLogs?: boolean; steps: CIStep[]; logs: CILog[]; metrics: CIMetric[]; tests: CITestResult[]; runnerDiagnostics?: CIRunnerDiagnostics | null; logCollection?: CILogCollection | null };
+export type CIJobDetail = { job: CIJob; pinnedRate?: { version: string; microsPerMinute: number }; rangeLogs?: boolean; steps: CIStep[]; logs: CILog[]; metrics: CIMetric[]; tests: CITestResult[]; runnerDiagnostics?: CIRunnerDiagnostics | null; logCollection?: CILogCollection | null };
 
 function humanize(value: string) {
   const text = value.replace(/_/g, " ").trim();

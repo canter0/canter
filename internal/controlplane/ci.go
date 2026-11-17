@@ -101,12 +101,19 @@ type CITestResult struct {
 	Source     string `json:"source,omitempty"`
 }
 
+// CIJobRate is the immutable overrun tariff of the runner assigned to this job.
+type CIJobRate struct {
+	Version         string `json:"version"`
+	MicrosPerMinute int64  `json:"microsPerMinute"`
+}
+
 type CIJobDetail struct {
 	Job               CIJob                `json:"job"`
 	Steps             []CIJobStep          `json:"steps"`
 	Logs              []CILogEntry         `json:"logs"`
 	Metrics           []CIMetric           `json:"metrics"`
 	Tests             []CITestResult       `json:"tests"`
+	PinnedRate        *CIJobRate           `json:"pinnedRate,omitempty"`
 	RunnerDiagnostics *CIRunnerDiagnostics `json:"runnerDiagnostics"`
 	RangeLogs         bool                 `json:"rangeLogs,omitempty"`
 	LogCollection     *CILogCollection     `json:"logCollection,omitempty"`

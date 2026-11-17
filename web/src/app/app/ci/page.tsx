@@ -255,7 +255,7 @@ function CiJobDetail({ base, workspaceId, jobId, anchor, onAnchor, currency, siz
 
   if (loadError && !detail) return <div role="alert" className={styles.error}>{loadError} <button onClick={() => void load()}>Try again</button></div>;
   if (!detail) return <p role="status" className={styles.loading}>Loading job…</p>;
-  const { job, steps, logs, metrics, tests, runnerDiagnostics, logCollection, rangeLogs } = detail;
+  const { job, steps, logs, metrics, tests, runnerDiagnostics, logCollection, rangeLogs, pinnedRate } = detail;
   const githubURL = safeGitHubURL(job.githubURL);
   const askPrompt = `Inspect Canter CI job ${job.id} in this organization. Explain the result using its logs; do not make changes.`;
   const orderedLogs = [...logs].sort((a, b) => a.sequence - b.sequence);
@@ -292,7 +292,7 @@ function CiJobDetail({ base, workspaceId, jobId, anchor, onAnchor, currency, siz
       {job.completedAt ? <div><dt>Completed</dt><dd>{relativeTime(job.completedAt)}</dd></div> : null}
     </dl>
     <p className={ci.jobMeta}>{formatDurationSeconds(job.elapsedSeconds)} elapsed · {formatDurationSeconds(job.billableSeconds)} billable · {formatMoneyMicros(job.costMicros, currency)}</p>
-    {runnerDiagnostics?.association === "assigned" && runnerDiagnostics.rateMicrosPerMinute ? <p className={ci.logNotice}>Job overrun rate {formatRatePerMinute(runnerDiagnostics.rateMicrosPerMinute, currency)}</p> : null}
+    {pinnedRate && pinnedRate.microsPerMinute ? <p className={ci.logNotice}>Job overrun rate {formatRatePerMinute(pinnedRate.microsPerMinute, currency)}</p> : null}
     {loadError ? <p role="alert" className={styles.error}>Showing previously loaded job details. {loadError}</p> : null}
     {rangeLogs ? <CiLogReader workspaceId={workspaceId} endpoint={`${base}/jobs/${encodeURIComponent(jobId)}/logs`} anchor={anchor} onAnchor={onAnchor} active={active} collection={logCollection} githubURL={githubURL} /> : null}
     <details className={`${ci.detailSection} ${ci.runnerDisclosure}`}><summary>Runner lifecycle</summary>
