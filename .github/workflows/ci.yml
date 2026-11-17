@@ -3,7 +3,13 @@ name: ci
 on:
   pull_request:
   push:
-    branches: [main, "codex/**"]
+    branches: [main]
+
+# Verify the PR's merge candidate once per update. Keep each main commit's
+# release-eligible run independent from PR runs and other main commits.
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
