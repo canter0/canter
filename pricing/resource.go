@@ -5,7 +5,11 @@ import "fmt"
 const (
 	// ComputeCentsPerUnitPer720Hours is Canter's current published compute usage rate.
 	ComputeCentsPerUnitPer720Hours int64 = 300
-	HoursPerResourceMonth                = 720
+	// SandboxComputeCentsPerUnitPer720Hours is the lower awake-hour rate for
+	// durable sandboxes only; app hosting, VPS, and computer compute keep the
+	// global compute rate.
+	SandboxComputeCentsPerUnitPer720Hours int64 = 250
+	HoursPerResourceMonth                       = 720
 )
 
 // ComputeUsageUnits follows the billing meter: one unit is the larger of the
@@ -27,4 +31,14 @@ func EstimateComputeMonthlyCents(vCPU, memoryMiB int) (int64, error) {
 		return 0, err
 	}
 	return units * ComputeCentsPerUnitPer720Hours, nil
+}
+
+// EstimateSandboxComputeMonthlyCents estimates durable-sandbox compute for one
+// VM over 720 awake hours at the sandbox-only rate.
+func EstimateSandboxComputeMonthlyCents(vCPU, memoryMiB int) (int64, error) {
+	units, err := ComputeUsageUnits(vCPU, memoryMiB)
+	if err != nil {
+		return 0, err
+	}
+	return units * SandboxComputeCentsPerUnitPer720Hours, nil
 }

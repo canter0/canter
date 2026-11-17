@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/canter0/canter/pricing"
 )
 
 var ciDiagRunnerKeys = []string{
@@ -337,5 +339,48 @@ func TestCIDiagnosticsRESTAndMCPExposure(t *testing.T) {
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("REST hidden private detail must stay 404 with diagnostics row present: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+// The billing contract is additive at job detail level; the established
+// runner diagnostics DTO stays the same for REST and agent consumers.
+func TestCIDiagnosticsPublishesOnlyAssignedPinnedTariff(t *testing.T) {
+	s, h, _, c, token, privID, pubID := ciMCPSession(t)
+	ctx := context.Background()
+	h.service.Store.SetCIRateV2Enabled(true) // Current catalog is v2 even for the v1 runner.
+	for _, test := range []struct {
+		jobID, version string
+		rate           int64
+	}{
+		{pubID, pricing.CIRateVersionV1, 2000},
+		{privID, pricing.CIRateVersion, 1000},
+	} {
+		path := "/v1/workspaces/" + c.WorkspaceID + "/ci/jobs/" + test.jobID
+		runner := ciDiagAttempt(t, s, ctx, c.WorkspaceID, test.jobID, time.Now())
+		read := func() CIJobDetail {
+			t.Helper()
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, ciAuthedRequest(t, http.MethodGet, path, token, ""))
+			requireStatus(t, rec, http.StatusOK)
+			var detail CIJobDetail
+			if err := json.Unmarshal(rec.Body.Bytes(), &detail); err != nil {
+				t.Fatal(err)
+			}
+			return detail
+		}
+		if before := read(); before.PinnedRate != nil {
+			t.Fatalf("unassigned attempt published a job rate: %+v", before.PinnedRate)
+		}
+		if _, err := s.pool.Exec(ctx, `UPDATE ci_runners SET assigned_job_id=$3,rate_version=$4,rate_micros_per_minute=$5
+			WHERE workspace_id=$1 AND id=$2`, c.WorkspaceID, runner, test.jobID, test.version, test.rate); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.pool.Exec(ctx, `UPDATE ci_jobs SET runner_id=$3 WHERE workspace_id=$1 AND id=$2`, c.WorkspaceID, test.jobID, runner); err != nil {
+			t.Fatal(err)
+		}
+		detail := read()
+		if detail.PinnedRate == nil || detail.PinnedRate.Version != test.version || detail.PinnedRate.MicrosPerMinute != test.rate {
+			t.Fatalf("job rate: %+v, want %s at %d", detail.PinnedRate, test.version, test.rate)
+		}
 	}
 }

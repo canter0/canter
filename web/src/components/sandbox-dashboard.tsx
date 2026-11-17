@@ -119,7 +119,7 @@ export function SandboxDashboard({ workspaceId, onSelect, onRequest }: { workspa
         <div><dt>Running</dt><dd><span className={styles.dot} data-tone="running" />{counts.running}</dd></div>
         <div><dt>Asleep</dt><dd><span className={styles.dot} data-tone="asleep" />{counts.asleep}</dd></div>
         <div><dt>Attention</dt><dd><span className={styles.dot} data-tone={counts.attention ? "attention" : "asleep"} />{counts.attention}</dd></div>
-        <div><dt>Running rate</dt><dd className={styles.mono}>{runningRate ? `$${(runningRate / 100).toFixed(3)}/h` : "$0/h"}</dd></div>
+        <div><dt>Estimated running rate</dt><dd className={styles.mono}>{runningRate ? `$${(runningRate / 100).toFixed(3)}/h` : "$0/h"}</dd></div>
         <div className={styles.usage}>
           <dt>Free hours</dt>
           <dd>
@@ -193,7 +193,7 @@ function SandboxRow({ sandbox, writable, onSelect, onAsk }: { sandbox: Sandbox; 
       {sandbox.hasCheckpoint || sandbox.snapshotId ? <span className={styles.chip}>Saved</span> : null}
     </span>
     <span className={styles.activity}>{lastActive(sandbox.lastUsedAt)}{sandbox.createdByName ? <small>by {sandbox.createdByName}</small> : null}</span>
-    <span className={styles.rate}>{sandbox.tier === "paid" ? sandboxHourlyCents(sandbox.monthlyCents) : "Free tier"}</span>
+    <span className={styles.rate}>{sandbox.tier === "paid" ? sandbox.phase === "asleep" && sandbox.hasCheckpoint ? "Compute stopped" : sandboxHourlyCents(sandbox.monthlyCents) : "Free tier"}</span>
   </>;
 
   if (!items.length) return <li className={styles.row} data-tone={group}>{row}<span /></li>;

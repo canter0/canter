@@ -1,12 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { JobLinkWorkspace } from "@/components/job-link-workspace";
 import { AppShell } from "@/components/app-shell";
 import { useWorkspace } from "@/components/workspace-context";
 import { useRequestScope } from "@/components/use-request-scope";
 import { WorkspaceIcon } from "@/components/workspace-icon";
-import { canterFetch, relativeTime, type Workspace } from "@/lib/canter-api";
+import { CanterAPIError, canterFetch, relativeTime, type Workspace } from "@/lib/canter-api";
 import { formatBytes } from "@/lib/sandboxes";
 import {
   ciJobActive, ciJobPhase, ciJobStateText, ciSizeLabel, ciStateText, featureStateText,
@@ -17,6 +19,7 @@ import {
 } from "@/lib/ci";
 import styles from "@/components/workspace.module.css";
 import ci from "./ci.module.css";
+import { CiLogReader } from "./ci-log-reader";
 
 export default function CiPage() {
   const { data, error, loading } = useWorkspace();
@@ -24,16 +27,32 @@ export default function CiPage() {
   if (!data) return <AppShell active="CI" pageTitle="CI"><section className={styles.contentPage}>
     <p role={error ? "alert" : "status"}>{loading ? "Loading CI…" : "Couldn’t load this organization."}</p>
   </section></AppShell>;
-  return <CiDashboard key={data.workspace.id} workspace={data.workspace} productName={productName} />;
+  return <Suspense fallback={<AppShell active="CI" pageTitle={productName}><p role="status">Loading CI…</p></AppShell>}><CiDashboard key={data.workspace.id} workspace={data.workspace} memberships={data.workspaces} productName={productName} /></Suspense>;
 }
 
-function CiDashboard({ workspace, productName }: { workspace: Workspace; productName: string }) {
+function CiDashboard({ workspace, memberships, productName }: { workspace: Workspace; memberships?: Workspace[]; productName: string }) {
   const { signal: requestSignal } = useRequestScope();
   const writer = workspace.role === "owner" || workspace.role === "operator";
   const owner = workspace.role === "owner";
   const [overview, setOverview] = useState<CIOverview | null>(null);
   const [loadError, setLoadError] = useState("");
-  const [selected, setSelected] = useState<string | null>(null);
+  const params = useSearchParams();
+  const selected = params.get("job");
+  const requestedWorkspace = params.get("workspace");
+  const linkedElsewhere = Boolean(selected && requestedWorkspace && requestedWorkspace !== workspace.id);
+  const repository = params.get("repository") ?? "";
+  const status = params.get("status") ?? "";
+  const line = params.get("line");
+  const anchor = line && /^\d{1,7}$/.test(line) ? Number(line) : undefined;
+  function setUrl(changes: Record<string, string | null>) {
+    const url = new URL(window.location.href);
+    if ("job" in changes) changes.workspace = changes.job ? workspace.id : null;
+    for (const [key, value] of Object.entries(changes)) {
+      if (value) url.searchParams.set(key, value);
+      else url.searchParams.delete(key);
+    }
+    if (url.href !== window.location.href) window.history.pushState(null, "", url);
+  }
   const [jobFilter, setJobFilter] = useState("");
   const [actionError, setActionError] = useState("");
   const [connecting, setConnecting] = useState(false);
@@ -43,7 +62,7 @@ function CiDashboard({ workspace, productName }: { workspace: Workspace; product
 
   const load = useCallback(async () => {
     const signal = requestSignal();
-    if (signal.aborted) return;
+    if (signal.aborted || linkedElsewhere) return;
     const sequence = ++loadSequence.current;
     try {
       const next = await canterFetch<CIOverview>(base, { signal });
@@ -53,7 +72,7 @@ function CiDashboard({ workspace, productName }: { workspace: Workspace; product
     } catch (cause) {
       if (!signal.aborted && sequence === loadSequence.current) setLoadError(cause instanceof Error ? cause.message : "Couldn’t load CI.");
     }
-  }, [base, requestSignal]);
+  }, [base, linkedElsewhere, requestSignal]);
 
   useEffect(() => {
     queueMicrotask(() => void load());
@@ -87,7 +106,9 @@ function CiDashboard({ workspace, productName }: { workspace: Workspace; product
   }
 
   const jobs = overview?.jobs ?? [];
-  const visibleJobs = filterCIFJobs(jobs, jobFilter);
+  const repositories = [...new Set(jobs.map(job => job.repository).filter(Boolean))].sort();
+  const statuses = [...new Set(jobs.map(job => job.conclusion || job.status))].sort();
+  const visibleJobs = filterCIFJobs(jobs, jobFilter).filter(job => (!repository || job.repository === repository) && (!status || (job.conclusion || job.status) === status));
   const pricing = overview?.pricing;
   const settings = overview?.settings;
   const features = overview?.features ?? [];
@@ -98,9 +119,13 @@ function CiDashboard({ workspace, productName }: { workspace: Workspace; product
   const canAsk = featureReady("agent-inspect");
   const overrunReady = featureReady("paid-overrun");
   const cacheReady = featureReady("cache");
+  if (linkedElsewhere && requestedWorkspace) return <AppShell active="CI" pageTitle={productName}><section className={styles.contentPage}>
+    <JobLinkWorkspace id={requestedWorkspace} memberships={memberships} />
+  </section></AppShell>;
   return <AppShell active="CI" pageTitle={productName}><section className={styles.contentPage}>
     <div className={styles.pageHeading} data-motion="reveal"><div><h1>{productName}</h1><p>GitHub Actions runners for this organization.</p></div></div>
-    {loadError ? <div role="alert" className={styles.error}>{loadError} <button onClick={() => void load()}>Try again</button></div> : !overview ? <p role="status" className={styles.loading}>Loading CI…</p> : !overview.enabled || !overview.installations.length ? <div className={styles.emptyState} data-motion="reveal"><span className={styles.emptyIcon}><WorkspaceIcon name="changes" width="24" height="24" /></span><h2>Run GitHub Actions on Canter</h2><p>Connect GitHub, then point a workflow at a Canter runner. {pricing?.freeSecondsPerRun ? `The first ${freePeriodText(pricing.freeSecondsPerRun)} of every run is free.` : "Every run starts with a free period."}</p>
+    {loadError ? <div role="alert" className={styles.error}>{loadError} <button onClick={() => void load()}>Try again</button></div> : null}
+    {!overview ? <p role="status" className={styles.loading}>Loading CI…</p> : !overview.enabled || !overview.installations.length ? <div className={styles.emptyState} data-motion="reveal"><span className={styles.emptyIcon}><WorkspaceIcon name="changes" width="24" height="24" /></span><h2>Run GitHub Actions on Canter</h2><p>Connect GitHub, then point a workflow at a Canter runner. {pricing?.freeSecondsPerRun ? `The first ${freePeriodText(pricing.freeSecondsPerRun)} of every run is free.` : "Every run starts with a free period."}</p>
       {owner ? <button type="button" className={styles.primaryButton} disabled={connecting || !githubAppReady} onClick={() => void connectGitHub()}>{connecting ? "Connecting…" : "Connect GitHub"}</button> : <p className={styles.status}>Ask an owner to connect GitHub.</p>}
       {owner && !githubAppReady ? <p className={styles.status}>GitHub connections aren’t available yet.</p> : null}
       {connectError ? <p role="alert" className={styles.error}>{connectError}</p> : null}
@@ -116,20 +141,32 @@ function CiDashboard({ workspace, productName }: { workspace: Workspace; product
       <div className={ci.layout}>
         <section aria-label="Recent jobs">
           <div className={ci.jobsHeader}><h2>Recent jobs</h2><input className={ci.filterInput} aria-label="Filter recent jobs" placeholder="Filter jobs…" value={jobFilter} onChange={event => setJobFilter(event.target.value)} /></div>
-          {visibleJobs.length ? <ul className={ci.jobList}>{visibleJobs.map(job => <li key={job.id}><button type="button" className={ci.jobButton} aria-pressed={selected === job.id} onClick={() => setSelected(current => current === job.id ? null : job.id)}>
+          <div className={ci.jobFilters}>
+            <select className={ci.filterInput} aria-label="Repository" value={repository} onChange={event => setUrl({ repository: event.target.value })}>
+              <option value="">All repositories</option>
+              {repository && !repositories.includes(repository) ? <option value={repository}>{repository}</option> : null}
+              {repositories.map(name => <option key={name} value={name}>{name}</option>)}
+            </select>
+            <select className={ci.filterInput} aria-label="Status" value={status} onChange={event => setUrl({ status: event.target.value })}>
+              <option value="">All statuses</option>
+              {status && !statuses.includes(status) ? <option value={status}>{ciStateText(status)}</option> : null}
+              {statuses.map(name => <option key={name} value={name}>{ciStateText(name)}</option>)}
+            </select>
+          </div>
+          {visibleJobs.length ? <ul className={ci.jobList}>{visibleJobs.map(job => <li key={job.id}><button type="button" className={ci.jobButton} aria-pressed={selected === job.id} onClick={() => setUrl({ job: selected === job.id ? null : job.id, line: null })}>
             <span className={ci.jobTitle}>{job.name || job.workflowName}</span>
             <span className={ci.jobMeta}>{job.repository} · {job.ref}</span>
             <span className={styles.status} data-phase={ciJobPhase(job)}>{ciJobStateText(job)}</span>
             <span className={ci.jobMeta}>{relativeTime(job.createdAt)} · {formatDurationSeconds(job.elapsedSeconds)} elapsed · {formatMoneyMicros(job.costMicros, pricing!.currency)}</span>
           </button></li>)}</ul> : <p className={styles.status}>{jobs.length ? "No jobs match the filter." : "No jobs yet — runs appear here after a workflow uses a Canter CI runner."}</p>}
-          <p className={ci.jobMeta}>Private repository jobs appear only for members whose own GitHub account can access the repository.</p>
+          <p className={`${ci.jobMeta} ${ci.jobMetaWrap}`}>Private repository jobs appear only for members whose own GitHub account can access the repository.</p>
         </section>
         <section className={ci.detail} aria-label="Job details">
-          {selected ? <CiJobDetail key={selected} base={base} jobId={selected} currency={pricing!.currency} sizes={pricing!.sizes} writer={writer} canAsk={canAsk} canCancel={canCancel} onJobUpdate={applyJob} onError={setActionError} /> : <p className={ci.detailEmpty}>Select a job to see its steps, logs, and results.</p>}
+          {selected ? <CiJobDetail key={selected} base={base} workspaceId={workspace.id} jobId={selected} anchor={anchor} onAnchor={offset => setUrl({ line: String(offset) })} currency={pricing!.currency} sizes={pricing!.sizes} writer={writer} canAsk={canAsk} canCancel={canCancel} onJobUpdate={applyJob} onError={setActionError} /> : <p className={ci.detailEmpty}>Select a job to see its steps, logs, and results.</p>}
         </section>
       </div>
       <section className={ci.section}><h2>Runner sizes</h2>
-        <p>Each runner&apos;s first {freePeriodText(pricing!.freeSecondsPerRun)} of execution is free for every job — repeated jobs are allowed. {monthlyQuotaText(pricing!.monthlyMinuteLimit)} Seconds beyond the free period bill at the overrun rate — half the matched Blacksmith price, and never retroactively for the free period. Billing is owner opt-in and requires pay-as-you-go billing plus a monthly spend cap.</p>
+        <p>Each runner&apos;s first {freePeriodText(pricing!.freeSecondsPerRun)} of execution is free for every job — repeated jobs are allowed. {monthlyQuotaText(pricing!.monthlyMinuteLimit)} The overrun rate applies to seconds beyond the free period. Billing is owner opt-in and requires pay-as-you-go billing plus a monthly spend cap.</p>
         {!poolReady ? <p className={ci.jobMeta}>Runner labels and rates are reserved until the pool is ready.</p> : null}
         <div className={ci.sizeGrid}>{pricing!.sizes.map(size => <div key={size.id} className={ci.sizeCard}>
           <h3>{size.label}</h3>
@@ -170,7 +207,7 @@ function CopyButton({ text, label, disabled = false }: { text: string; label: st
   }}>{copied ? "Copied" : "Copy"}</button>;
 }
 
-function CiJobDetail({ base, jobId, currency, sizes, writer, canAsk, canCancel, onJobUpdate, onError }: { base: string; jobId: string; currency: string; sizes: CIPricingSize[]; writer: boolean; canAsk: boolean; canCancel: boolean; onJobUpdate: (job: CIJob) => void; onError: (message: string) => void }) {
+function CiJobDetail({ base, workspaceId, jobId, anchor, onAnchor, currency, sizes, writer, canAsk, canCancel, onJobUpdate, onError }: { base: string; workspaceId: string; jobId: string; anchor?: number; onAnchor: (offset: number) => void; currency: string; sizes: CIPricingSize[]; writer: boolean; canAsk: boolean; canCancel: boolean; onJobUpdate: (job: CIJob) => void; onError: (message: string) => void }) {
   const { signal: requestSignal } = useRequestScope();
   const [detail, setDetail] = useState<CIJobDetail | null>(null);
   const [loadError, setLoadError] = useState("");
@@ -182,12 +219,14 @@ function CiJobDetail({ base, jobId, currency, sizes, writer, canAsk, canCancel, 
     if (signal.aborted) return;
     const current = ++sequence.current;
     try {
-      const value = await canterFetch<CIJobDetail>(`${base}/jobs/${encodeURIComponent(jobId)}`, { signal });
+      const value = await canterFetch<CIJobDetail>(`${base}/jobs/${encodeURIComponent(jobId)}?logs=range`, { signal });
       if (signal.aborted || current !== sequence.current || value.job.id !== jobId) return;
       setDetail(value);
       setLoadError("");
     } catch (cause) {
-      if (!signal.aborted && current === sequence.current) setLoadError(cause instanceof Error ? cause.message : "Couldn’t load this job.");
+      if (signal.aborted || current !== sequence.current) return;
+      if (cause instanceof CanterAPIError && [401, 403, 404].includes(cause.status)) setDetail(null);
+      setLoadError(cause instanceof Error ? cause.message : "Couldn’t load this job.");
     }
   }, [base, jobId, requestSignal]);
 
@@ -216,7 +255,7 @@ function CiJobDetail({ base, jobId, currency, sizes, writer, canAsk, canCancel, 
 
   if (loadError && !detail) return <div role="alert" className={styles.error}>{loadError} <button onClick={() => void load()}>Try again</button></div>;
   if (!detail) return <p role="status" className={styles.loading}>Loading job…</p>;
-  const { job, steps, logs, metrics, tests, runnerDiagnostics, logCollection } = detail;
+  const { job, steps, logs, metrics, tests, runnerDiagnostics, logCollection, rangeLogs, pinnedRate } = detail;
   const githubURL = safeGitHubURL(job.githubURL);
   const askPrompt = `Inspect Canter CI job ${job.id} in this organization. Explain the result using its logs; do not make changes.`;
   const orderedLogs = [...logs].sort((a, b) => a.sequence - b.sequence);
@@ -253,14 +292,16 @@ function CiJobDetail({ base, jobId, currency, sizes, writer, canAsk, canCancel, 
       {job.completedAt ? <div><dt>Completed</dt><dd>{relativeTime(job.completedAt)}</dd></div> : null}
     </dl>
     <p className={ci.jobMeta}>{formatDurationSeconds(job.elapsedSeconds)} elapsed · {formatDurationSeconds(job.billableSeconds)} billable · {formatMoneyMicros(job.costMicros, currency)}</p>
-    {loadError ? <p role="alert" className={styles.error}>{loadError}</p> : null}
-    <section className={ci.detailSection}><h3>Runner lifecycle</h3>
+    {pinnedRate && pinnedRate.microsPerMinute ? <p className={ci.logNotice}>Job overrun rate {formatRatePerMinute(pinnedRate.microsPerMinute, currency)}</p> : null}
+    {loadError ? <p role="alert" className={styles.error}>Showing previously loaded job details. {loadError}</p> : null}
+    {rangeLogs ? <CiLogReader workspaceId={workspaceId} endpoint={`${base}/jobs/${encodeURIComponent(jobId)}/logs`} anchor={anchor} onAnchor={onAnchor} active={active} collection={logCollection} githubURL={githubURL} /> : null}
+    <details className={`${ci.detailSection} ${ci.runnerDisclosure}`}><summary>Runner lifecycle</summary>
       {runnerDiagnostics ? <>
         {runnerDiagnostics.association === "provisioning_attempt" ? <p className={ci.jobMeta}>This provisioning attempt has not been assigned to this job.</p> : null}
         <dl className={ci.detailMeta}>{runnerRows.map(row => <div key={row.label}><dt>{row.label}</dt><dd>{row.value}</dd></div>)}</dl>
         <p className={ci.jobMeta}>A stop request is not proof that execution stopped or resources were deleted.</p>
       </> : <p className={ci.jobMeta}>No managed runner evidence recorded for this job.</p>}
-    </section>
+    </details>
     {steps.length ? <section className={ci.detailSection}><h3>Steps</h3>
       <ul className={ci.stepList}>{steps.map(step => <li key={step.number} className={ci.stepRow}>
         <span className={ci.stepName}>{step.number}. {step.name}</span>
@@ -289,13 +330,13 @@ function CiJobDetail({ base, jobId, currency, sizes, writer, canAsk, canCancel, 
       {samples.length > 1 ? <div className={ci.samplesWrap}><table className={ci.samples}><thead><tr><th>Time</th><th>CPU</th><th>Memory</th><th>Net in</th><th>Net out</th><th>OOM</th></tr></thead>
         <tbody>{samples.map((sample, index) => <tr key={`${sample.at}-${index}`}><td>{relativeTime(sample.at)}</td><td>{metricText(sample.cpuPercent, value => `${value}%`)}</td><td>{metricText(sample.memoryBytes, formatBytes)}</td><td>{metricText(sample.networkRxBytes, formatBytes)}</td><td>{metricText(sample.networkTxBytes, formatBytes)}</td><td>{metricText(sample.oomKills, value => String(value))}</td></tr>)}</tbody></table></div> : null}
     </section> : null}
-    <section className={ci.detailSection}><h3>Logs</h3>
+    {!rangeLogs ? <section className={ci.detailSection}><h3>Logs</h3>
       {logNotice ? <p className={ci.jobMeta}>{logNotice}</p> : null}
       {streams.size ? [...streams.entries()].map(([stream, chunks]) => <div key={stream}>
         <p className={ci.logLabel}>{stream === "stdout" ? "Standard output" : stream === "stderr" ? "Standard error" : ciStateText(stream)}</p>
         <pre className={ci.log}>{chunks.join("") || "(no output)"}</pre>
       </div>) : <p className={ci.jobMeta}>No logs yet.</p>}
-    </section>
+    </section> : null}
   </>;
 }
 

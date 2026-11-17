@@ -3,7 +3,13 @@ name: ci
 on:
   pull_request:
   push:
-    branches: [main, "codex/**"]
+    branches: [main]
+
+# Verify the PR's merge candidate once per update. Keep each main commit's
+# release-eligible run independent from PR runs and other main commits.
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -34,7 +40,16 @@ jobs:
           PYTHONPATH: sdk/python
       - run: python3 -m pip wheel --no-deps --wheel-dir "$RUNNER_TEMP/canter-sdk-wheels" ./sdk/python
 
-  go:
+  go-suites:
+    name: Go ${{ matrix.mode }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - mode: standard
+            test_flags: ""
+          - mode: race
+            test_flags: "-race"
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -62,13 +77,32 @@ jobs:
           cache: npm
           cache-dependency-path: harness/package-lock.json
       - run: npm ci --prefix harness --ignore-scripts --no-audit --no-fund
-      - run: npm test --prefix harness
-      - run: go test -timeout 30m ./...
-      - run: go test -race -timeout 30m ./...
-      - run: go vet ./...
-      - run: python3 deploy/test_pull_release.py
-      - run: python3 scripts/test_production_status.py
-      - run: test -z "$(find . -name '*.go' -not -path './web/node_modules/*' -print0 | xargs -0 gofmt -l)"
+      - if: matrix.mode == 'standard'
+        run: npm test --prefix harness
+      - run: go test ${{ matrix.test_flags }} -timeout 30m ./...
+      - if: matrix.mode == 'standard'
+        run: |
+          set -euo pipefail
+          go vet ./...
+          python3 deploy/test_pull_release.py
+          python3 scripts/test_production_status.py
+          test -z "$(find . -name '*.go' -not -path './web/node_modules/*' -print0 | xargs -0 gofmt -l)"
+
+  # Branch protection requires the existing "go" check. A skipped, failed,
+  # or canceled suite cannot turn that check green.
+  go:
+    needs: go-suites
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require both Go suites
+        env:
+          GO_SUITES_RESULT: ${{ needs.go-suites.result }}
+        run: |
+          if [ "$GO_SUITES_RESULT" != success ]; then
+            echo "::error::The required Go suites ended with $GO_SUITES_RESULT"
+            exit 1
+          fi
 
   web:
     runs-on: ubuntu-latest

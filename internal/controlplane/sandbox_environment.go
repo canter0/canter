@@ -441,8 +441,11 @@ AND COALESCE(setup->>'status','')=$5 AND COALESCE(setup->>'jobId','')=$6`,
 	// stop/log endpoints resolve before any RPC acknowledgement.
 	if setup.JobID != "" {
 		if _, err := tx.Exec(ctx,
-			`INSERT INTO sandbox_jobs(sandbox_id,job_id,started_at) VALUES($1,$2,$3) ON CONFLICT DO NOTHING`,
-			v.ID, setup.JobID, d.Server.service.Store.now()); err != nil {
+			`INSERT INTO sandbox_jobs(sandbox_id,job_id,started_at,workspace_id,generation,history_kind,actor_kind,actor_id,history_output_state)
+			VALUES($1,$2,$3,$4,$5,'setup','system','sandbox-setup',CASE WHEN $6 AND
+				COALESCE((SELECT retain_output FROM sandbox_job_history_settings WHERE workspace_id=$4),true)
+				THEN 'collecting' ELSE 'not_collected' END) ON CONFLICT DO NOTHING`,
+			v.ID, setup.JobID, d.Server.service.Store.now(), v.WorkspaceID, v.Generation, d.Server.sandboxHistoryEnabled()); err != nil {
 			return err
 		}
 		if setup.Status == "succeeded" || setup.Status == "failed" {
@@ -557,6 +560,7 @@ func (d *SandboxDispatcher) finishSandboxSetup(ctx context.Context, v *Sandbox, 
 	if job.ID != v.Setup.JobID || !sandboxJobTerminal(job.Status) {
 		return nil
 	}
+	d.Server.service.Store.observeSandboxHistory(ctx, *v, job)
 	setup := SandboxSetup{Status: "failed", JobID: v.Setup.JobID, StartedAt: v.Setup.StartedAt, ExitCode: job.ExitCode, Error: message}
 	if job.Status == "completed" && job.ExitCode != nil && *job.ExitCode == 0 {
 		setup.Status, setup.Error = "succeeded", ""
@@ -578,7 +582,7 @@ func (h *HTTPServer) stopSandboxSetup(ctx context.Context, v Sandbox, jobID stri
 		return wrencomputer.Job{}, err
 	}
 	defer tx.Rollback(context.WithoutCancel(operation))
-	fresh, err := scanSandbox(tx.QueryRow(operation, `SELECT `+sandboxColumns+` FROM sandboxes WHERE workspace_id=$1 AND id=$2 FOR UPDATE`, v.WorkspaceID, v.ID))
+	fresh, err := h.service.Store.scanSandbox(tx.QueryRow(operation, `SELECT `+sandboxColumns+` FROM sandboxes WHERE workspace_id=$1 AND id=$2 FOR UPDATE`, v.WorkspaceID, v.ID))
 	if err != nil {
 		return wrencomputer.Job{}, err
 	}

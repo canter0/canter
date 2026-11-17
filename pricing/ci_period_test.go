@@ -39,7 +39,7 @@ func TestCIMonthlyChargeSegments(t *testing.T) {
 			}
 			var units int64
 			for i, segment := range got {
-				if segment.PeriodStart.Format(time.DateOnly) != test.periods[i] || segment.ThroughBillableSeconds-segment.FromBillableSeconds != test.seconds[i] || segment.ChargeUnits != test.seconds[i]*2000 {
+				if segment.PeriodStart.Format(time.DateOnly) != test.periods[i] || segment.ThroughBillableSeconds-segment.FromBillableSeconds != test.seconds[i] || segment.ChargeUnits != test.seconds[i]*1000 {
 					t.Fatalf("segment %d: %+v", i, segment)
 				}
 				units += segment.ChargeUnits

@@ -38,7 +38,7 @@ func ciJobLogSeed(t *testing.T, s *Store, workspace string, n int, status string
 		assignedJob = jobID
 	}
 	if _, err := s.pool.Exec(ctx, `INSERT INTO ci_runners(id,workspace_id,installation_id,size_id,trigger_job_id,assigned_job_id,phase,document,rate_version,rate_micros_per_minute,execution_started_at,created_at) VALUES($1,$2,'ci_financial_installation','linux-x64-2',$3,$4,'deleted','{}'::jsonb,$5,2000,$6,$7)`,
-		runnerID, workspace, jobID, assignedJob, pricing.CIRateVersion, execStart, s.now()); err != nil {
+		runnerID, workspace, jobID, assignedJob, pricing.CIRateVersionV1, execStart, s.now()); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.pool.Exec(ctx, `UPDATE ci_jobs SET runner_id=$3 WHERE workspace_id=$1 AND id=$2`, workspace, jobID, runnerID); err != nil {

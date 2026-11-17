@@ -15,6 +15,18 @@ import (
 //go:embed guest.py
 var guestHelper []byte
 
+//go:embed guest_transfer.py
+var guestTransfer []byte
+
+func sandboxGuestHelper() []byte {
+	entry := []byte("\nif __name__ == \"__main__\":")
+	body, tail, ok := bytes.Cut(guestHelper, entry)
+	if !ok {
+		panic("guest helper entry point is missing")
+	}
+	return bytes.Join([][]byte{body, []byte("\n"), guestTransfer, entry, tail}, nil)
+}
+
 //go:embed canter-apt
 var canterApt []byte
 
@@ -69,7 +81,11 @@ func Bootstrap(config BootstrapConfig) (string, error) {
 	// guest.py exceeds the safe user-data budget uncompressed; the helper is
 	// gzip'd before base64 so the bootstrap stays under the cap. The file
 	// lands byte-identical after base64|gzip -d.
-	helper := compressedBase64(guestHelper)
+	program := guestHelper
+	if config.Sandbox || config.Egress != "" {
+		program = sandboxGuestHelper()
+	}
+	helper := compressedBase64(program)
 	aptHelper := base64.StdEncoding.EncodeToString(canterApt)
 	script := `canter_computer_install_log=/var/log/canter-computer-install.log
 trap 'canter_computer_rc=$?; if [ "$canter_computer_rc" -ne 0 ]; then tail -c 1800 "$canter_computer_install_log" >&2; fi' EXIT

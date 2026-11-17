@@ -62,3 +62,18 @@
   .filterInput { width: 100%; }
   .detail { padding: 16px; }
 }
+.logToolbar { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; }
+.logCount, .logNotice { color: #b5b5b5; font-size: 12px; font-variant-numeric: tabular-nums; }
+.logNotice { margin: 8px 0; overflow-wrap: anywhere; }
+.logViewport { position: relative; white-space: pre; overflow-wrap: normal; }
+.logLine { display: flex; gap: 12px; width: max-content; min-width: 100%; align-items: baseline; }
+.logLine[data-current="true"] { background: #303030; }
+.lineAnchor { color: #a5a5a5; background: none; border: none; cursor: pointer; font: inherit; text-align: right; min-width: 7ch; }
+.lineStream { color: #a5a5a5; min-width: 6ch; }
+.lineAnchor, .lineStream { user-select: none; }
+.lineAnchor:focus-visible, .logViewport:focus-visible, .logToolbar :focus-visible { outline: 2px solid #d5d5d5; outline-offset: 2px; }
+.logToolbar button:disabled { opacity: .55; cursor: default; }
+.runnerDisclosure > summary { cursor: pointer; color: #b5b5b5; font-size: 12px; }
+.jobMetaWrap { white-space: normal; overflow-wrap: anywhere; }
+.jobFilters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-bottom: 8px; }
+.jobFilters select { width: 100%; min-width: 0; text-overflow: ellipsis; }

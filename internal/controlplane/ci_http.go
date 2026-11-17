@@ -35,7 +35,15 @@ func (h *HTTPServer) workspaceCI(w http.ResponseWriter, r *http.Request, p Princ
 			methodNotAllowed(w)
 			return
 		}
-		h.ciJobDetail(w, r, p, workspaceID, parts[1])
+		h.serveCIJobDetail(w, r, p, workspaceID, parts[1])
+		return
+	}
+	if len(parts) == 3 && parts[0] == "jobs" && parts[2] == "logs" && h.service.Store.ciLogReaderEnabled.Load() {
+		if r.Method != http.MethodGet {
+			methodNotAllowed(w)
+			return
+		}
+		h.ciJobLogPage(w, r, p, workspaceID, parts[1])
 		return
 	}
 	if len(parts) == 3 && parts[0] == "jobs" && parts[2] == "cancel" {
@@ -117,10 +125,11 @@ func (h *HTTPServer) ciOverviewView(ctx context.Context, p Principal, workspaceI
 			features[i].Description = "Guest-reported VM metrics are collected after admission. Submit JUnit files with canter-ci-report junit FILE."
 		}
 	}
+	catalog, _ := pricing.CICatalogForVersion(h.service.Store.ciAdmissionRateVersion())
 	return CIOverview{
 		Enabled:       enabled,
 		Pool:          pool,
-		Pricing:       pricing.CurrentCI(),
+		Pricing:       catalog,
 		Settings:      settings,
 		Installations: installations,
 		Jobs:          jobs,
@@ -204,8 +213,8 @@ func (h *HTTPServer) ciJobVisible(ctx context.Context, p Principal, workspaceID 
 	return h.ciRepoAccess(ctx, p, workspaceID, map[string]bool{}, row.GitHubRepositoryID, row.Repository)
 }
 
-func (h *HTTPServer) ciJobDetail(w http.ResponseWriter, r *http.Request, p Principal, workspaceID, jobID string) {
-	view, err := h.ciJobDetailView(r.Context(), p, workspaceID, jobID)
+func (h *HTTPServer) serveCIJobDetail(w http.ResponseWriter, r *http.Request, p Principal, workspaceID, jobID string) {
+	view, err := h.ciJobDetail(r.Context(), p, workspaceID, jobID, h.service.Store.ciLogReaderEnabled.Load() && r.URL.Query().Get("logs") == "range")
 	if errors.Is(err, errCIRepoUnavailable) {
 		writeError(w, http.StatusServiceUnavailable, errors.New("Repository access could not be verified."))
 		return
@@ -218,6 +227,10 @@ func (h *HTTPServer) ciJobDetail(w http.ResponseWriter, r *http.Request, p Princ
 }
 
 func (h *HTTPServer) ciJobDetailView(ctx context.Context, p Principal, workspaceID, jobID string) (CIJobDetail, error) {
+	return h.ciJobDetail(ctx, p, workspaceID, jobID, false)
+}
+
+func (h *HTTPServer) ciJobDetail(ctx context.Context, p Principal, workspaceID, jobID string, rangeLogs bool) (CIJobDetail, error) {
 	row, steps, err := h.service.Store.CIJobRow(ctx, workspaceID, jobID)
 	if err != nil {
 		return CIJobDetail{}, err
@@ -229,9 +242,12 @@ func (h *HTTPServer) ciJobDetailView(ctx context.Context, p Principal, workspace
 	if !visible {
 		return CIJobDetail{}, ErrNotFound
 	}
-	logs, err := h.service.Store.CIJobLogs(ctx, workspaceID, jobID)
-	if err != nil {
-		return CIJobDetail{}, err
+	logs := []CILogEntry{}
+	if !rangeLogs {
+		logs, err = h.service.Store.CIJobLogs(ctx, workspaceID, jobID)
+		if err != nil {
+			return CIJobDetail{}, err
+		}
 	}
 	metrics, err := h.service.Store.CIJobMetrics(ctx, workspaceID, jobID)
 	if err != nil {
@@ -249,7 +265,11 @@ func (h *HTTPServer) ciJobDetailView(ctx context.Context, p Principal, workspace
 	if err != nil {
 		return CIJobDetail{}, err
 	}
-	return CIJobDetail{Job: row.Job, Steps: steps, Logs: logs, Metrics: metrics, Tests: tests, RunnerDiagnostics: diagnostics, LogCollection: collection}, nil
+	view := CIJobDetail{Job: row.Job, Steps: steps, Logs: logs, Metrics: metrics, Tests: tests, RunnerDiagnostics: diagnostics, LogCollection: collection, RangeLogs: rangeLogs}
+	if diagnostics != nil && diagnostics.Association == "assigned" {
+		view.PinnedRate = &diagnostics.pinnedRate
+	}
+	return view, nil
 }
 
 func (h *HTTPServer) ciSettingsPatch(w http.ResponseWriter, r *http.Request, p Principal, workspaceID string) {

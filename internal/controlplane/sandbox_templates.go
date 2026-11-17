@@ -605,7 +605,7 @@ func (h *HTTPServer) SelectSandboxSnapshot(ctx context.Context, workspace, accou
 	if err != nil {
 		return out, err
 	}
-	v, err := sandboxForUpdate(ctx, tx, workspace, id)
+	v, err := h.service.Store.sandboxForUpdate(ctx, tx, workspace, id)
 	if err != nil {
 		return out, err
 	}

@@ -124,7 +124,7 @@ func (h *HTTPServer) SetSandboxDesktopControl(ctx context.Context, workspace, id
 	if err := requireWorkspaceWriter(ctx, tx, workspace, account, true); err != nil {
 		return SandboxDesktopControl{}, err
 	}
-	v, err := scanSandbox(tx.QueryRow(ctx, `SELECT `+sandboxColumns+` FROM sandboxes WHERE workspace_id=$1 AND id=$2 FOR UPDATE`, workspace, id))
+	v, err := s.scanSandbox(tx.QueryRow(ctx, `SELECT `+sandboxColumns+` FROM sandboxes WHERE workspace_id=$1 AND id=$2 FOR UPDATE`, workspace, id))
 	if err != nil {
 		return SandboxDesktopControl{}, err
 	}

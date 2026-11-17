@@ -362,6 +362,91 @@ function mergeSignals(signals: Array<AbortSignal | undefined>): AbortSignal {
   return AbortSignal.any(live);
 }
 
+export interface SandboxTransferEntry {
+  path: string;
+  directory?: boolean;
+  executable?: boolean;
+  size?: number;
+  sha256?: string;
+  version?: string;
+}
+
+export interface SandboxTransferRequest {
+  direction: "push" | "pull";
+  path: string;
+  overwrite?: boolean;
+  includeSensitive?: boolean;
+  entries?: SandboxTransferEntry[];
+  exclusions?: { path: string; reason: string }[];
+}
+
+export interface SandboxTransferLimits {
+  files: number;
+  bytes: number;
+  chunkBytes: number;
+  metadataBytes: number;
+}
+
+export interface SandboxTransferFileReceipt {
+  state: "staged" | "complete" | "conflict" | "failed" | "uncertain" | "skipped";
+  offset: number;
+  message?: string;
+}
+
+export interface SandboxTransfer extends SandboxTransferRequest {
+  id: string;
+  workspaceId: string;
+  sandboxId: string;
+  generation: number;
+  state: "preview" | "planned" | "complete" | "cancelled" | "stale";
+  entries: SandboxTransferEntry[];
+  totalBytes: number;
+  destinationBinding?: string;
+  destinationVersions?: string[];
+  collisions?: number[];
+  receipts: Record<number, SandboxTransferFileReceipt>;
+}
+
+export interface SandboxTransferChunk {
+  data: string;
+  size: number;
+  offset: number;
+  nextOffset: number;
+  version: string;
+  eof: boolean;
+}
+
+export interface SandboxHistoryJob {
+  jobId: string;
+  generation?: number;
+  kind: string;
+  actorKind?: string;
+  actorId?: string;
+  startedAt: string;
+  observedAt?: string;
+  finishedAt?: string;
+  status: string;
+  exitCode?: number;
+  outputState: string;
+  retainedBytes: number;
+  stale: boolean;
+}
+
+export interface SandboxHistoryPage {
+  jobs: SandboxHistoryJob[];
+  more: boolean;
+  collectorEnabled: boolean;
+  retentionEnabled: boolean;
+  retentionDays: number;
+  jobByteLimit: number;
+}
+
+export interface SandboxHistoryOutput {
+  job: SandboxHistoryJob;
+  dataBase64: string;
+  nextOffset: number;
+}
+
 export class SandboxClient {
   private readonly baseUrl: string;
   private readonly workspace: string;
@@ -460,6 +545,63 @@ export class SandboxClient {
 
   private async requestJson<T>(method: string, path: string, body: BodyInit | null, contentType: string, options?: RequestOptions): Promise<T> {
     return parseJson<T>(await this.requestRaw(method, path, body, contentType, options));
+  }
+
+  transferLimits(id: string, options?: RequestOptions): Promise<SandboxTransferLimits> {
+    return this.request("GET", this.sandboxPath(id, "/transfers"), undefined, options);
+  }
+
+  planTransfer(id: string, input: SandboxTransferRequest, dryRun = false, options?: RequestOptions): Promise<SandboxTransfer> {
+    return this.request("POST", this.sandboxPath(id, `/transfers?dryRun=${dryRun}`), input, options);
+  }
+
+  transfer(id: string, transfer: string, options?: RequestOptions): Promise<SandboxTransfer> {
+    return this.request("GET", this.transferPath(id, transfer), undefined, options);
+  }
+
+  bindTransferDestination(id: string, transfer: string, binding: string, versions: string[], options?: RequestOptions): Promise<SandboxTransfer> {
+    return this.request("PUT", `${this.transferPath(id, transfer)}/destination`, { binding, versions }, options);
+  }
+
+  cancelTransfer(id: string, transfer: string, options?: RequestOptions): Promise<SandboxTransfer> {
+    return this.request("DELETE", this.transferPath(id, transfer), undefined, options);
+  }
+
+  beginTransferFile(id: string, transfer: string, index: number, options?: RequestOptions): Promise<SandboxTransferFileReceipt> {
+    return this.request("POST", this.transferFilePath(id, transfer, index, "begin"), undefined, options);
+  }
+
+  putTransferChunk(id: string, transfer: string, index: number, offset: number, data: Uint8Array, options?: RequestOptions): Promise<SandboxTransferFileReceipt> {
+    return this.requestJson("PATCH", `${this.transferFilePath(id, transfer, index, "chunk")}?offset=${offset}`, new Uint8Array(data), "application/octet-stream", options);
+  }
+
+  readTransferChunk(id: string, transfer: string, index: number, offset: number, options?: RequestOptions): Promise<SandboxTransferChunk> {
+    return this.request("GET", `${this.transferFilePath(id, transfer, index, "read")}?offset=${offset}`, undefined, options);
+  }
+
+  completeTransferFile(id: string, transfer: string, index: number, sha256: string, options?: RequestOptions): Promise<SandboxTransferFileReceipt> {
+    return this.request("POST", this.transferFilePath(id, transfer, index, "complete"), { sha256 }, options);
+  }
+
+  skipTransferFile(id: string, transfer: string, index: number, options?: RequestOptions): Promise<SandboxTransferFileReceipt> {
+    return this.request("POST", this.transferFilePath(id, transfer, index, "skip"), undefined, options);
+  }
+
+  history(id: string, options?: RequestOptions): Promise<SandboxHistoryPage> {
+    return this.request("GET", this.sandboxPath(id, "/history"), undefined, options);
+  }
+
+  historyOutput(id: string, job: string, offset = 0, options?: RequestOptions): Promise<SandboxHistoryOutput> {
+    return this.request("GET", this.sandboxPath(id, `/history/${checkId("job ID", job)}?offset=${offset}`), undefined, options);
+  }
+
+  private transferPath(id: string, transfer: string): string {
+    return this.sandboxPath(id, `/transfers/${checkId("transfer ID", transfer)}`);
+  }
+
+  private transferFilePath(id: string, transfer: string, index: number, action: string): string {
+    if (!Number.isSafeInteger(index) || index < 0) throw new TypeError("invalid transfer entry index");
+    return `${this.transferPath(id, transfer)}/${index}/${action}`;
   }
 
   async list(options?: RequestOptions): Promise<SandboxList> {

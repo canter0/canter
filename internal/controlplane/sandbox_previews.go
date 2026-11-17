@@ -84,7 +84,7 @@ func (s *Store) CreateSandboxPreview(ctx context.Context, v Sandbox, actor sdk.A
 		return SandboxPreview{}, err
 	}
 	defer tx.Rollback(ctx)
-	fresh, err := scanSandbox(tx.QueryRow(ctx, `SELECT `+sandboxColumns+` FROM sandboxes WHERE workspace_id=$1 AND id=$2 FOR UPDATE`, v.WorkspaceID, v.ID))
+	fresh, err := s.scanSandbox(tx.QueryRow(ctx, `SELECT `+sandboxColumns+` FROM sandboxes WHERE workspace_id=$1 AND id=$2 FOR UPDATE`, v.WorkspaceID, v.ID))
 	if err != nil {
 		return SandboxPreview{}, err
 	}

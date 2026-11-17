@@ -6,6 +6,7 @@ import { Input } from "@ui-sdk/react/input";
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "@ui-sdk/react/menu";
 import { Tabs, TabsList, TabsPanel, TabsTab } from "@ui-sdk/react/tabs";
 import { DashboardRequestDialog, type DashboardRequestSource } from "@/components/dashboard-request-action";
+import { SandboxJobHistory } from "@/components/sandbox-job-history";
 import { SandboxDesktop } from "@/components/sandbox-desktop";
 import { SandboxSavedEnvironments } from "@/components/sandbox-saved-environments";
 import { useRequestScope } from "@/components/use-request-scope";
@@ -46,6 +47,26 @@ function SandboxWorkbenchInner({ accountId, role, workspaceName, workspaceId, id
   const machineGeneration = useRef<number | null>(null);
 
   const [section, setSection] = useState<Section>("overview");
+  const [historyJob, setHistoryJob] = useState("");
+  useEffect(() => {
+    const restore = () => {
+      const url = new URL(window.location.href);
+      if (url.pathname !== `/app/sandboxes/${encodeURIComponent(id)}`) return;
+      const job = url.searchParams.get("historyJob") ?? "";
+      setHistoryJob(job);
+      if (job) setSection("jobs");
+    };
+    window.queueMicrotask(restore);
+    window.addEventListener("popstate", restore);
+    return () => window.removeEventListener("popstate", restore);
+  }, [id]);
+  function selectHistoryJob(job: string) {
+    setHistoryJob(job);
+    const url = new URL(window.location.href);
+    if (url.pathname !== `/app/sandboxes/${encodeURIComponent(id)}`) return;
+    url.searchParams.set("historyJob", job);
+    if (url.href !== window.location.href) window.history.pushState(null, "", url);
+  }
   const [path, setPath] = useState("/workspace");
   const [entries, setEntries] = useState<FileEntry[] | null>(null);
   const [fileContent, setFileContent] = useState<{ path: string; content: string; truncated: boolean } | null>(null);
@@ -73,12 +94,12 @@ function SandboxWorkbenchInner({ accountId, role, workspaceName, workspaceId, id
   const desktop = !!(sandbox?.desktop && ready);
   const writable = role === "owner" || role === "operator";
 
-  // Files, jobs and desktop need a live guest; saved environments stay
-  // reachable while the machine sleeps. Anything else collapses to overview.
-  const activeSection: Section = asleep && section !== "saves" && section !== "overview" ? "saves"
+  const historyAvailable = !!sandbox && !["deleting", "deleted"].includes(sandbox.phase);
+  const activeSection: Section = section === "jobs" && historyAvailable ? "jobs"
+    : asleep && section !== "saves" && section !== "overview" ? "saves"
     : !readable && !asleep ? "overview"
     : section === "desktop" && !desktop ? "overview"
-    : !readable && (section === "files" || section === "jobs") ? "overview"
+    : !readable && section === "files" ? "overview"
     : section;
 
   // A new generation (wake/recreate) or a ready→asleep/failed transition must
@@ -213,7 +234,10 @@ function SandboxWorkbenchInner({ accountId, role, workspaceName, workspaceId, id
           <p className={consoleStyles.workMeta}>
             <span className={styles.status} data-phase={ready ? "succeeded" : saveFailed ? "failed" : sandbox.phase}>{sandboxPhaseText(sandbox.phase)}</span>
             <span>{sandbox.size}</span>
-            <span>{sandbox.tier === "paid" ? sandboxHourlyCents(sandbox.monthlyCents) : "free tier"}</span>
+            <span>{sandbox.tier !== "paid" ? "free tier" : asleep && sandbox.hasCheckpoint
+              ? "Compute stopped · retained storage billed separately"
+              : sandboxHourlyCents(sandbox.monthlyCents)}</span>
+            {sandbox.tier === "paid" ? <span>${(sandbox.monthlyCents / 100).toFixed(2)} for 720 awake hours</span> : null}
             <span>{sandbox.idleTimeoutSeconds === undefined || sandbox.idleTimeoutSeconds === -1 ? "Organisation default idle sleep" : sandbox.idleTimeoutSeconds === 0 ? "No idle sleep" : `Sleeps after ${Math.round(sandbox.idleTimeoutSeconds / 60)} min idle`}</span>
             {sandbox.hasCheckpoint || sandbox.snapshotId ? <span>save available</span> : null}
             {sandbox.lastUsedAt ? <span>active {relativeTime(sandbox.lastUsedAt)}</span> : null}
@@ -246,7 +270,7 @@ function SandboxWorkbenchInner({ accountId, role, workspaceName, workspaceId, id
         <TabsList className={consoleStyles.sections} aria-label="Sandbox sections">
           <TabsTab value="overview">Overview</TabsTab>
           {readable ? <TabsTab value="files">Files</TabsTab> : null}
-          {readable ? <TabsTab value="jobs">Jobs</TabsTab> : null}
+          {historyAvailable ? <TabsTab value="jobs">History</TabsTab> : null}
           {readable || asleep ? <TabsTab value="saves">Saves</TabsTab> : null}
           {desktop ? <TabsTab value="desktop">Desktop</TabsTab> : null}
         </TabsList>
@@ -261,7 +285,7 @@ function SandboxWorkbenchInner({ accountId, role, workspaceName, workspaceId, id
             <div><dt>Uptime</dt><dd>{Math.round(metrics.uptimeSeconds / 60)} min</dd></div>
           </dl> : <p className={styles.status}>{metricsError || "Metrics unavailable."}</p>}
         </> : null}
-        {asleep ? <p className={styles.status}>Guest files, desktop and job inspection are unavailable while asleep. Saved environments remain available.</p> : null}
+        {asleep ? <p className={styles.status}>Saved environments and retained job history remain available while asleep.</p> : null}
         {ready && previewsAvailable ? <section><h2>Previews</h2>
           <p className={styles.status}>Anyone with the link can open this port.</p>
           <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>{(previews ?? []).map(item => <li key={item.id} style={{ display: "flex", gap: 8, alignItems: "center", padding: "6px 0" }}>
@@ -284,7 +308,13 @@ function SandboxWorkbenchInner({ accountId, role, workspaceName, workspaceId, id
           : <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>{(entries ?? []).map(entry => <li key={entry.name} style={{ padding: "6px 0", display: "flex", gap: 8, alignItems: "center" }}><button className={styles.secondaryButton} onClick={() => void browse(path === "/" ? `/${entry.name}` : `${path}/${entry.name}`)}><WorkspaceIcon name={entry.directory ? "folder" : "file"} width="14" height="14" />{entry.name}</button>{!entry.directory ? <a className={styles.secondaryButton} href={sandboxDownloadURL(base, (path === "/" ? "/" : path + "/") + entry.name)} download style={{ fontSize: 12 }}>Download</a> : null}</li>)}{entries === null ? <li className={styles.status}>Loading…</li> : entries.length === 0 ? <li className={styles.status}>Empty directory</li> : null}</ul>}
       </section></TabsPanel> : null}
 
-      {readable ? <TabsPanel value="jobs"><section><h2>Inspect a job</h2>
+      {historyAvailable ? <TabsPanel value="jobs">
+        <SandboxJobHistory base={base} workspaceId={workspaceId} sandboxId={id} owner={role === "owner"} selected={historyJob} onSelect={selectHistoryJob}
+          onAsk={writable ? prompt => {
+            if (onRequest) onRequest(prompt);
+            else setDialog({ source: { accountId, workspaceId, workspaceName: workspaceDisplayName(workspaceName ?? "") }, prompt });
+          } : undefined} />
+        {readable ? <details><summary>Read a live job by ID</summary><section>
         <p className={styles.status}>Paste a job ID to read its log.</p>
         <form onSubmit={inspectJob} style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
           <Input aria-label="Job ID" placeholder="job_…" value={jobId} onValueChange={setJobId} className={consoleStyles.jobInput} />
@@ -297,10 +327,10 @@ function SandboxWorkbenchInner({ accountId, role, workspaceName, workspaceId, id
           {job.truncated ? <span className={styles.status}> log truncated</span> : null}
           <pre className={consoleStyles.pre} style={{ marginTop: 6 }}>{job.text || (["starting", "running"].includes(job.status) ? "(waiting for output…)" : "(no output)")}</pre>
         </div> : null}
-      </section></TabsPanel> : null}
+      </section></details> : null}</TabsPanel> : null}
 
       {readable || asleep ? <TabsPanel value="saves"><section>
-        {asleep ? <p className={styles.status}>Guest files, desktop and job inspection are unavailable while asleep. Saved environments remain available.</p> : null}
+        {asleep ? <p className={styles.status}>Saved environments and retained job history remain available while asleep.</p> : null}
         <SandboxSavedEnvironments key={`${sandbox.id}:${sandbox.generation}:${sandbox.phase}:${sandbox.snapshotId ?? ""}`} workspaceId={workspaceId} writer={false} sandbox={sandbox} />
       </section></TabsPanel> : null}
 

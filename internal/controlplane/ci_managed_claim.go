@@ -109,7 +109,8 @@ func (s *Store) claimCIManagedRunner(ctx context.Context, profile ciManagedRunne
 	if json.Unmarshal(document, &doc) != nil {
 		return empty, ErrConflict
 	}
-	size, ok := pricing.FindCI(doc.Job.Size)
+	rateVersion := s.ciAdmissionRateVersion()
+	size, ok := pricing.FindCIContract(rateVersion, doc.Job.Size)
 	if !ok || size.ID != doc.Job.Size {
 		return empty, ErrConflict
 	}
@@ -142,7 +143,7 @@ func (s *Store) claimCIManagedRunner(ctx context.Context, profile ciManagedRunne
 		return empty, err
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO ci_runners(id,workspace_id,installation_id,size_id,trigger_job_id,phase,document,rate_version,rate_micros_per_minute,paid_overrun_enabled,created_at,updated_at) VALUES($1,$2,$3,$4,$5,'queued','{}'::jsonb,$6,$7,$8,$9,$9)`,
-		runner, workspace, installation, size.ID, job, pricing.CIRateVersion, size.MicrosPerMinute, paid, now)
+		runner, workspace, installation, size.ID, job, rateVersion, size.MicrosPerMinute, paid, now)
 	if err != nil {
 		return empty, err
 	}

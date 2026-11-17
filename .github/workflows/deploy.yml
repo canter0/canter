@@ -52,10 +52,22 @@ jobs:
       - name: Build production artifacts
         run: |
           set -euo pipefail
+          binary_dir=$(mktemp -d "$RUNNER_TEMP/canter-binaries.XXXXXX")
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o "$binary_dir/canter-controlplane" ./cmd/canter-controlplane
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o "$binary_dir/canter-static-linux" ./cmd/canter-static
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o "$binary_dir/canter-ci-enforcer" ./cmd/canter-ci-enforcer
+          for binary in "$binary_dir"/canter-*; do
+            if ! go version -m "$binary" | awk -v sha="$RELEASE_SHA" '
+              $1 == "build" && $2 == "vcs.revision=" sha { revision = 1 }
+              $1 == "build" && $2 == "vcs.modified=false" { clean = 1 }
+              END { exit !(revision && clean) }
+            '; then
+              echo "::error::Release binary $binary must come from a clean checkout of $RELEASE_SHA"
+              exit 1
+            fi
+          done
           mkdir -p release/web release/harness release/deploy
-          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o release/canter-controlplane ./cmd/canter-controlplane
-          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o release/canter-static-linux ./cmd/canter-static
-          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o release/canter-ci-enforcer ./cmd/canter-ci-enforcer
+          cp -a "$binary_dir"/canter-* release/
           npm ci --prefix harness --omit=dev --ignore-scripts --no-audit --no-fund
           cp -a harness/runner.mjs harness/package.json harness/package-lock.json harness/node_modules release/harness/
           cp deploy/canter-harness.socket deploy/canter-harness@.service deploy/canter-web.service deploy/canter-ci-enforcer.service release/deploy/

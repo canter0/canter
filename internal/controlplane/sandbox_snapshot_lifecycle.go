@@ -141,6 +141,7 @@ func (d *SandboxDispatcher) stopSandboxJobsForSave(ctx context.Context, v Sandbo
 				return fmt.Errorf("stop job %s returned receipt %s", record.ID, stopped.ID)
 			}
 			if sandboxJobTerminal(stopped.Status) {
+				d.Server.service.Store.observeSandboxHistory(operation, v, stopped)
 				break
 			}
 			if stopped.Status != "starting" && stopped.Status != "running" {
@@ -153,6 +154,15 @@ func (d *SandboxDispatcher) stopSandboxJobsForSave(ctx context.Context, v Sandbo
 			}
 		}
 		d.Server.service.Store.finishSandboxJob(ctx, v.ID, record.ID)
+	}
+	if d.Server.sandboxHistoryEnabled() {
+		drain, cancel := context.WithTimeout(operation, 2*time.Second)
+		defer cancel()
+		for range 8 {
+			if !d.Server.collectSandboxHistory(drain, v, client) {
+				break
+			}
+		}
 	}
 	return nil
 }
