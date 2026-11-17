@@ -29,11 +29,16 @@ Commands:
   get --id                      show one sandbox
   wait --id --phase PHASE       wait for ready|asleep|deleted [--timeout]
   exec --id --command CMD       run a command and follow logs [--detach]
+  history --id [--job JOB]     read retained job history [--offset]
   job --id --job JOB            show a job receipt
   logs --id --job JOB           stream job logs to stdout [--stream --offset]
   stop --id --job JOB           stop a job
   upload --id --path P --file F upload a local file
   download --id --path P --file F  download to a local file [--force]
+  push --id --from LOCAL --to REMOTE [--dry-run] [--overwrite] [--resume ID]
+  pull --id --from REMOTE --to LOCAL [--dry-run] [--overwrite] [--resume ID]
+  transfer --id --resume ID    inspect a transfer receipt
+  cancel-transfer --id --resume ID  stop a pending transfer
   sleep --id                    suspend the sandbox
   wake --id                     resume the sandbox
   delete --id                   delete the sandbox
@@ -42,6 +47,11 @@ Commands:
   templates                     list sandbox templates
   template --name N --snapshot ID  create a template from a snapshot
   restore --id --snapshot ID --generation N  restore an asleep sandbox
+
+Outside Git, directory push skips node_modules, .venv, __pycache__, .DS_Store
+and .canterignore by default. Add basename or relative glob rules (one per
+line) to .canterignore. Use --include-sensitive-files to include specifically
+reported sensitive filenames. Git and platform metadata are always excluded.
 
 Shared flags:
   --api-url        Canter control-plane URL (default CANTER_API_URL or http://127.0.0.1:8081)
@@ -69,9 +79,13 @@ func sandboxCommand(args []string) error {
 		return nil
 	}
 	sub, rest := args[0], args[1:]
+	switch sub {
+	case "push", "pull", "transfer", "cancel-transfer":
+		return sandboxTransferCommand(sub, rest)
+	}
 	known := map[string]bool{
 		"list": true, "create": true, "get": true, "wait": true, "exec": true,
-		"job": true, "logs": true, "stop": true, "upload": true, "download": true,
+		"job": true, "history": true, "logs": true, "stop": true, "upload": true, "download": true,
 		"sleep": true, "wake": true, "delete": true, "save": true,
 		"snapshots": true, "templates": true, "template": true, "restore": true,
 	}
@@ -267,6 +281,10 @@ func runSandboxSubcommand(sub string, args []string) error {
 	case "job", "stop":
 		f.fs.StringVar(&id, "id", "", "sandbox ID")
 		f.fs.StringVar(&jobID, "job", "", "job ID")
+	case "history":
+		f.fs.StringVar(&id, "id", "", "sandbox ID")
+		f.fs.StringVar(&jobID, "job", "", "recorded job ID")
+		f.fs.Int64Var(&offset, "offset", 0, "retained output byte offset")
 	case "logs":
 		f.fs.StringVar(&id, "id", "", "sandbox ID")
 		f.fs.StringVar(&jobID, "job", "", "job ID")
@@ -350,6 +368,10 @@ func runSandboxSubcommand(sub string, args []string) error {
 	case "job", "stop":
 		if id == "" || jobID == "" {
 			return errors.New("--id and --job are required")
+		}
+	case "history":
+		if id == "" || offset < 0 {
+			return errors.New("--id and a nonnegative --offset are required")
 		}
 	case "logs":
 		if id == "" || jobID == "" {
@@ -524,6 +546,19 @@ func runSandboxSubcommand(sub string, args []string) error {
 			return err
 		}
 		return sandboxPrintJSON(result)
+	case "history":
+		if jobID == "" {
+			value, err := client.History(ctx, id)
+			if err != nil {
+				return err
+			}
+			return sandboxPrintJSON(value)
+		}
+		value, err := client.HistoryOutput(ctx, id, jobID, offset)
+		if err != nil {
+			return err
+		}
+		return sandboxPrintJSON(value)
 	case "logs":
 		sid, err := requireID(id, "id")
 		if err != nil {

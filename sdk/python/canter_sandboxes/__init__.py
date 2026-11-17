@@ -206,6 +206,63 @@ class SandboxClient:
             self._raise(err.code, self._bounded_read(err))
         return self._bounded_read(response)
 
+    # Directory transfer is receipt-based. Inspect the receipt after a
+    # transport error before resuming. Cancel between any two chunk requests.
+    def transfer_limits(self, sandbox_id: str) -> dict:
+        return self._request("GET", self._sandbox_path(sandbox_id, "/transfers"))
+
+    def plan_transfer(self, sandbox_id: str, manifest: dict, *, dry_run: bool = False) -> dict:
+        return self._request("POST", self._sandbox_path(sandbox_id, f"/transfers?dryRun={str(dry_run).lower()}"), manifest)
+
+    def _transfer_path(self, sandbox_id: str, transfer_id: str) -> str:
+        if not isinstance(transfer_id, str) or not _ID.fullmatch(transfer_id):
+            raise ValueError("invalid transfer ID")
+        return self._sandbox_path(sandbox_id, f"/transfers/{transfer_id}")
+
+    def _transfer_file_path(self, sandbox_id: str, transfer_id: str, index: int, action: str) -> str:
+        if type(index) is not int or index < 0:
+            raise ValueError("invalid transfer entry index")
+        return f"{self._transfer_path(sandbox_id, transfer_id)}/{index}/{action}"
+
+    def transfer(self, sandbox_id: str, transfer_id: str) -> dict:
+        return self._request("GET", self._transfer_path(sandbox_id, transfer_id))
+
+    def bind_transfer_destination(self, sandbox_id: str, transfer_id: str, binding: str, versions: list[str]) -> dict:
+        return self._request("PUT", self._transfer_path(sandbox_id, transfer_id) + "/destination",
+                             {"binding": binding, "versions": versions})
+
+    def cancel_transfer(self, sandbox_id: str, transfer_id: str) -> dict:
+        return self._request("DELETE", self._transfer_path(sandbox_id, transfer_id))
+
+    def begin_transfer_file(self, sandbox_id: str, transfer_id: str, index: int) -> dict:
+        return self._request("POST", self._transfer_file_path(sandbox_id, transfer_id, index, "begin"))
+
+    def put_transfer_chunk(self, sandbox_id: str, transfer_id: str, index: int, offset: int, data: bytes) -> dict:
+        if type(offset) is not int or offset < 0:
+            raise ValueError("invalid transfer offset")
+        path = self._transfer_file_path(sandbox_id, transfer_id, index, "chunk")
+        return json.loads(self._request_raw("PATCH", f"{path}?offset={offset}", data, "application/octet-stream"))
+
+    def read_transfer_chunk(self, sandbox_id: str, transfer_id: str, index: int, offset: int) -> dict:
+        if type(offset) is not int or offset < 0:
+            raise ValueError("invalid transfer offset")
+        path = self._transfer_file_path(sandbox_id, transfer_id, index, "read")
+        return self._request("GET", f"{path}?offset={offset}")
+
+    def complete_transfer_file(self, sandbox_id: str, transfer_id: str, index: int, sha256: str = "") -> dict:
+        return self._request("POST", self._transfer_file_path(sandbox_id, transfer_id, index, "complete"), {"sha256": sha256})
+
+    def skip_transfer_file(self, sandbox_id: str, transfer_id: str, index: int) -> dict:
+        return self._request("POST", self._transfer_file_path(sandbox_id, transfer_id, index, "skip"))
+
+    def history(self, sandbox_id: str) -> dict:
+        return self._request("GET", self._sandbox_path(sandbox_id, "/history"))
+
+    def history_output(self, sandbox_id: str, job_id: str, offset: int = 0) -> dict:
+        if not isinstance(job_id, str) or not _ID.fullmatch(job_id) or type(offset) is not int or offset < 0:
+            raise ValueError("invalid history job ID or offset")
+        return self._request("GET", self._sandbox_path(sandbox_id, f"/history/{job_id}?offset={offset}"))
+
     # -- listing and lifecycle -------------------------------------------------
 
     def list(self) -> dict:

@@ -11,7 +11,10 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-const resourceRateVersion = "resources-2026-09-18-v1"
+const (
+	resourceRateVersion       = "resources-2026-09-18-v1"
+	sandboxComputeRateVersion = "resources-sandbox-2026-11-18-v1"
+)
 
 type BillingResourceSource interface {
 	BillingResources(context.Context, sdk.System) ([]sdk.BillingResource, error)
@@ -133,11 +136,6 @@ func (s *Store) collectWorkspaceUsage(ctx context.Context, source BillingResourc
 	if err != nil {
 		return err
 	}
-	sandboxPlans, err := s.SandboxPlans(ctx, workspace)
-	if err != nil {
-		return err
-	}
-	computerPlans = append(computerPlans, sandboxPlans...)
 	for _, plan := range computerPlans {
 		meter, ok := source.(interface {
 			VPSBillingResources(context.Context, sdk.VPSPlan) ([]sdk.BillingResource, error)
@@ -154,6 +152,32 @@ func (s *Store) collectWorkspaceUsage(ctx context.Context, source BillingResourc
 				return fmt.Errorf("invalid computer metering snapshot")
 			}
 			seen[resource.ID] = true
+			resources = append(resources, resource)
+		}
+	}
+	sandboxPlans, err := s.SandboxPlans(ctx, workspace)
+	if err != nil {
+		return err
+	}
+	for _, plan := range sandboxPlans {
+		meter, ok := source.(interface {
+			VPSBillingResources(context.Context, sdk.VPSPlan) ([]sdk.BillingResource, error)
+		})
+		if !ok {
+			return fmt.Errorf("sandbox metering unavailable")
+		}
+		items, err := meter.VPSBillingResources(ctx, plan)
+		if err != nil {
+			return err
+		}
+		for _, resource := range items {
+			if resource.ID == "" || resource.Kind != "compute" || resource.Units < 1 || resource.Units > 1<<50 || seen[resource.ID] {
+				return fmt.Errorf("invalid sandbox metering snapshot")
+			}
+			seen[resource.ID] = true
+			if s.sandboxTariffEnabled.Load() {
+				resource.Kind = "sandbox_compute"
+			}
 			resources = append(resources, resource)
 		}
 	}
@@ -189,10 +213,19 @@ func (s *Store) recordResourceSnapshot(ctx context.Context, workspace string, re
 	ids := []string{}
 	for _, r := range resources {
 		ids = append(ids, r.ID)
-		var oldSub string
+		rateVersion := resourceRateVersion
+		numerator, denominator := pricing.ComputeCentsPerUnitPer720Hours, int64(pricing.HoursPerResourceMonth*3600)
+		switch r.Kind {
+		case "storage":
+			numerator = storageCentsNumerator
+			denominator = storageByteSecondsDenominator
+		case "sandbox_compute":
+			rateVersion = sandboxComputeRateVersion
+		}
+		var oldSub, oldRateVersion string
 		var oldPeriod, previous time.Time
 		var units int64
-		err = tx.QueryRow(ctx, `SELECT subscription_id,period_start,observed_at,units FROM billing_resource_samples WHERE workspace_id=$1 AND resource_id=$2`, workspace, r.ID).Scan(&oldSub, &oldPeriod, &previous, &units)
+		err = tx.QueryRow(ctx, `SELECT subscription_id,period_start,observed_at,units,rate_version FROM billing_resource_samples WHERE workspace_id=$1 AND resource_id=$2`, workspace, r.ID).Scan(&oldSub, &oldPeriod, &previous, &units, &oldRateVersion)
 		if err != nil && err != pgx.ErrNoRows {
 			return err
 		}
@@ -201,12 +234,12 @@ func (s *Store) recordResourceSnapshot(ctx context.Context, workspace string, re
 		}
 		samePeriod := err == nil && oldSub == subscription && oldPeriod.Equal(*start)
 		if samePeriod && at.Sub(previous) <= 5*time.Minute && !previous.Before(*start) {
+			// The earlier observation prices the interval. The current sample
+			// establishes the boundary and retains fractions in the same units.
+			if oldRateVersion == sandboxComputeRateVersion {
+				numerator = pricing.SandboxComputeCentsPerUnitPer720Hours
+			}
 			// SQL numeric arithmetic retains exact fractional cents, including bytes.
-			numerator, denominator := pricing.ComputeCentsPerUnitPer720Hours, int64(pricing.HoursPerResourceMonth*3600)
-			if r.Kind == "storage" {
-				numerator = storageCentsNumerator
-				denominator = storageByteSecondsDenominator
-			} // 1.4 cents per decimal GB / 720h
 			seconds := int64(at.Sub(previous) / time.Second)
 			var cents int64
 			err = tx.QueryRow(ctx, `UPDATE billing_resource_samples SET remainder=remainder+($3::numeric*$4::numeric*$5::numeric) WHERE workspace_id=$1 AND resource_id=$2 RETURNING floor(remainder/$6::numeric)::bigint`, workspace, r.ID, min(units, r.Units), seconds, numerator, denominator).Scan(&cents)
@@ -216,7 +249,7 @@ func (s *Store) recordResourceSnapshot(ctx context.Context, workspace string, re
 			if cents > 0 {
 				digest := sha256.Sum256([]byte(fmt.Sprintf("%s/%s/%s/%d/%d", workspace, r.ID, subscription, previous.Unix(), at.Unix())))
 				id := fmt.Sprintf("resource_%x", digest)
-				_, err = tx.Exec(ctx, `INSERT INTO billing_usage_events(id,workspace_id,customer_id,subscription_id,amount_cents,resource,rate_version,occurred_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`, id, workspace, customer, subscription, cents, r.ID, resourceRateVersion, at.Add(-time.Second))
+				_, err = tx.Exec(ctx, `INSERT INTO billing_usage_events(id,workspace_id,customer_id,subscription_id,amount_cents,resource,rate_version,occurred_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`, id, workspace, customer, subscription, cents, r.ID, oldRateVersion, at.Add(-time.Second))
 				if err != nil {
 					return err
 				}
@@ -226,7 +259,7 @@ func (s *Store) recordResourceSnapshot(ctx context.Context, workspace string, re
 				}
 			}
 		}
-		_, err = tx.Exec(ctx, `INSERT INTO billing_resource_samples(workspace_id,resource_id,subscription_id,period_start,observed_at,units) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(workspace_id,resource_id) DO UPDATE SET subscription_id=EXCLUDED.subscription_id,period_start=EXCLUDED.period_start,observed_at=EXCLUDED.observed_at,units=EXCLUDED.units,remainder=CASE WHEN $7 THEN billing_resource_samples.remainder ELSE 0 END`, workspace, r.ID, subscription, *start, at, r.Units, samePeriod)
+		_, err = tx.Exec(ctx, `INSERT INTO billing_resource_samples(workspace_id,resource_id,subscription_id,period_start,observed_at,units,rate_version) VALUES($1,$2,$3,$4,$5,$6,$8) ON CONFLICT(workspace_id,resource_id) DO UPDATE SET subscription_id=EXCLUDED.subscription_id,period_start=EXCLUDED.period_start,observed_at=EXCLUDED.observed_at,units=EXCLUDED.units,rate_version=EXCLUDED.rate_version,remainder=CASE WHEN $7 THEN billing_resource_samples.remainder ELSE 0 END`, workspace, r.ID, subscription, *start, at, r.Units, samePeriod, rateVersion)
 		if err != nil {
 			return err
 		}
@@ -238,7 +271,7 @@ func (s *Store) recordResourceSnapshot(ctx context.Context, workspace string, re
 	if pooled {
 		ids = append(ids, sandboxStorageRoundingID)
 	}
-	_, err = tx.Exec(ctx, `DELETE FROM billing_resource_samples WHERE workspace_id=$1 AND NOT(resource_id=ANY($2::text[]))`, workspace, ids)
+	_, err = tx.Exec(ctx, `DELETE FROM billing_resource_samples WHERE workspace_id=$1 AND NOT(resource_id=ANY($2::text[])) AND observed_at<=$3`, workspace, ids, at)
 	if err != nil {
 		return err
 	}

@@ -29,7 +29,7 @@ export type SandboxMetrics = { sampledAt: string; uptimeSeconds: number; cpu: { 
 export type FileUpload = { id: string; path: string; size: number; offset: number; sha256?: string; complete: boolean };
 
 export function sandboxHourlyCents(monthlyCents: number) {
-  return `$${(monthlyCents / 720 / 100).toFixed(4)}/h`;
+  return `$${(monthlyCents / 720 / 100).toFixed(4)} / awake hour`;
 }
 export function freeHoursText(used: number, limit: number) {
   return `${Math.floor(used / 3600)} of ${Math.floor(limit / 3600)} free hours this month`;

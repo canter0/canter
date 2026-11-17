@@ -99,6 +99,7 @@ func (c *Client) releaseConnection(connection *ssh.Client, broken bool) {
 }
 
 type Capabilities struct {
+	TransferProtocol int    `json:"transferProtocol"`
 	WorkflowProtocol int    `json:"workflowProtocol"`
 	InputProtocol    int    `json:"inputProtocol"`
 	Version          string `json:"version"`
@@ -374,6 +375,17 @@ func (b *limitedBuffer) Write(p []byte) (int, error) {
 	b.Buffer.Write(p)
 	return n, nil
 }
+
+// SandboxTransfer calls the negotiated directory transfer guest protocol.
+func (c *Client) SandboxTransfer(ctx context.Context, operation string, request, response any) error {
+	switch operation {
+	case "stat", "manifest", "read", "commit", "mkdir":
+		return c.callWithTimeout(ctx, 90*time.Second, "transfer_"+operation, request, response)
+	default:
+		return fmt.Errorf("invalid sandbox transfer operation")
+	}
+}
+
 func (c *Client) Probe(ctx context.Context) (Capabilities, error) {
 	var v Capabilities
 	err := c.call(ctx, "probe", nil, &v)

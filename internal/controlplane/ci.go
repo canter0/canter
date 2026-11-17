@@ -108,6 +108,7 @@ type CIJobDetail struct {
 	Metrics           []CIMetric           `json:"metrics"`
 	Tests             []CITestResult       `json:"tests"`
 	RunnerDiagnostics *CIRunnerDiagnostics `json:"runnerDiagnostics"`
+	RangeLogs         bool                 `json:"rangeLogs,omitempty"`
 	LogCollection     *CILogCollection     `json:"logCollection,omitempty"`
 }
 

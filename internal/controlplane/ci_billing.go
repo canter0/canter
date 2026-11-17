@@ -34,6 +34,19 @@ type ciBillingAccount struct {
 	Start, End                         *time.Time
 }
 
+// SetCIRateV2Enabled controls new admission only. Stored contracts can
+// always be quoted and settled after a compatible deployment.
+func (s *Store) SetCIRateV2Enabled(enabled bool) {
+	s.ciRateV2Enabled.Store(enabled)
+}
+
+func (s *Store) ciAdmissionRateVersion() string {
+	if s.ciRateV2Enabled.Load() {
+		return pricing.CIRateVersion
+	}
+	return pricing.CIRateVersionV1
+}
+
 func (s *Store) lockCIBilling(ctx context.Context, tx pgx.Tx, workspace, runner string) (ciBillingRunner, ciBillingAccount, error) {
 	var locked string
 	err := tx.QueryRow(ctx, `SELECT id FROM workspaces WHERE id=$1 FOR UPDATE`, workspace).Scan(&locked)
@@ -51,8 +64,8 @@ func (s *Store) lockCIBilling(ctx context.Context, tx pgx.Tx, workspace, runner 
 	if err != nil {
 		return r, ciBillingAccount{}, err
 	}
-	size, ok := pricing.FindCI(r.SizeID)
-	if !ok || r.RateVersion != pricing.CIRateVersion || r.RateMicros != size.MicrosPerMinute {
+	size, ok := pricing.FindCIContract(r.RateVersion, r.SizeID)
+	if !ok || r.RateMicros != size.MicrosPerMinute {
 		return r, ciBillingAccount{}, fmt.Errorf("%w: unsupported CI billing contract", ErrConflict)
 	}
 	var account ciBillingAccount
@@ -75,7 +88,7 @@ func ciQuote(r ciBillingRunner) (ciBudgetQuote, error) {
 	if seconds < 1 || seconds > ciMaxRuntimeSeconds || (!r.Paid && seconds > pricing.CIFreeSeconds) {
 		return ciBudgetQuote{}, ErrConflict
 	}
-	usage, err := pricing.CalculateCI(r.SizeID, seconds)
+	usage, err := pricing.CalculateCIForVersion(r.RateVersion, r.SizeID, seconds)
 	if err != nil {
 		return ciBudgetQuote{}, err
 	}
@@ -132,7 +145,7 @@ func (s *Store) reserveCIBudgetTx(ctx context.Context, tx pgx.Tx, workspace, run
 	if !paid {
 		maximumSeconds = min(maximumSeconds, pricing.CIFreeSeconds)
 	} else {
-		segments, err := pricing.CIChargeSegments(r.SizeID, startedAt, 0, maximumSeconds)
+		segments, err := pricing.CIChargeSegmentsForVersion(r.RateVersion, r.SizeID, startedAt, 0, maximumSeconds)
 		if err != nil {
 			return ciBudgetQuote{}, err
 		}
@@ -151,7 +164,7 @@ func (s *Store) reserveCIBudgetTx(ctx context.Context, tx pgx.Tx, workspace, run
 		}
 	}
 	paid = paid && maximumSeconds > pricing.CIFreeSeconds
-	segments, err := pricing.CIChargeSegments(r.SizeID, startedAt, 0, maximumSeconds)
+	segments, err := pricing.CIChargeSegmentsForVersion(r.RateVersion, r.SizeID, startedAt, 0, maximumSeconds)
 	if err != nil {
 		return ciBudgetQuote{}, err
 	}
@@ -229,7 +242,7 @@ func (s *Store) settleCIBudget(ctx context.Context, workspace, runner string, st
 		if !account.activeAt(stoppedAt) || account.CustomerID != r.CustomerID || account.SubscriptionID != r.SubscriptionID {
 			return fmt.Errorf("%w: CI billing needs reconciliation before this run can be settled", ErrConflict)
 		}
-		segments, err := pricing.CIChargeSegments(r.SizeID, *r.StartedAt, 0, elapsed)
+		segments, err := pricing.CIChargeSegmentsForVersion(r.RateVersion, r.SizeID, *r.StartedAt, 0, elapsed)
 		if err != nil {
 			return err
 		}

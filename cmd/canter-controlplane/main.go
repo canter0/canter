@@ -56,6 +56,27 @@ func main() {
 	default:
 		log.Fatal("CANTER_WRENS_ENABLED must be true or false")
 	}
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("CANTER_CI_RATE_V2_ENABLED"))) {
+	case "", "false":
+	case "true":
+		store.SetCIRateV2Enabled(true)
+	default:
+		log.Fatal("CANTER_CI_RATE_V2_ENABLED must be true or false")
+	}
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("CANTER_CI_LOG_READER_ENABLED"))) {
+	case "", "false":
+	case "true":
+		store.SetCILogReaderEnabled(true)
+	default:
+		log.Fatal("CANTER_CI_LOG_READER_ENABLED must be true or false")
+	}
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("CANTER_SANDBOX_TARIFF_ENABLED"))) {
+	case "", "false":
+	case "true":
+		store.SetSandboxTariffEnabled(true)
+	default:
+		log.Fatal("CANTER_SANDBOX_TARIFF_ENABLED must be true or false")
+	}
 	if invite := os.Getenv("CANTER_BETA_INVITE"); invite != "" {
 		if err = store.SeedInvite(ctx, invite, "environment beta invite"); err != nil {
 			log.Fatal(err)
@@ -296,6 +317,23 @@ func main() {
 	aiUsage := controlplane.WrenAIUsageConfigFromEnv()
 	if err := store.SetInitialWrenAIAllowanceMicroUSD(aiUsage.InitialAllowanceMicroUSD); err != nil {
 		log.Fatal("invalid initial AI allowance policy")
+	}
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("CANTER_SANDBOX_JOB_HISTORY_ENABLED"))) {
+	case "", "false":
+	case "true":
+		if vault == nil {
+			log.Fatal("Sandbox job history requires a configured secrets keyring")
+		}
+		sandboxes.CollectJobHistory = true
+	default:
+		log.Fatal("CANTER_SANDBOX_JOB_HISTORY_ENABLED must be true or false")
+	}
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("CANTER_SANDBOX_DIRECTORY_TRANSFERS_ENABLED"))) {
+	case "", "false":
+	case "true":
+		sandboxes.DirectoryTransfers = true
+	default:
+		log.Fatal("CANTER_SANDBOX_DIRECTORY_TRANSFERS_ENABLED must be true or false")
 	}
 	handler := controlplane.NewHTTPServer(service, controlplane.HTTPConfig{AIUsage: aiUsage, Media: controlplane.WrenMediaConfig{Model: os.Getenv("CANTER_WREN_IMAGE_MODEL")}, Audio: controlplane.WrenAudioConfigFromEnv(), Harnesses: harnesses, Computers: computers, Sandboxes: sandboxes, Auth: auth, PublicURL: publicURL, CookieSecure: cookieSecure, RequireInvite: strings.EqualFold(os.Getenv("CANTER_REQUIRE_INVITE"), "true"), GoogleOAuth: googleOAuth, GitHubOAuth: githubOAuth, GitHubApp: githubApp, GitHubAppSlug: os.Getenv("CANTER_GITHUB_APP_SLUG"), CI: ciConfig, Billing: billing, Operator: operator, Secrets: vault})
 	go func() { _ = handler.(*controlplane.HTTPServer).RunAuthMaintenance(ctx) }()

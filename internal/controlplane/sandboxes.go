@@ -27,13 +27,15 @@ import (
 )
 
 type SandboxConfig struct {
-	Enabled           bool
-	SSHSourceCIDR     string
-	FreeMax           int
-	PaidMax           int
-	FreeHoursPerMonth int
-	IdleSleep         time.Duration
-	PreviewDomain     string
+	Enabled            bool
+	CollectJobHistory  bool
+	DirectoryTransfers bool
+	SSHSourceCIDR      string
+	FreeMax            int
+	PaidMax            int
+	FreeHoursPerMonth  int
+	IdleSleep          time.Duration
+	PreviewDomain      string
 	// ImageID pins sandboxes to a prebuilt provider image (CANTER_SANDBOX_IMAGE).
 	ImageID string
 }
@@ -155,11 +157,23 @@ var sandboxSizes = map[string]sandboxSize{
 var sandboxSizeOrder = []string{"free-1x1", "s-1x2", "s-2x4", "s-2x8", "s-4x16"}
 
 // sandboxSizeList describes this implementation's sizes in the list response.
-func sandboxSizeList() []map[string]any {
+// SetSandboxTariffEnabled lets compatible readers roll out before new rates.
+func (s *Store) SetSandboxTariffEnabled(enabled bool) {
+	s.sandboxTariffEnabled.Store(enabled)
+}
+
+func (s *Store) sandboxComputeEstimate(vcpus, memoryMiB int) (int64, error) {
+	if s.sandboxTariffEnabled.Load() {
+		return pricing.EstimateSandboxComputeMonthlyCents(vcpus, memoryMiB)
+	}
+	return pricing.EstimateComputeMonthlyCents(vcpus, memoryMiB)
+}
+
+func (s *Store) sandboxSizeList() []map[string]any {
 	out := make([]map[string]any, 0, len(sandboxSizeOrder))
 	for _, id := range sandboxSizeOrder {
 		size := sandboxSizes[id]
-		monthly, _ := pricing.EstimateComputeMonthlyCents(size.VCPU, size.Memory)
+		monthly, _ := s.sandboxComputeEstimate(size.VCPU, size.Memory)
 		out = append(out, map[string]any{
 			"id": id, "vcpus": size.VCPU, "memoryMiB": size.Memory,
 			"diskGiB": size.Disk, "free": size.Free,
@@ -216,7 +230,7 @@ type Sandbox struct {
 
 const sandboxColumns = `id,workspace_id,name,size,tier,phase,plan,generation,ssh_public_key,ssh_key_version,ssh_key_ciphertext,COALESCE(host(address),''),COALESCE(host_fingerprint,''),monthly_cents,COALESCE(failure,''),delete_requested,sleep_requested,created_by_kind,COALESCE(created_by_id,''),COALESCE(created_by_name,''),last_used_at,awake_since,COALESCE(notice,''),sleep_forced_at,checkpoint_object_ref,checkpoint_key_version,checkpoint_nonce,checkpoint_manifest,created_at,updated_at,next_attempt_at,COALESCE(labels::text,'{}'),idle_timeout_seconds,COALESCE(current_snapshot_id,''),COALESCE(pending_snapshot_id,''),desktop,COALESCE(environment::text,'{}'),COALESCE(setup::text,'{}')`
 
-func scanSandbox(row pgx.Row) (Sandbox, error) {
+func (s *Store) scanSandbox(row pgx.Row) (Sandbox, error) {
 	var v Sandbox
 	var plan, object, labels, environmentJSON, setupJSON []byte
 	var next *time.Time
@@ -255,11 +269,14 @@ func scanSandbox(row pgx.Row) (Sandbox, error) {
 	}
 	v.HasCheckpoint = v.CheckpointObject.Key != "" || v.CurrentSnapshotID != ""
 	v.VCPUs, v.MemoryMiB, v.DiskGiB = v.Plan.Shape.VCPU, v.Plan.Shape.Memory, v.Plan.Shape.GB
-	return v, nil
+	if v.Tier == "paid" && v.VCPUs > 0 && v.MemoryMiB > 0 {
+		v.MonthlyCents, err = s.sandboxComputeEstimate(v.VCPUs, v.MemoryMiB)
+	}
+	return v, err
 }
 
 func (s *Store) sandbox(ctx context.Context, q artifactQueryer, workspace, id string) (Sandbox, error) {
-	return scanSandbox(q.QueryRow(ctx, `SELECT `+sandboxColumns+` FROM sandboxes WHERE workspace_id=$1 AND id=$2`, workspace, id))
+	return s.scanSandbox(q.QueryRow(ctx, `SELECT `+sandboxColumns+` FROM sandboxes WHERE workspace_id=$1 AND id=$2`, workspace, id))
 }
 
 func (s *Store) Sandboxes(ctx context.Context, workspace string) ([]Sandbox, error) {
@@ -270,7 +287,7 @@ func (s *Store) Sandboxes(ctx context.Context, workspace string) ([]Sandbox, err
 	defer rows.Close()
 	out := []Sandbox{}
 	for rows.Next() {
-		v, err := scanSandbox(rows)
+		v, err := s.scanSandbox(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -541,7 +558,7 @@ func (h *HTTPServer) CreateSandbox(ctx context.Context, workspace, account strin
 	plan.Spec.Spec.Compute.Bootstrap = bootstrap
 	plan.Spec.Spec.Intent = "Canter sandbox for " + id
 	plan.Spec.Spec.M1.Prefix = "workspaces/" + workspace + "/sandboxes/" + id
-	monthly, err := pricing.EstimateComputeMonthlyCents(plan.Shape.VCPU, plan.Shape.Memory)
+	monthly, err := h.service.Store.sandboxComputeEstimate(plan.Shape.VCPU, plan.Shape.Memory)
 	if err != nil {
 		return Sandbox{}, err
 	}
@@ -652,7 +669,7 @@ func (h *HTTPServer) RequestSandboxWake(ctx context.Context, workspace, id, acco
 			return err
 		}
 	}
-	v, err := sandboxForUpdate(ctx, tx, workspace, id)
+	v, err := h.service.Store.sandboxForUpdate(ctx, tx, workspace, id)
 	if err != nil {
 		return err
 	}
@@ -772,8 +789,8 @@ func (h *HTTPServer) RequestSandboxWake(ctx context.Context, workspace, id, acco
 	return nil
 }
 
-func sandboxForUpdate(ctx context.Context, tx pgx.Tx, workspace, id string) (Sandbox, error) {
-	return scanSandbox(tx.QueryRow(ctx, `SELECT `+sandboxColumns+` FROM sandboxes WHERE workspace_id=$1 AND id=$2 FOR UPDATE`, workspace, id))
+func (s *Store) sandboxForUpdate(ctx context.Context, tx pgx.Tx, workspace, id string) (Sandbox, error) {
+	return s.scanSandbox(tx.QueryRow(ctx, `SELECT `+sandboxColumns+` FROM sandboxes WHERE workspace_id=$1 AND id=$2 FOR UPDATE`, workspace, id))
 }
 
 // RequestSandboxDelete marks a sandbox for verified teardown.
@@ -792,9 +809,16 @@ func (h *HTTPServer) RequestSandboxDelete(ctx context.Context, workspace, id str
 // sandboxAgentClient is the guest-agent surface sandboxes use; *wrencomputer.Client
 // satisfies it and tests substitute scripted fakes through HTTPServer.sandboxDial.
 func (s *Store) recordSandboxJob(ctx context.Context, sandboxID, jobID string) error {
-	result, err := s.pool.Exec(ctx, `INSERT INTO sandbox_jobs(sandbox_id,job_id,started_at)
-SELECT id,$2,$3 FROM sandboxes WHERE id=$1 AND phase='ready' AND NOT sleep_requested AND NOT delete_requested
-ON CONFLICT DO NOTHING`, sandboxID, jobID, s.now())
+	return s.recordSandboxCommand(ctx, sandboxID, jobID, 0, sdk.ActorRef{}, false)
+}
+
+func (s *Store) recordSandboxCommand(ctx context.Context, sandboxID, jobID string, generation int, actor sdk.ActorRef, collect bool) error {
+	result, err := s.pool.Exec(ctx, `INSERT INTO sandbox_jobs(sandbox_id,job_id,started_at,workspace_id,generation,actor_kind,actor_id,history_output_state)
+SELECT id,$2,$3,workspace_id,generation,$5,$6,CASE WHEN $7 AND
+  COALESCE((SELECT retain_output FROM sandbox_job_history_settings h WHERE h.workspace_id=sandboxes.workspace_id),true)
+  THEN 'collecting' ELSE 'not_collected' END FROM sandboxes
+WHERE id=$1 AND ($4=0 OR generation=$4) AND phase='ready' AND NOT sleep_requested AND NOT delete_requested
+ON CONFLICT DO NOTHING`, sandboxID, jobID, s.now(), generation, actor.Kind, actor.ID, collect)
 	if err != nil {
 		return err
 	}
@@ -906,6 +930,7 @@ func (d *SandboxDispatcher) Run(ctx context.Context) error {
 	if d.Server == nil {
 		return fmt.Errorf("sandbox dispatcher has no server")
 	}
+	go d.runSandboxHistory(ctx)
 	// Snapshot GC loop — bounded runs, no overlap, stops with Run.
 	go func() {
 		gc := time.NewTicker(time.Minute)

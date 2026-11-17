@@ -28,7 +28,7 @@ func TestCIFreeHourAndOverage(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.size+"/"+strconv.FormatInt(test.seconds, 10), func(t *testing.T) {
-			got, err := CalculateCI(test.size, test.seconds)
+			got, err := CalculateCIForVersion(CIRateVersionV1, test.size, test.seconds)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -52,13 +52,13 @@ func TestCIEveryRunnerGetsFreeHourWithoutMonthlyQuota(t *testing.T) {
 	}
 }
 
-func TestCIRatesAreHalfMatchedBlacksmithRate(t *testing.T) {
+func TestCIV2RatesAreOneQuarterMatchedBlacksmithRate(t *testing.T) {
 	catalog := CurrentCI()
 	if catalog.Version != CIRateVersion || catalog.Currency != "USD" {
 		t.Fatalf("invalid catalog: %+v", catalog)
 	}
 	for _, size := range catalog.Sizes {
-		if size.MicrosPerMinute*2 != size.BlacksmithMicrosPerMinute || size.VCPUs > catalog.MaxVCPUs {
+		if size.MicrosPerMinute*4 != size.BlacksmithMicrosPerMinute || size.VCPUs > catalog.MaxVCPUs {
 			t.Fatalf("invalid rate: %+v", size)
 		}
 		byLabel, ok := FindCI(size.Label)
@@ -67,14 +67,14 @@ func TestCIRatesAreHalfMatchedBlacksmithRate(t *testing.T) {
 		}
 	}
 	catalog.Sizes[0].MicrosPerMinute = 1
-	if CurrentCI().Sizes[0].MicrosPerMinute != 2000 {
+	if CurrentCI().Sizes[0].MicrosPerMinute != 1000 {
 		t.Fatal("catalog mutation escaped the caller")
 	}
 }
 
 func TestCIFractionalChargesSurviveAggregation(t *testing.T) {
 	var total int64
-	for run := 0; run < 300; run++ {
+	for run := 0; run < 600; run++ {
 		usage, err := CalculateCI("linux-x64-2", 3601)
 		if err != nil {
 			t.Fatal(err)
@@ -120,5 +120,18 @@ func TestCICatalogIncludesExplicitUnlimitedMonthlyMinutes(t *testing.T) {
 	limit, present := out["monthlyMinuteLimit"]
 	if !present || limit != nil {
 		t.Fatalf("monthly policy is missing or limited: %s", data)
+	}
+}
+
+func TestCIVersionsCoexist(t *testing.T) {
+	for version, cost := range map[string]int64{CIRateVersionV1: 120000, CIRateVersion: 60000} {
+		free, err := CalculateCIForVersion(version, "linux-x64-2", 3600)
+		if err != nil || free.CostMicros != 0 {
+			t.Fatalf("%s free hour: %+v %v", version, free, err)
+		}
+		paid, err := CalculateCIForVersion(version, "linux-x64-2", 7200)
+		if err != nil || paid.CostMicros != cost {
+			t.Fatalf("%s paid hour: %+v %v", version, paid, err)
+		}
 	}
 }

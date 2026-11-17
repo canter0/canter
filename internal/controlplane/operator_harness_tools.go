@@ -79,7 +79,7 @@ func operatorPolicy(name string) (operatorToolPolicy, bool) {
 	case "canter_sandbox_run", "canter_sandbox_start", "canter_sandbox_stop":
 		// A command may have side effects before an interruption is recorded.
 		return operatorToolPolicy{Effect: "sandbox", RequireDraft: true}, true
-	case "canter_sandbox_logs":
+	case "canter_sandbox_logs", "canter_sandbox_history_output":
 		return operatorToolPolicy{Effect: "read", RetrySafe: true}, true
 	case "canter_apply_change_under_policy":
 		return operatorToolPolicy{Effect: "apply", RequireDraft: true}, true

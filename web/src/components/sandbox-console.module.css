@@ -56,3 +56,12 @@
 .pre { margin: 0; padding: 12px; background: rgb(var(--ui-bg-wash)); border: 1px solid rgb(var(--ui-border-secondary)); border-radius: 8px; color: var(--ink); font: 12px var(--font-mono), monospace; overflow-x: auto; white-space: pre-wrap; }
 .jobInput { flex: 1; min-width: 0; padding: 9px 12px; background: rgb(var(--ui-bg-wash)); border: 1px solid rgb(var(--ui-border-secondary)); border-radius: 7px; color: var(--ink); font: 13px var(--font-mono), monospace; }
 .jobInput::placeholder { color: rgb(var(--ui-text-tertiary)); }
+.historyNotice { color: #a5a5a5; font-size: 12px; overflow-wrap: anywhere; }
+.historyNotice button { margin-left: 8px; }
+.historyList { margin: 12px 0; padding: 0; list-style: none; }
+.historyRow { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, .7fr) minmax(0, 1fr); gap: 8px; padding: 10px; color: inherit; text-align: left; background: transparent; border: 1px solid transparent; border-radius: 8px; width: 100%; font: inherit; font-size: 12px; overflow-wrap: anywhere; cursor: pointer; }
+.historyRow:hover, .historyRow[aria-pressed="true"] { border-color: #424242; background: #222; }
+.historyRow small { display: block; margin-top: 3px; color: #a5a5a5; }
+.historyRow:focus-visible { outline: 2px solid #d5d5d5; }
+.historyDetail { margin-top: 14px; }
+.historyActions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }

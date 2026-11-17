@@ -6,7 +6,8 @@ import (
 )
 
 const (
-	CIRateVersion              = "ci-free-hour-2026-11-v1"
+	CIRateVersionV1            = "ci-free-hour-2026-11-v1"
+	CIRateVersion              = "ci-free-hour-2026-11-v2"
 	CIFreeSeconds        int64 = 3600
 	CIChargeUnitsPerCent       = 600_000
 )
@@ -47,18 +48,40 @@ type CIChargeSegment struct {
 }
 
 func CurrentCI() CICatalog {
+	catalog, _ := CICatalogForVersion(CIRateVersion)
+	return catalog
+}
+
+func CICatalogForVersion(version string) (CICatalog, bool) {
+	var small, large int64
+	switch version {
+	case CIRateVersionV1:
+		small, large = 2000, 4000
+	case CIRateVersion:
+		small, large = 1000, 2000
+	default:
+		return CICatalog{}, false
+	}
 	return CICatalog{
-		Version: CIRateVersion, Currency: "USD", FreeSecondsPerRun: CIFreeSeconds,
+		Version: version, Currency: "USD", FreeSecondsPerRun: CIFreeSeconds,
 		MaxVCPUs: 4, ReferenceURL: "https://www.blacksmith.sh/pricing",
 		Sizes: []CISize{
-			{ID: "linux-x64-2", Label: "canter-2vcpu-ubuntu-2404", VCPUs: 2, MemoryMiB: 8192, MicrosPerMinute: 2000, BlacksmithMicrosPerMinute: 4000},
-			{ID: "linux-x64-4", Label: "canter-4vcpu-ubuntu-2404", VCPUs: 4, MemoryMiB: 16384, MicrosPerMinute: 4000, BlacksmithMicrosPerMinute: 8000},
+			{ID: "linux-x64-2", Label: "canter-2vcpu-ubuntu-2404", VCPUs: 2, MemoryMiB: 8192, MicrosPerMinute: small, BlacksmithMicrosPerMinute: 4000},
+			{ID: "linux-x64-4", Label: "canter-4vcpu-ubuntu-2404", VCPUs: 4, MemoryMiB: 16384, MicrosPerMinute: large, BlacksmithMicrosPerMinute: 8000},
 		},
-	}
+	}, true
 }
 
 func FindCI(id string) (CISize, bool) {
-	for _, size := range CurrentCI().Sizes {
+	return FindCIContract(CIRateVersion, id)
+}
+
+func FindCIContract(version, id string) (CISize, bool) {
+	catalog, ok := CICatalogForVersion(version)
+	if !ok {
+		return CISize{}, false
+	}
+	for _, size := range catalog.Sizes {
 		if size.ID == id || size.Label == id {
 			return size, true
 		}
@@ -67,7 +90,11 @@ func FindCI(id string) (CISize, bool) {
 }
 
 func CalculateCI(sizeID string, elapsedSeconds int64) (CIUsage, error) {
-	size, ok := FindCI(sizeID)
+	return CalculateCIForVersion(CIRateVersion, sizeID, elapsedSeconds)
+}
+
+func CalculateCIForVersion(version, sizeID string, elapsedSeconds int64) (CIUsage, error) {
+	size, ok := FindCIContract(version, sizeID)
 	if !ok || elapsedSeconds < 0 || elapsedSeconds > 366*86400 {
 		return CIUsage{}, fmt.Errorf("invalid CI size or elapsed runtime")
 	}
@@ -88,7 +115,11 @@ func CIChargeCents(chargeUnits int64) (cents, remainder int64, err error) {
 }
 
 func CIChargeSegments(sizeID string, executionStartedAt time.Time, fromElapsedSeconds, toElapsedSeconds int64) ([]CIChargeSegment, error) {
-	size, ok := FindCI(sizeID)
+	return CIChargeSegmentsForVersion(CIRateVersion, sizeID, executionStartedAt, fromElapsedSeconds, toElapsedSeconds)
+}
+
+func CIChargeSegmentsForVersion(version, sizeID string, executionStartedAt time.Time, fromElapsedSeconds, toElapsedSeconds int64) ([]CIChargeSegment, error) {
+	size, ok := FindCIContract(version, sizeID)
 	if !ok || executionStartedAt.IsZero() || executionStartedAt.Year() < 1970 || executionStartedAt.Year() > 9998 || fromElapsedSeconds < 0 || fromElapsedSeconds > toElapsedSeconds || toElapsedSeconds > 366*86400 {
 		return nil, fmt.Errorf("invalid CI metering interval")
 	}

@@ -38,17 +38,22 @@ func ciFinancialFixture(t *testing.T) (*Store, string, time.Time) {
 
 func ciFinancialRunner(t *testing.T, s *Store, workspace, size string, number int, paid bool, createdAt time.Time) string {
 	t.Helper()
+	return ciFinancialRunnerForVersion(t, s, workspace, size, number, paid, createdAt, pricing.CIRateVersionV1)
+}
+
+func ciFinancialRunnerForVersion(t *testing.T, s *Store, workspace, size string, number int, paid bool, createdAt time.Time, version string) string {
+	t.Helper()
 	ctx := context.Background()
 	job, runner := fmt.Sprintf("ci_financial_job_%d", number), fmt.Sprintf("ci_financial_runner_%d", number)
 	_, err := s.pool.Exec(ctx, `INSERT INTO ci_jobs(id,workspace_id,installation_id,github_repository_id,github_job_id,github_run_id,status,document) VALUES($1,$2,'ci_financial_installation',789,$3,$3,'queued','{}'::jsonb)`, job, workspace, number+1000)
 	if err != nil {
 		t.Fatal(err)
 	}
-	price, ok := pricing.FindCI(size)
+	price, ok := pricing.FindCIContract(version, size)
 	if !ok {
 		t.Fatal("invalid test size")
 	}
-	_, err = s.pool.Exec(ctx, `INSERT INTO ci_runners(id,workspace_id,installation_id,size_id,trigger_job_id,phase,document,rate_version,rate_micros_per_minute,paid_overrun_enabled,created_at) VALUES($1,$2,'ci_financial_installation',$3,$4,'queued','{}'::jsonb,$5,$6,$7,$8)`, runner, workspace, size, job, pricing.CIRateVersion, price.MicrosPerMinute, paid, createdAt)
+	_, err = s.pool.Exec(ctx, `INSERT INTO ci_runners(id,workspace_id,installation_id,size_id,trigger_job_id,phase,document,rate_version,rate_micros_per_minute,paid_overrun_enabled,created_at) VALUES($1,$2,'ci_financial_installation',$3,$4,'queued','{}'::jsonb,$5,$6,$7,$8)`, runner, workspace, size, job, version, price.MicrosPerMinute, paid, createdAt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -274,5 +279,26 @@ func TestCIBillingSpendLimitIncludesReservedCommitments(t *testing.T) {
 	}
 	if err = s.checkCISpendLimit(ctx, tx, workspace, 24); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestCIBillingBothTariffsInOneWorkspace(t *testing.T) {
+	s, workspace, start := ciFinancialFixture(t)
+	ctx := context.Background()
+	for i, version := range []string{pricing.CIRateVersionV1, pricing.CIRateVersion} {
+		runner := ciFinancialRunnerForVersion(t, s, workspace, "linux-x64-2", i+10, true, start, version)
+		quote, err := s.reserveCIBudget(ctx, workspace, runner, start, 7200)
+		if err != nil || quote.MaxChargeUnits != 7200000>>i {
+			t.Fatalf("%s quote: %+v %v", version, quote, err)
+		}
+		for attempt := 0; attempt < 2; attempt++ {
+			if err := s.settleCIBudget(ctx, workspace, runner, start.Add(2*time.Hour)); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	units, cents, reserved := ciFinancialTotals(t, s, workspace)
+	if units != 10800000 || cents != 18 || reserved != 0 {
+		t.Fatalf("incorrect aggregate settlement: %d units, %d cents, %d reserved", units, cents, reserved)
 	}
 }

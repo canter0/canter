@@ -63,6 +63,12 @@ func helperSSH(t *testing.T, sandbox ...bool) (Config, string, *atomic.Int32) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if marker != "" {
+		helper = filepath.Join(root, "guest.py")
+		if err := os.WriteFile(helper, sandboxGuestHelper(), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
 	host, _ := keyPair(t)
 	client, key := keyPair(t)
 	config := &ssh.ServerConfig{PublicKeyCallback: func(conn ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {

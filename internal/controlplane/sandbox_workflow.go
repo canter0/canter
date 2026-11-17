@@ -171,7 +171,7 @@ func (h *HTTPServer) startSandboxJob(ctx context.Context, v Sandbox, input Sandb
 	if err != nil {
 		return wrencomputer.Job{}, err
 	}
-	if err := h.service.Store.recordSandboxJob(ctx, v.ID, jobID); err != nil {
+	if err := h.service.Store.recordSandboxCommand(ctx, v.ID, jobID, v.Generation, actor, workflow && h.sandboxHistoryEnabled()); err != nil {
 		return wrencomputer.Job{}, err
 	}
 	defer h.sandboxActivity(ctx, v.ID)()
@@ -197,6 +197,7 @@ func (h *HTTPServer) startSandboxJob(ctx context.Context, v Sandbox, input Sandb
 	if job.ID != jobID {
 		return wrencomputer.Job{ID: jobID, Status: "unknown"}, fmt.Errorf("unexpected job receipt; inspect job %s before retrying", jobID)
 	}
+	h.service.Store.observeSandboxHistory(ctx, v, job)
 	if sandboxJobDone(job.Status) {
 		h.service.Store.finishSandboxJob(ctx, v.ID, jobID)
 	}
@@ -356,6 +357,7 @@ func (h *HTTPServer) sandboxJobLogs(w http.ResponseWriter, r *http.Request, v Sa
 		writeStoreError(w, err)
 		return
 	}
+	h.service.Store.observeSandboxHistory(r.Context(), v, wrencomputer.Job{ID: jobID, Status: chunk.Status, ExitCode: chunk.ExitCode})
 	if sandboxJobDone(chunk.Status) {
 		h.service.Store.finishSandboxJob(r.Context(), v.ID, jobID)
 	}

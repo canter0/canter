@@ -258,6 +258,18 @@ var sandboxDesktopMigration string
 //go:embed migrations/079_sandbox_environment.sql
 var sandboxEnvironmentMigration string
 
+//go:embed migrations/089_ci_rate_v2.sql
+var ciRateV2Migration string
+
+//go:embed migrations/092_sandbox_transfers.sql
+var sandboxTransfersMigration string
+
+//go:embed migrations/091_sandbox_job_history.sql
+var sandboxJobHistoryMigration string
+
+//go:embed migrations/090_sandbox_compute_tariff.sql
+var sandboxComputeTariffMigration string
+
 //go:embed migrations/088_super_sandboxes.sql
 var superSandboxesMigration string
 
@@ -300,11 +312,14 @@ var (
 )
 
 type Store struct {
-	initialAIAllowance atomic.Int64
-	wrensDisabled      atomic.Bool
-	billing            *BillingGateway
-	pool               *pgxpool.Pool
-	now                func() time.Time
+	initialAIAllowance   atomic.Int64
+	wrensDisabled        atomic.Bool
+	ciRateV2Enabled      atomic.Bool
+	ciLogReaderEnabled   atomic.Bool
+	sandboxTariffEnabled atomic.Bool
+	billing              *BillingGateway
+	pool                 *pgxpool.Pool
+	now                  func() time.Time
 }
 
 // SetWrensEnabled gates the standalone Wrens surface. Catalog data is
@@ -1001,6 +1016,24 @@ func (s *Store) Migrate(ctx context.Context) error {
 		}
 		if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ('088_super_sandboxes')`); err != nil {
 			return err
+		}
+	}
+	for _, migration := range []struct{ version, sql string }{
+		{"089_ci_rate_v2", ciRateV2Migration},
+		{"090_sandbox_compute_tariff", sandboxComputeTariffMigration},
+		{"091_sandbox_job_history", sandboxJobHistoryMigration},
+		{"092_sandbox_transfers", sandboxTransfersMigration},
+	} {
+		var inserted string
+		err := tx.QueryRow(ctx, `INSERT INTO schema_migrations(version) VALUES($1) ON CONFLICT DO NOTHING RETURNING version`, migration.version).Scan(&inserted)
+		if errors.Is(err, pgx.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, migration.sql); err != nil {
+			return fmt.Errorf("apply %s: %w", migration.version, err)
 		}
 	}
 	return tx.Commit(ctx)
