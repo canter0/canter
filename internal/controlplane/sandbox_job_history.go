@@ -42,7 +42,7 @@ const sandboxHistoryColumns = `j.job_id,j.generation,j.history_kind,j.actor_kind
 		OR j.generation<>s.generation OR s.phase NOT IN ('ready','save_failed'))`
 
 func (h *HTTPServer) sandboxHistoryEnabled(workspace string) bool {
-	return h.config.Sandboxes.CollectJobHistory && h.config.Secrets != nil && h.service.Store.inFeatureCanary(workspace)
+	return h.config.Secrets != nil && h.service.Store.canaryFeatureEnabled(workspace, h.config.Sandboxes.CollectJobHistory)
 }
 
 func (h *HTTPServer) sandboxJobHistory(w http.ResponseWriter, r *http.Request, v Sandbox, p Principal, parts []string) {
@@ -403,7 +403,7 @@ func (d *SandboxDispatcher) collectSandboxHistoryPass(ctx context.Context) {
 		WHERE t.expires_at<=now()-interval '7 days' OR s.phase='deleted'
 		ORDER BY t.expires_at LIMIT 20 FOR UPDATE OF t SKIP LOCKED
 	) DELETE FROM sandbox_transfers t USING due WHERE t.id=due.id`)
-	if !h.config.Sandboxes.CollectJobHistory || h.config.Secrets == nil {
+	if !h.sandboxHistoryEnabled(s.featureCanaryWorkspace) {
 		return
 	}
 	var workspace, id string

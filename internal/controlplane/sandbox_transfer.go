@@ -235,7 +235,7 @@ func loadSandboxTransfer(ctx context.Context, tx pgx.Tx, v Sandbox, id string, l
 }
 
 func (h *HTTPServer) sandboxTransfers(w http.ResponseWriter, r *http.Request, v Sandbox, write bool, parts []string) {
-	if !h.config.Sandboxes.DirectoryTransfers || !h.service.Store.inFeatureCanary(v.WorkspaceID) || v.DeleteRequested || v.Phase == "deleted" {
+	if !h.service.Store.canaryFeatureEnabled(v.WorkspaceID, h.config.Sandboxes.DirectoryTransfers) || v.DeleteRequested || v.Phase == "deleted" {
 		writeStoreError(w, ErrNotFound)
 		return
 	}

@@ -44,7 +44,7 @@ func (s *Store) SetCILogReaderEnabled(enabled bool) {
 }
 
 func (s *Store) canReadCILogRanges(workspace string) bool {
-	return s.ciLogReaderEnabled.Load() && s.inFeatureCanary(workspace)
+	return s.canaryFeatureEnabled(workspace, s.ciLogReaderEnabled.Load())
 }
 
 func cleanCILog(text string) string {

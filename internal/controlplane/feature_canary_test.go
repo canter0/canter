@@ -27,15 +27,13 @@ func TestFeatureCanaryScopesAllFiveFlags(t *testing.T) {
 	}
 
 	f.s.SetFeatureCanaryWorkspace("missing-workspace")
-	if f.s.inFeatureCanary(f.space.ID) || f.s.inFeatureCanary(other.ID) {
+	if f.s.canaryFeatureEnabled(f.space.ID, true) || f.s.canaryFeatureEnabled(other.ID, true) {
 		t.Fatal("an unknown canary target matched an existing workspace")
 	}
 	f.s.SetFeatureCanaryWorkspace(f.space.ID)
-	f.s.SetSandboxTariffEnabled(true)
-	f.s.SetCIRateV2Enabled(true)
-	f.s.SetCILogReaderEnabled(true)
-	f.h.config.Sandboxes.CollectJobHistory = true
-	f.h.config.Sandboxes.DirectoryTransfers = true
+	if f.s.canaryFeatureEnabled(other.ID, true) {
+		t.Fatal("global flag escaped the configured scope")
+	}
 	for _, test := range []struct {
 		sandbox Sandbox
 		canary  bool

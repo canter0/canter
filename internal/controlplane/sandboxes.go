@@ -163,7 +163,7 @@ func (s *Store) SetSandboxTariffEnabled(enabled bool) {
 }
 
 func (s *Store) sandboxComputeEstimate(workspace string, vcpus, memoryMiB int) (int64, error) {
-	if s.sandboxTariffEnabled.Load() && s.inFeatureCanary(workspace) {
+	if s.canaryFeatureEnabled(workspace, s.sandboxTariffEnabled.Load()) {
 		return pricing.EstimateSandboxComputeMonthlyCents(vcpus, memoryMiB)
 	}
 	return pricing.EstimateComputeMonthlyCents(vcpus, memoryMiB)

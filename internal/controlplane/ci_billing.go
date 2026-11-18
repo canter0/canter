@@ -41,7 +41,7 @@ func (s *Store) SetCIRateV2Enabled(enabled bool) {
 }
 
 func (s *Store) ciAdmissionRateVersion(workspace string) string {
-	if s.ciRateV2Enabled.Load() && s.inFeatureCanary(workspace) {
+	if s.canaryFeatureEnabled(workspace, s.ciRateV2Enabled.Load()) {
 		return pricing.CIRateVersion
 	}
 	return pricing.CIRateVersionV1
