@@ -54,12 +54,12 @@ func (h *HTTPServer) workspaceCI(w http.ResponseWriter, r *http.Request, p Princ
 		h.ciJobCancel(w, r, p, workspaceID, parts[1])
 		return
 	}
-	if len(parts) == 2 && parts[0] == "github" && parts[1] == "connect" {
+	if len(parts) == 2 && parts[0] == "github" && (parts[1] == "connect" || parts[1] == "link-personal") {
 		if r.Method != http.MethodPost {
 			methodNotAllowed(w)
 			return
 		}
-		h.ciConnect(w, r, p, workspaceID)
+		h.ciConnect(w, r, p, workspaceID, parts[1] == "link-personal")
 		return
 	}
 	writeError(w, http.StatusNotFound, ErrNotFound)

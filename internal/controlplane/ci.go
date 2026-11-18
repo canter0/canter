@@ -427,6 +427,15 @@ var (
 )
 
 func (s *Store) BindCIInstallation(ctx context.Context, workspaceID, accountID, stateHash string, githubInstallationID, githubAccountID int64, owner, accountType string, repos []ciGitHubRepo) (string, error) {
+	if stateHash == "" {
+		return "", errCIConnectState
+	}
+	return s.bindCIInstallation(ctx, workspaceID, accountID, stateHash, githubInstallationID, githubAccountID, owner, accountType, repos)
+}
+
+// The authenticated link endpoint verifies the installation directly. The GitHub callback
+// also supplies connect state, which must be consumed in the binding transaction.
+func (s *Store) bindCIInstallation(ctx context.Context, workspaceID, accountID, stateHash string, githubInstallationID, githubAccountID int64, owner, accountType string, repos []ciGitHubRepo) (string, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return "", err
@@ -443,13 +452,15 @@ func (s *Store) BindCIInstallation(ctx context.Context, workspaceID, accountID, 
 	if err = tx.QueryRow(ctx, `SELECT id FROM workspaces WHERE id=$1 FOR UPDATE`, workspaceID).Scan(&locked); err != nil {
 		return "", err
 	}
-	var stateWorkspace, stateAccount string
-	err = tx.QueryRow(ctx, `SELECT workspace_id,account_id FROM ci_connect_states WHERE state_hash=$1 AND workspace_id=$2 AND account_id=$3 AND expires_at>clock_timestamp() FOR UPDATE`, stateHash, workspaceID, accountID).Scan(&stateWorkspace, &stateAccount)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return "", errCIConnectState
-	}
-	if err != nil {
-		return "", err
+	if stateHash != "" {
+		var stateWorkspace, stateAccount string
+		err = tx.QueryRow(ctx, `SELECT workspace_id,account_id FROM ci_connect_states WHERE state_hash=$1 AND workspace_id=$2 AND account_id=$3 AND expires_at>clock_timestamp() FOR UPDATE`, stateHash, workspaceID, accountID).Scan(&stateWorkspace, &stateAccount)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", errCIConnectState
+		}
+		if err != nil {
+			return "", err
+		}
 	}
 	role, err := workspaceRole(ctx, tx, workspaceID, accountID, true)
 	if err != nil {
@@ -510,8 +521,10 @@ func (s *Store) BindCIInstallation(ctx context.Context, workspaceID, accountID, 
 			return "", err
 		}
 	}
-	if _, err = tx.Exec(ctx, `DELETE FROM ci_connect_states WHERE state_hash=$1`, stateHash); err != nil {
-		return "", err
+	if stateHash != "" {
+		if _, err = tx.Exec(ctx, `DELETE FROM ci_connect_states WHERE state_hash=$1`, stateHash); err != nil {
+			return "", err
+		}
 	}
 	return installationID, tx.Commit(ctx)
 }

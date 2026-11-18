@@ -55,7 +55,7 @@ function CiDashboard({ workspace, memberships, productName }: { workspace: Works
   }
   const [jobFilter, setJobFilter] = useState("");
   const [actionError, setActionError] = useState("");
-  const [connecting, setConnecting] = useState(false);
+  const [connecting, setConnecting] = useState<"install" | "link" | null>(null);
   const [connectError, setConnectError] = useState<{ message: string; needsRepositoryConnection?: boolean } | null>(null);
   const loadSequence = useRef(0);
   const base = `/workspaces/${encodeURIComponent(workspace.id)}/ci`;
@@ -84,12 +84,17 @@ function CiDashboard({ workspace, memberships, productName }: { workspace: Works
     setOverview(current => current ? { ...current, jobs: current.jobs.map(job => job.id === updated.id ? updated : job) } : current);
   }, []);
 
-  async function startGitHubAppSetup() {
+  async function startGitHubAppSetup(action: "install" | "link") {
     const signal = requestSignal();
     if (signal.aborted || !owner || connecting) return;
-    setConnecting(true);
+    setConnecting(action);
     setConnectError(null);
     try {
+      if (action === "link") {
+        await canterFetch<{ linked: boolean }>(`${base}/github/link-personal`, { method: "POST", signal });
+        if (!signal.aborted) await load();
+        return;
+      }
       const result = await canterFetch<{ url: string }>(`${base}/github/connect`, { method: "POST", signal });
       if (signal.aborted) return;
       const url = safeGitHubURL(result.url);
@@ -100,13 +105,13 @@ function CiDashboard({ workspace, memberships, productName }: { workspace: Works
       window.location.assign(url);
     } catch (cause) {
       if (signal.aborted) return;
-      const needsRepositoryConnection = cause instanceof CanterAPIError && cause.status === 409;
+      const needsRepositoryConnection = cause instanceof CanterAPIError && cause.code === "ci_github_repository_connection_required";
       setConnectError({
         message: needsRepositoryConnection ? "Connect GitHub repository access in account settings before setting up CI." : cause instanceof Error ? cause.message : "Couldn’t start Canter CI setup.",
         needsRepositoryConnection,
       });
     } finally {
-      if (!signal.aborted) setConnecting(false);
+      if (!signal.aborted) setConnecting(null);
     }
   }
 
@@ -136,8 +141,11 @@ function CiDashboard({ workspace, memberships, productName }: { workspace: Works
     {!overview ? <p role="status" className={styles.loading}>Loading CI…</p> : !overview.enabled || !overview.installations.length ? <div className={styles.emptyState} data-motion="reveal">
       <span className={styles.emptyIcon}><WorkspaceIcon name="changes" width="24" height="24" /></span>
       <h2>Set up Canter CI</h2>
-      <p>Canter CI uses a dedicated GitHub App. Add it to this workspace, then choose which repositories can use Canter runners.</p>
-      {owner ? <button type="button" className={styles.primaryButton} disabled={connecting || !githubAppReady} onClick={() => void startGitHubAppSetup()}>{connecting ? "Opening GitHub…" : "Set up CI GitHub App"}</button> : <p className={styles.status}>Ask a workspace owner to set up the Canter CI GitHub App.</p>}
+      <p>Link the Canter CI GitHub App already installed on your personal GitHub account, or install it on GitHub and select repositories.</p>
+      {owner ? <div className={ci.setupActions}>
+        <button type="button" className={styles.primaryButton} disabled={connecting !== null || !githubAppReady} onClick={() => void startGitHubAppSetup("link")}>{connecting === "link" ? "Linking…" : "Link existing personal installation"}</button>
+        <button type="button" className={styles.secondaryButton} disabled={connecting !== null || !githubAppReady} onClick={() => void startGitHubAppSetup("install")}>{connecting === "install" ? "Opening GitHub…" : "Install on GitHub"}</button>
+      </div> : <p className={styles.status}>Ask a workspace owner to set up the Canter CI GitHub App.</p>}
       {owner && !githubAppReady ? <p className={styles.status}>The Canter CI GitHub App is unavailable.</p> : null}
       {setupError}
     </div> : <>
@@ -199,7 +207,7 @@ function CiDashboard({ workspace, memberships, productName }: { workspace: Works
           <span className={styles.status}>{ciStateText(installation.status)}</span>
           <span className={ci.installMeta}>{installation.repositoryCount} {installation.repositoryCount === 1 ? "repository" : "repositories"}</span>
         </li>)}</ul> : <p>No GitHub installations connected.{owner ? "" : " Ask an organization owner to connect one."}</p>}
-        {owner ? <p><button type="button" className={styles.secondaryButton} disabled={connecting || !githubAppReady} onClick={() => void startGitHubAppSetup()}>{connecting ? "Opening GitHub…" : "Add GitHub App installation"}</button></p> : null}
+        {owner ? <p><button type="button" className={styles.secondaryButton} disabled={connecting !== null || !githubAppReady} onClick={() => void startGitHubAppSetup("install")}>{connecting === "install" ? "Opening GitHub…" : "Add GitHub App installation"}</button></p> : null}
         {setupError}
       </section>
       {!writer ? <p className={ci.section}>You have read-only access to this organization.</p> : null}
