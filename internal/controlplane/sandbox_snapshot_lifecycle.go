@@ -155,7 +155,7 @@ func (d *SandboxDispatcher) stopSandboxJobsForSave(ctx context.Context, v Sandbo
 		}
 		d.Server.service.Store.finishSandboxJob(ctx, v.ID, record.ID)
 	}
-	if d.Server.sandboxHistoryEnabled() {
+	if d.Server.sandboxHistoryEnabled(v.WorkspaceID) {
 		drain, cancel := context.WithTimeout(operation, 2*time.Second)
 		defer cancel()
 		for range 8 {

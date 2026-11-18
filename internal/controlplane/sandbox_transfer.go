@@ -95,8 +95,13 @@ func validateTransferManifest(input sdk.SandboxTransferRequest) (int64, error) {
 	return size, nil
 }
 
+var errTransferOverwriteUnavailable = fmt.Errorf("%w: choose a destination without existing files", ErrConflict)
+
 func (h *HTTPServer) planSandboxTransfer(ctx context.Context, v Sandbox, input sdk.SandboxTransferRequest, dryRun bool) (sdk.SandboxTransfer, error) {
 	out := sdk.SandboxTransfer{WorkspaceID: v.WorkspaceID, SandboxID: v.ID, Generation: v.Generation, State: "planned", Receipts: map[int]sdk.SandboxTransferFileReceipt{}}
+	if input.Overwrite {
+		return out, errTransferOverwriteUnavailable
+	}
 	if input.Direction != "push" && input.Direction != "pull" {
 		return out, fmt.Errorf("%w: choose push or pull", ErrConflict)
 	}
@@ -137,9 +142,7 @@ func (h *HTTPServer) planSandboxTransfer(ctx context.Context, v Sandbox, input s
 			case version == "missing" || (entry.Directory && version == "directory"):
 			case !entry.Directory && transferVersion.MatchString(version):
 				out.Collisions = append(out.Collisions, i)
-				if !out.Overwrite {
-					out.Receipts[i] = sdk.SandboxTransferFileReceipt{State: "conflict", Message: "Destination exists. Explicit overwrite is required."}
-				}
+				out.Receipts[i] = sdk.SandboxTransferFileReceipt{State: "conflict", Message: "Destination file already exists."}
 			default:
 				out.Collisions = append(out.Collisions, i)
 				out.Receipts[i] = sdk.SandboxTransferFileReceipt{State: "conflict", Message: "Destination is an incompatible entry."}
@@ -232,7 +235,7 @@ func loadSandboxTransfer(ctx context.Context, tx pgx.Tx, v Sandbox, id string, l
 }
 
 func (h *HTTPServer) sandboxTransfers(w http.ResponseWriter, r *http.Request, v Sandbox, write bool, parts []string) {
-	if !h.config.Sandboxes.DirectoryTransfers || v.DeleteRequested || v.Phase == "deleted" {
+	if !h.service.Store.canaryFeatureEnabled(v.WorkspaceID, h.config.Sandboxes.DirectoryTransfers) || v.DeleteRequested || v.Phase == "deleted" {
 		writeStoreError(w, ErrNotFound)
 		return
 	}
@@ -340,9 +343,7 @@ func (h *HTTPServer) sandboxTransfers(w http.ResponseWriter, r *http.Request, v 
 				return
 			}
 			plan.Collisions = append(plan.Collisions, index)
-			if !plan.Overwrite || version == "unsupported" || version == "directory" || plan.Entries[index].Directory {
-				plan.Receipts[index] = sdk.SandboxTransferFileReceipt{State: "conflict", Message: "Destination exists or is incompatible."}
-			}
+			plan.Receipts[index] = sdk.SandboxTransferFileReceipt{State: "conflict", Message: "Destination exists or is incompatible."}
 		}
 		raw, err := json.Marshal(plan)
 		if err == nil && len(raw) > transferLimits.MetadataBytes {
@@ -395,14 +396,17 @@ func (h *HTTPServer) sandboxTransferFile(w http.ResponseWriter, r *http.Request,
 		receipt.State = "skipped"
 		return &receipt, saveTransferReceipt(ctx, tx, plan, index, receipt)
 	}
+	if plan.Overwrite {
+		return nil, errTransferOverwriteUnavailable
+	}
 	if receipt.State == "conflict" {
 		return nil, fmt.Errorf("%w: destination conflict; create a new plan", ErrConflict)
 	}
 	fullPath := path.Join(plan.Path, entry.Path)
 	if plan.Direction == "push" {
 		expected := plan.Destinations[index]
-		if expected != "missing" && !(entry.Directory && expected == "directory") && !plan.Overwrite {
-			return nil, fmt.Errorf("%w: destination exists; plan again with explicit overwrite", ErrConflict)
+		if expected != "missing" && !(entry.Directory && expected == "directory") {
+			return nil, errTransferOverwriteUnavailable
 		}
 		client, guest, err := h.transferGuest(ctx, v)
 		if err != nil {

@@ -38,7 +38,7 @@ func (h *HTTPServer) workspaceCI(w http.ResponseWriter, r *http.Request, p Princ
 		h.serveCIJobDetail(w, r, p, workspaceID, parts[1])
 		return
 	}
-	if len(parts) == 3 && parts[0] == "jobs" && parts[2] == "logs" && h.service.Store.ciLogReaderEnabled.Load() {
+	if len(parts) == 3 && parts[0] == "jobs" && parts[2] == "logs" && h.service.Store.canReadCILogRanges(workspaceID) {
 		if r.Method != http.MethodGet {
 			methodNotAllowed(w)
 			return
@@ -125,7 +125,7 @@ func (h *HTTPServer) ciOverviewView(ctx context.Context, p Principal, workspaceI
 			features[i].Description = "Guest-reported VM metrics are collected after admission. Submit JUnit files with canter-ci-report junit FILE."
 		}
 	}
-	catalog, _ := pricing.CICatalogForVersion(h.service.Store.ciAdmissionRateVersion())
+	catalog, _ := pricing.CICatalogForVersion(h.service.Store.ciAdmissionRateVersion(workspaceID))
 	return CIOverview{
 		Enabled:       enabled,
 		Pool:          pool,
@@ -214,7 +214,7 @@ func (h *HTTPServer) ciJobVisible(ctx context.Context, p Principal, workspaceID 
 }
 
 func (h *HTTPServer) serveCIJobDetail(w http.ResponseWriter, r *http.Request, p Principal, workspaceID, jobID string) {
-	view, err := h.ciJobDetail(r.Context(), p, workspaceID, jobID, h.service.Store.ciLogReaderEnabled.Load() && r.URL.Query().Get("logs") == "range")
+	view, err := h.ciJobDetail(r.Context(), p, workspaceID, jobID, h.service.Store.canReadCILogRanges(workspaceID) && r.URL.Query().Get("logs") == "range")
 	if errors.Is(err, errCIRepoUnavailable) {
 		writeError(w, http.StatusServiceUnavailable, errors.New("Repository access could not be verified."))
 		return

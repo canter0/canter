@@ -190,7 +190,6 @@ def transfer_commit(data):
     base = upload_path(identifier)
     parts = transfer_parts(data["path"])
     leaf = transfer_leaf(parts)
-    expected = data["version"]
     with (base / "lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         meta, offset = upload_state(identifier)
@@ -198,6 +197,8 @@ def transfer_commit(data):
             raise Failure("conflict", "The staging receipt does not match the plan.")
         if meta.get("complete"):
             return upload_receipt(identifier, meta, meta["size"], True)
+        if data["version"] != "missing":
+            raise Failure("conflict", "Choose a destination without existing files.")
         if offset != meta["size"]:
             raise Failure("conflict", "File staging is incomplete.")
         with transfer_dir(parts[:-1], create=True) as parent:
@@ -214,14 +215,8 @@ def transfer_commit(data):
                     os.fsync(out.fileno())
                 if digest.hexdigest() != meta["sha256"]:
                     raise Failure("conflict", "The staged file does not match the source hash.")
-                current, _ = transfer_stat(parent, leaf)
-                if current != expected or current in {"unsupported", "directory"}:
-                    raise Failure("conflict", "The destination changed. Create a new transfer plan.")
-                if expected == "missing":
-                    # The link operation atomically refuses a file created since the check.
-                    os.link(temporary, leaf, src_dir_fd=parent, dst_dir_fd=parent, follow_symlinks=False)
-                else:
-                    os.replace(temporary, leaf, src_dir_fd=parent, dst_dir_fd=parent)
+                # A single kernel operation publishes only to an unused name.
+                os.link(temporary, leaf, src_dir_fd=parent, dst_dir_fd=parent, follow_symlinks=False)
                 os.fsync(parent)
             finally:
                 try:

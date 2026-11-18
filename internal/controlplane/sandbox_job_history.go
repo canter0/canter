@@ -41,8 +41,8 @@ const sandboxHistoryColumns = `j.job_id,j.generation,j.history_kind,j.actor_kind
 	j.history_terminal_at IS NULL AND (j.history_observed_at IS NULL OR j.history_observed_at<now()-interval '45 seconds'
 		OR j.generation<>s.generation OR s.phase NOT IN ('ready','save_failed'))`
 
-func (h *HTTPServer) sandboxHistoryEnabled() bool {
-	return h.config.Sandboxes.CollectJobHistory && h.config.Secrets != nil
+func (h *HTTPServer) sandboxHistoryEnabled(workspace string) bool {
+	return h.config.Secrets != nil && h.service.Store.canaryFeatureEnabled(workspace, h.config.Sandboxes.CollectJobHistory)
 }
 
 func (h *HTTPServer) sandboxJobHistory(w http.ResponseWriter, r *http.Request, v Sandbox, p Principal, parts []string) {
@@ -73,7 +73,7 @@ func (h *HTTPServer) sandboxJobHistory(w http.ResponseWriter, r *http.Request, v
 			writeStoreError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"jobs": jobs[:min(len(jobs), 100)], "more": len(jobs) > 100, "retentionEnabled": optIn, "collectorEnabled": h.sandboxHistoryEnabled(), "retentionDays": 7, "jobByteLimit": sandboxHistoryJobBytes})
+		writeJSON(w, http.StatusOK, map[string]any{"jobs": jobs[:min(len(jobs), 100)], "more": len(jobs) > 100, "retentionEnabled": optIn, "collectorEnabled": h.sandboxHistoryEnabled(v.WorkspaceID), "retentionDays": 7, "jobByteLimit": sandboxHistoryJobBytes})
 	case len(parts) == 2 && parts[1] == "retention" && r.Method == http.MethodPatch:
 		if p.Account == nil || p.Installation != nil {
 			writeStoreError(w, ErrForbidden)
@@ -403,16 +403,16 @@ func (d *SandboxDispatcher) collectSandboxHistoryPass(ctx context.Context) {
 		WHERE t.expires_at<=now()-interval '7 days' OR s.phase='deleted'
 		ORDER BY t.expires_at LIMIT 20 FOR UPDATE OF t SKIP LOCKED
 	) DELETE FROM sandbox_transfers t USING due WHERE t.id=due.id`)
-	if !h.sandboxHistoryEnabled() {
+	if !h.sandboxHistoryEnabled(s.featureCanaryWorkspace) {
 		return
 	}
 	var workspace, id string
 	err := s.pool.QueryRow(ctx, `SELECT j.workspace_id,j.sandbox_id FROM sandbox_jobs j JOIN sandboxes s ON s.id=j.sandbox_id
 		WHERE (j.history_output_state='collecting' OR (j.history_output_state='truncated' AND j.history_terminal_at IS NULL))
-		AND j.history_next_attempt<=now()
+		AND ($1 = '' OR j.workspace_id=$1) AND j.history_next_attempt<=now()
 		AND (j.history_lease_until IS NULL OR j.history_lease_until<=now())
 		AND s.phase IN ('ready','save_failed') AND s.generation=j.generation AND NOT s.delete_requested AND NOT s.sleep_requested
-		ORDER BY j.history_next_attempt,j.job_id LIMIT 1`).Scan(&workspace, &id)
+		ORDER BY j.history_next_attempt,j.job_id LIMIT 1`, s.featureCanaryWorkspace).Scan(&workspace, &id)
 	if err != nil {
 		return
 	}

@@ -43,6 +43,10 @@ func (s *Store) SetCILogReaderEnabled(enabled bool) {
 	s.ciLogReaderEnabled.Store(enabled)
 }
 
+func (s *Store) canReadCILogRanges(workspace string) bool {
+	return s.canaryFeatureEnabled(workspace, s.ciLogReaderEnabled.Load())
+}
+
 func cleanCILog(text string) string {
 	return strings.Map(func(r rune) rune {
 		if r == '\n' || r == '\t' {

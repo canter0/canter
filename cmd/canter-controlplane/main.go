@@ -77,6 +77,8 @@ func main() {
 	default:
 		log.Fatal("CANTER_SANDBOX_TARIFF_ENABLED must be true or false")
 	}
+	featureCanaryWorkspace := strings.TrimSpace(os.Getenv("CANTER_FEATURE_CANARY_WORKSPACE"))
+	store.SetFeatureCanaryWorkspace(featureCanaryWorkspace)
 	if invite := os.Getenv("CANTER_BETA_INVITE"); invite != "" {
 		if err = store.SeedInvite(ctx, invite, "environment beta invite"); err != nil {
 			log.Fatal(err)
@@ -317,6 +319,9 @@ func main() {
 	aiUsage := controlplane.WrenAIUsageConfigFromEnv()
 	if err := store.SetInitialWrenAIAllowanceMicroUSD(aiUsage.InitialAllowanceMicroUSD); err != nil {
 		log.Fatal("invalid initial AI allowance policy")
+	}
+	if featureCanaryWorkspace != "" && vault == nil {
+		log.Fatal("CANTER_FEATURE_CANARY_WORKSPACE requires a configured secrets keyring")
 	}
 	switch strings.ToLower(strings.TrimSpace(os.Getenv("CANTER_SANDBOX_JOB_HISTORY_ENABLED"))) {
 	case "", "false":

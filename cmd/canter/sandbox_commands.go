@@ -35,8 +35,8 @@ Commands:
   stop --id --job JOB           stop a job
   upload --id --path P --file F upload a local file
   download --id --path P --file F  download to a local file [--force]
-  push --id --from LOCAL --to REMOTE [--dry-run] [--overwrite] [--resume ID]
-  pull --id --from REMOTE --to LOCAL [--dry-run] [--overwrite] [--resume ID]
+  push --id --from LOCAL --to REMOTE [--dry-run] [--resume ID]
+  pull --id --from REMOTE --to LOCAL [--dry-run] [--resume ID]
   transfer --id --resume ID    inspect a transfer receipt
   cancel-transfer --id --resume ID  stop a pending transfer
   sleep --id                    suspend the sandbox

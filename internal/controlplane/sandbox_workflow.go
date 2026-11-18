@@ -171,7 +171,7 @@ func (h *HTTPServer) startSandboxJob(ctx context.Context, v Sandbox, input Sandb
 	if err != nil {
 		return wrencomputer.Job{}, err
 	}
-	if err := h.service.Store.recordSandboxCommand(ctx, v.ID, jobID, v.Generation, actor, workflow && h.sandboxHistoryEnabled()); err != nil {
+	if err := h.service.Store.recordSandboxCommand(ctx, v.ID, jobID, v.Generation, actor, workflow && h.sandboxHistoryEnabled(v.WorkspaceID)); err != nil {
 		return wrencomputer.Job{}, err
 	}
 	defer h.sandboxActivity(ctx, v.ID)()

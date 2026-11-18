@@ -109,7 +109,7 @@ func (s *Store) claimCIManagedRunner(ctx context.Context, profile ciManagedRunne
 	if json.Unmarshal(document, &doc) != nil {
 		return empty, ErrConflict
 	}
-	rateVersion := s.ciAdmissionRateVersion()
+	rateVersion := s.ciAdmissionRateVersion(workspace)
 	size, ok := pricing.FindCIContract(rateVersion, doc.Job.Size)
 	if !ok || size.ID != doc.Job.Size {
 		return empty, ErrConflict
