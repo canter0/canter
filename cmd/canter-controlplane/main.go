@@ -77,6 +77,7 @@ func main() {
 	default:
 		log.Fatal("CANTER_SANDBOX_TARIFF_ENABLED must be true or false")
 	}
+	store.SetFeatureCanaryWorkspace(strings.TrimSpace(os.Getenv("CANTER_FEATURE_CANARY_WORKSPACE")))
 	if invite := os.Getenv("CANTER_BETA_INVITE"); invite != "" {
 		if err = store.SeedInvite(ctx, invite, "environment beta invite"); err != nil {
 			log.Fatal(err)

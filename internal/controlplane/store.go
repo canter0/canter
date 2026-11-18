@@ -312,14 +312,15 @@ var (
 )
 
 type Store struct {
-	initialAIAllowance   atomic.Int64
-	wrensDisabled        atomic.Bool
-	ciRateV2Enabled      atomic.Bool
-	ciLogReaderEnabled   atomic.Bool
-	sandboxTariffEnabled atomic.Bool
-	billing              *BillingGateway
-	pool                 *pgxpool.Pool
-	now                  func() time.Time
+	initialAIAllowance     atomic.Int64
+	wrensDisabled          atomic.Bool
+	ciRateV2Enabled        atomic.Bool
+	ciLogReaderEnabled     atomic.Bool
+	sandboxTariffEnabled   atomic.Bool
+	featureCanaryWorkspace string
+	billing                *BillingGateway
+	pool                   *pgxpool.Pool
+	now                    func() time.Time
 }
 
 // SetWrensEnabled gates the standalone Wrens surface. Catalog data is

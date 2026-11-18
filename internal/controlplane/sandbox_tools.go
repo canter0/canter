@@ -41,7 +41,7 @@ func (h *HTTPServer) workspaceSandboxes(w http.ResponseWriter, r *http.Request, 
 				"sandboxes": items, "enabled": h.config.Sandboxes.Enabled,
 				"previewsEnabled": h.config.Sandboxes.PreviewDomain != "",
 				"freeUsage":       map[string]any{"usedSeconds": used, "limitSeconds": h.config.Sandboxes.freeSecondsPerMonth()},
-				"sizes":           h.service.Store.sandboxSizeList(),
+				"sizes":           h.service.Store.sandboxSizeList(workspace),
 				"limits": map[string]any{
 					"maxCommandSeconds": 86400, "maxFileBytes": int64(4) << 30,
 					"uploadChunkBytes": 4 << 20, "defaultIdleSeconds": int(h.config.Sandboxes.idleSleep().Seconds()),

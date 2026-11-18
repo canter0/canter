@@ -40,8 +40,8 @@ func (s *Store) SetCIRateV2Enabled(enabled bool) {
 	s.ciRateV2Enabled.Store(enabled)
 }
 
-func (s *Store) ciAdmissionRateVersion() string {
-	if s.ciRateV2Enabled.Load() {
+func (s *Store) ciAdmissionRateVersion(workspace string) string {
+	if s.ciRateV2Enabled.Load() && s.inFeatureCanary(workspace) {
 		return pricing.CIRateVersion
 	}
 	return pricing.CIRateVersionV1

@@ -162,18 +162,18 @@ func (s *Store) SetSandboxTariffEnabled(enabled bool) {
 	s.sandboxTariffEnabled.Store(enabled)
 }
 
-func (s *Store) sandboxComputeEstimate(vcpus, memoryMiB int) (int64, error) {
-	if s.sandboxTariffEnabled.Load() {
+func (s *Store) sandboxComputeEstimate(workspace string, vcpus, memoryMiB int) (int64, error) {
+	if s.sandboxTariffEnabled.Load() && s.inFeatureCanary(workspace) {
 		return pricing.EstimateSandboxComputeMonthlyCents(vcpus, memoryMiB)
 	}
 	return pricing.EstimateComputeMonthlyCents(vcpus, memoryMiB)
 }
 
-func (s *Store) sandboxSizeList() []map[string]any {
+func (s *Store) sandboxSizeList(workspace string) []map[string]any {
 	out := make([]map[string]any, 0, len(sandboxSizeOrder))
 	for _, id := range sandboxSizeOrder {
 		size := sandboxSizes[id]
-		monthly, _ := s.sandboxComputeEstimate(size.VCPU, size.Memory)
+		monthly, _ := s.sandboxComputeEstimate(workspace, size.VCPU, size.Memory)
 		out = append(out, map[string]any{
 			"id": id, "vcpus": size.VCPU, "memoryMiB": size.Memory,
 			"diskGiB": size.Disk, "free": size.Free,
@@ -270,7 +270,7 @@ func (s *Store) scanSandbox(row pgx.Row) (Sandbox, error) {
 	v.HasCheckpoint = v.CheckpointObject.Key != "" || v.CurrentSnapshotID != ""
 	v.VCPUs, v.MemoryMiB, v.DiskGiB = v.Plan.Shape.VCPU, v.Plan.Shape.Memory, v.Plan.Shape.GB
 	if v.Tier == "paid" && v.VCPUs > 0 && v.MemoryMiB > 0 {
-		v.MonthlyCents, err = s.sandboxComputeEstimate(v.VCPUs, v.MemoryMiB)
+		v.MonthlyCents, err = s.sandboxComputeEstimate(v.WorkspaceID, v.VCPUs, v.MemoryMiB)
 	}
 	return v, err
 }
@@ -558,7 +558,7 @@ func (h *HTTPServer) CreateSandbox(ctx context.Context, workspace, account strin
 	plan.Spec.Spec.Compute.Bootstrap = bootstrap
 	plan.Spec.Spec.Intent = "Canter sandbox for " + id
 	plan.Spec.Spec.M1.Prefix = "workspaces/" + workspace + "/sandboxes/" + id
-	monthly, err := h.service.Store.sandboxComputeEstimate(plan.Shape.VCPU, plan.Shape.Memory)
+	monthly, err := h.service.Store.sandboxComputeEstimate(workspace, plan.Shape.VCPU, plan.Shape.Memory)
 	if err != nil {
 		return Sandbox{}, err
 	}

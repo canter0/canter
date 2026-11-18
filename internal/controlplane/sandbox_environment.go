@@ -445,7 +445,7 @@ AND COALESCE(setup->>'status','')=$5 AND COALESCE(setup->>'jobId','')=$6`,
 			VALUES($1,$2,$3,$4,$5,'setup','system','sandbox-setup',CASE WHEN $6 AND
 				COALESCE((SELECT retain_output FROM sandbox_job_history_settings WHERE workspace_id=$4),true)
 				THEN 'collecting' ELSE 'not_collected' END) ON CONFLICT DO NOTHING`,
-			v.ID, setup.JobID, d.Server.service.Store.now(), v.WorkspaceID, v.Generation, d.Server.sandboxHistoryEnabled()); err != nil {
+			v.ID, setup.JobID, d.Server.service.Store.now(), v.WorkspaceID, v.Generation, d.Server.sandboxHistoryEnabled(v.WorkspaceID)); err != nil {
 			return err
 		}
 		if setup.Status == "succeeded" || setup.Status == "failed" {

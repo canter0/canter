@@ -175,7 +175,7 @@ func (s *Store) collectWorkspaceUsage(ctx context.Context, source BillingResourc
 				return fmt.Errorf("invalid sandbox metering snapshot")
 			}
 			seen[resource.ID] = true
-			if s.sandboxTariffEnabled.Load() {
+			if s.sandboxTariffEnabled.Load() && s.inFeatureCanary(workspace) {
 				resource.Kind = "sandbox_compute"
 			}
 			resources = append(resources, resource)

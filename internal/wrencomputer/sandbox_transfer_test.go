@@ -70,6 +70,24 @@ func TestGuestSandboxTransferRoundTripAndVersionFence(t *testing.T) {
 	if err := client.SandboxTransfer(ctx, "read", reading, &chunk); err == nil {
 		t.Fatal("guest accepted a stale source version")
 	}
+	// A writer created or changed the destination after planning. Both a
+	// stale missing plan and a requested replacement must preserve its bytes.
+	in["id"] = "upl_transfer_test_002"
+	if _, err := client.BeginUpload(ctx, "upl_transfer_test_002", file, int64(len(data)), digest); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.UploadChunk(ctx, "upl_transfer_test_002", 0, data); err != nil {
+		t.Fatal(err)
+	}
+	for _, version := range []string{"missing", entry.Version} {
+		in["version"] = version
+		if err := client.SandboxTransfer(ctx, "commit", in, &saved); err == nil {
+			t.Fatalf("guest replaced a competing destination at version %q", version)
+		}
+	}
+	if actual, err := os.ReadFile(filepath.Join(project, entry.Path)); err != nil || string(actual) != "changed concurrently" {
+		t.Fatalf("competing file changed: %q %v", actual, err)
+	}
 	for _, target := range []string{"/workspace/project/../.canter", "/workspace/project/symlink/new", "/workspace/.git/new"} {
 		if err := client.SandboxTransfer(ctx, "mkdir", map[string]string{"path": target}, &struct{}{}); err == nil {
 			t.Fatalf("guest accepted %q", target)

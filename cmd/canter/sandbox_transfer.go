@@ -32,10 +32,13 @@ func sandboxTransferCommand(direction string, args []string) error {
 	to := flags.fs.String("to", "", "destination directory")
 	resume := flags.fs.String("resume", "", "resume this transfer receipt")
 	dry := flags.fs.Bool("dry-run", false, "show the manifest and collisions before transferring")
-	overwrite := flags.fs.Bool("overwrite", false, "allow replacing files captured by the plan")
+	overwrite := flags.fs.Bool("overwrite", false, "legacy option; choose a destination without existing files")
 	sensitive := flags.fs.Bool("include-sensitive-files", false, "include sensitive filenames listed in the plan")
 	if err := flags.parse(args); err != nil {
 		return err
+	}
+	if *overwrite {
+		return errors.New("directory transfers require a destination without existing files")
 	}
 	if *id == "" || *flags.timeout <= 0 {
 		return errors.New("--id and a positive --timeout are required")
@@ -84,7 +87,7 @@ func sandboxTransferCommand(direction string, args []string) error {
 	if absolute == filepath.VolumeName(absolute)+string(os.PathSeparator) {
 		return errors.New("choose a project directory below the filesystem root")
 	}
-	request := sdk.SandboxTransferRequest{Direction: direction, Path: guest, Overwrite: *overwrite, IncludeSensitive: *sensitive}
+	request := sdk.SandboxTransferRequest{Direction: direction, Path: guest, IncludeSensitive: *sensitive}
 	binding := fmt.Sprintf("%x", sha256.Sum256([]byte(absolute)))
 	var record sdk.SandboxTransfer
 	if *resume != "" {
@@ -92,7 +95,7 @@ func sandboxTransferCommand(direction string, args []string) error {
 		if err != nil {
 			return err
 		}
-		if record.Direction != direction || record.Path != guest || record.Overwrite != *overwrite || record.IncludeSensitive != *sensitive ||
+		if record.Direction != direction || record.Path != guest || record.Overwrite || record.IncludeSensitive != *sensitive ||
 			(record.DestinationBinding != "" && record.DestinationBinding != binding) {
 			return errors.New("resume requires the original source, destination and flags")
 		}
@@ -128,8 +131,8 @@ func sandboxTransferCommand(direction string, args []string) error {
 			return sandboxPrintJSON(record)
 		}
 		showTransferPlan(record, absolute)
-		if len(record.Collisions) > 0 && !record.Overwrite {
-			return errors.New("destination collisions require a new plan with --overwrite")
+		if len(record.Collisions) > 0 {
+			return errors.New("destination collisions require a new destination or plan")
 		}
 		err = pushSandboxTree(ctx, client, root, record, limits.ChunkBytes)
 	} else {
@@ -180,8 +183,8 @@ func sandboxTransferCommand(direction string, args []string) error {
 			}
 		}
 		showTransferPlan(record, absolute)
-		if len(record.Collisions) > 0 && !record.Overwrite {
-			return errors.New("destination collisions require a new plan with --overwrite")
+		if len(record.Collisions) > 0 {
+			return errors.New("destination collisions require a new destination or plan")
 		}
 		if root == nil {
 			root, err = openTransferRoot(absolute, true)
@@ -667,7 +670,7 @@ func pullTransferFile(ctx context.Context, client *remote.SandboxClient, root *o
 			}
 		}
 	}
-	if current != expected || (current != "missing" && !plan.Overwrite) {
+	if expected != "missing" || current != "missing" {
 		return errors.New("destination changed; create a new transfer plan")
 	}
 	var nonce [16]byte
@@ -719,12 +722,5 @@ func pullTransferFile(ctx context.Context, client *remote.SandboxClient, root *o
 	if err = ctx.Err(); err != nil {
 		return err
 	}
-	actual, err := transferLeafVersion(parent, leaf)
-	if err != nil || actual != expected {
-		return errors.New("destination changed while staging")
-	}
-	if expected == "missing" {
-		return parent.Link(name, leaf)
-	}
-	return parent.Rename(name, leaf)
+	return parent.Link(name, leaf)
 }
