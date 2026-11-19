@@ -105,7 +105,11 @@ func (m *ciMockGitHub) handle(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `{}`)
 	case strings.HasPrefix(path, "/app/installations/") && strings.HasSuffix(path, "/access_tokens"):
 		fmt.Fprint(w, `{"token":"inst-token-1","expires_at":"2099-01-01T00:00:00Z"}`)
-	case strings.HasPrefix(path, "/app/installations/"):
+	case strings.HasPrefix(path, "/app/installations/"), path == "/users/"+m.userLogin+"/installation":
+		if m.installationID == 0 {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
 		m.installationHits.Add(1)
 		var suspended any
 		if m.suspended {
@@ -356,6 +360,55 @@ func TestCIHardeningCallbackUserSuccessAndReplay(t *testing.T) {
 		t.Fatal("replayed state must not bind again")
 	}
 	assertFirstUseProduct(t, s, c.WorkspaceID, "ci", true, 1)
+}
+
+func TestCILinkExistingPersonalInstallation(t *testing.T) {
+	s, c, token := operatorFixture(t)
+	ctx := context.Background()
+	mock := newCIMockGitHub(t)
+	mock.repos = []ciGitHubRepo{{ID: 8001, FullName: "octo/app", Private: true}}
+	h := ciHardeningServer(s, ciHardeningConfig(t, mock), true)
+	link := func(want int) *httptest.ResponseRecorder {
+		t.Helper()
+		req := ciAuthedRequest(t, http.MethodPost, "/v1/workspaces/"+c.WorkspaceID+"/ci/github/link-personal", token, "")
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != want {
+			t.Fatalf("link: want %d, got %d %s", want, rec.Code, rec.Body.String())
+		}
+		return rec
+	}
+	if rec := link(http.StatusConflict); !strings.Contains(rec.Body.String(), "ci_github_repository_connection_required") {
+		t.Fatalf("missing repository connection error code: %s", rec.Body.String())
+	}
+	ciSaveGitHub(t, h, ctx, c.AccountID, c.WorkspaceID)
+	mock.mu.Lock()
+	mock.installationID = 0
+	mock.mu.Unlock()
+	link(http.StatusNotFound)
+	mock.mu.Lock()
+	mock.installationID = 7001
+	mock.accountID = 9999
+	mock.mu.Unlock()
+	link(http.StatusBadGateway)
+	assertFirstUseProduct(t, s, c.WorkspaceID, "ci", false, 0)
+
+	mock.mu.Lock()
+	mock.accountID = mock.userID
+	mock.mu.Unlock()
+	link(http.StatusOK)
+	link(http.StatusOK)
+	assertFirstUseProduct(t, s, c.WorkspaceID, "ci", true, 1)
+	var count int
+	if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM ci_repositories AS r
+		JOIN ci_github_installations AS i ON i.id=r.installation_id
+		WHERE i.workspace_id=$1 AND i.github_installation_id=7001 AND i.status='active'
+			AND r.github_repository_id=8001 AND r.enabled AND r.private`, c.WorkspaceID).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("want one bound private repository, got %d", count)
+	}
 }
 
 func TestCIHardeningCallbackOrgAdminAndReconnect(t *testing.T) {

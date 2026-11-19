@@ -55,8 +55,8 @@ function CiDashboard({ workspace, memberships, productName }: { workspace: Works
   }
   const [jobFilter, setJobFilter] = useState("");
   const [actionError, setActionError] = useState("");
-  const [connecting, setConnecting] = useState(false);
-  const [connectError, setConnectError] = useState("");
+  const [connecting, setConnecting] = useState<"install" | "link" | null>(null);
+  const [connectError, setConnectError] = useState<{ message: string; needsRepositoryConnection?: boolean } | null>(null);
   const loadSequence = useRef(0);
   const base = `/workspaces/${encodeURIComponent(workspace.id)}/ci`;
 
@@ -84,24 +84,34 @@ function CiDashboard({ workspace, memberships, productName }: { workspace: Works
     setOverview(current => current ? { ...current, jobs: current.jobs.map(job => job.id === updated.id ? updated : job) } : current);
   }, []);
 
-  async function connectGitHub() {
+  async function startGitHubAppSetup(action: "install" | "link") {
     const signal = requestSignal();
     if (signal.aborted || !owner || connecting) return;
-    setConnecting(true);
-    setConnectError("");
+    setConnecting(action);
+    setConnectError(null);
     try {
+      if (action === "link") {
+        await canterFetch<{ linked: boolean }>(`${base}/github/link-personal`, { method: "POST", signal });
+        if (!signal.aborted) await load();
+        return;
+      }
       const result = await canterFetch<{ url: string }>(`${base}/github/connect`, { method: "POST", signal });
       if (signal.aborted) return;
       const url = safeGitHubURL(result.url);
       if (!url) {
-        setConnectError("The server returned an unexpected GitHub connect URL.");
+        setConnectError({ message: "The server returned an unexpected GitHub App setup URL." });
         return;
       }
       window.location.assign(url);
     } catch (cause) {
-      if (!signal.aborted) setConnectError(cause instanceof Error ? cause.message : "Couldn’t start the GitHub connection.");
+      if (signal.aborted) return;
+      const needsRepositoryConnection = cause instanceof CanterAPIError && cause.code === "ci_github_repository_connection_required";
+      setConnectError({
+        message: needsRepositoryConnection ? "Connect GitHub repository access in account settings before setting up CI." : cause instanceof Error ? cause.message : "Couldn’t start Canter CI setup.",
+        needsRepositoryConnection,
+      });
     } finally {
-      if (!signal.aborted) setConnecting(false);
+      if (!signal.aborted) setConnecting(null);
     }
   }
 
@@ -119,16 +129,25 @@ function CiDashboard({ workspace, memberships, productName }: { workspace: Works
   const canAsk = featureReady("agent-inspect");
   const overrunReady = featureReady("paid-overrun");
   const cacheReady = featureReady("cache");
+  const setupError = connectError ? <p role="alert" className={styles.error}>
+    {connectError.message} {connectError.needsRepositoryConnection ? <Link className="rule-link" href="/app/account/connections">Account connections</Link> : null}
+  </p> : null;
   if (linkedElsewhere && requestedWorkspace) return <AppShell active="CI" pageTitle={productName}><section className={styles.contentPage}>
     <JobLinkWorkspace id={requestedWorkspace} memberships={memberships} />
   </section></AppShell>;
   return <AppShell active="CI" pageTitle={productName}><section className={styles.contentPage}>
     <div className={styles.pageHeading} data-motion="reveal"><div><h1>{productName}</h1><p>GitHub Actions runners for this organization.</p></div></div>
     {loadError ? <div role="alert" className={styles.error}>{loadError} <button onClick={() => void load()}>Try again</button></div> : null}
-    {!overview ? <p role="status" className={styles.loading}>Loading CI…</p> : !overview.enabled || !overview.installations.length ? <div className={styles.emptyState} data-motion="reveal"><span className={styles.emptyIcon}><WorkspaceIcon name="changes" width="24" height="24" /></span><h2>Run GitHub Actions on Canter</h2><p>Connect GitHub, then point a workflow at a Canter runner. {pricing?.freeSecondsPerRun ? `The first ${freePeriodText(pricing.freeSecondsPerRun)} of every run is free.` : "Every run starts with a free period."}</p>
-      {owner ? <button type="button" className={styles.primaryButton} disabled={connecting || !githubAppReady} onClick={() => void connectGitHub()}>{connecting ? "Connecting…" : "Connect GitHub"}</button> : <p className={styles.status}>Ask an owner to connect GitHub.</p>}
-      {owner && !githubAppReady ? <p className={styles.status}>GitHub connections aren’t available yet.</p> : null}
-      {connectError ? <p role="alert" className={styles.error}>{connectError}</p> : null}
+    {!overview ? <p role="status" className={styles.loading}>Loading CI…</p> : !overview.enabled || !overview.installations.length ? <div className={styles.emptyState} data-motion="reveal">
+      <span className={styles.emptyIcon}><WorkspaceIcon name="changes" width="24" height="24" /></span>
+      <h2>Set up Canter CI</h2>
+      <p>Link the Canter CI GitHub App already installed on your personal GitHub account, or install it on GitHub and select repositories.</p>
+      {owner ? <div className={ci.setupActions}>
+        <button type="button" className={styles.primaryButton} disabled={connecting !== null || !githubAppReady} onClick={() => void startGitHubAppSetup("link")}>{connecting === "link" ? "Linking…" : "Link existing personal installation"}</button>
+        <button type="button" className={styles.secondaryButton} disabled={connecting !== null || !githubAppReady} onClick={() => void startGitHubAppSetup("install")}>{connecting === "install" ? "Opening GitHub…" : "Install on GitHub"}</button>
+      </div> : <p className={styles.status}>Ask a workspace owner to set up the Canter CI GitHub App.</p>}
+      {owner && !githubAppReady ? <p className={styles.status}>The Canter CI GitHub App is unavailable.</p> : null}
+      {setupError}
     </div> : <>
       {actionError ? <p role="alert" className={styles.error}>{actionError}</p> : null}
       <div className={ci.statGrid}>
@@ -188,8 +207,8 @@ function CiDashboard({ workspace, memberships, productName }: { workspace: Works
           <span className={styles.status}>{ciStateText(installation.status)}</span>
           <span className={ci.installMeta}>{installation.repositoryCount} {installation.repositoryCount === 1 ? "repository" : "repositories"}</span>
         </li>)}</ul> : <p>No GitHub installations connected.{owner ? "" : " Ask an organization owner to connect one."}</p>}
-        {owner ? <p><button type="button" className={styles.secondaryButton} disabled={connecting || !githubAppReady} onClick={() => void connectGitHub()}>{connecting ? "Connecting…" : overview.installations.length ? "Connect another GitHub organization" : "Connect GitHub"}</button></p> : null}
-        {connectError ? <p role="alert" className={styles.error}>{connectError}</p> : null}
+        {owner ? <p><button type="button" className={styles.secondaryButton} disabled={connecting !== null || !githubAppReady} onClick={() => void startGitHubAppSetup("install")}>{connecting === "install" ? "Opening GitHub…" : "Add GitHub App installation"}</button></p> : null}
+        {setupError}
       </section>
       {!writer ? <p className={ci.section}>You have read-only access to this organization.</p> : null}
       {owner && settings ? <CiSettings key={JSON.stringify(settings)} base={base} settings={settings} sizes={pricing!.sizes} overrunReady={overrunReady} cacheReady={cacheReady} onSaved={next => setOverview(current => current ? { ...current, settings: next } : current)} /> : null}
