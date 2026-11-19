@@ -40,6 +40,7 @@ import type { Wren, WrenRoom } from "@/lib/wrens";
 import type { SpotlightCommand } from "@/lib/spotlight";
 import { shortcutLabel } from "@/lib/a-shortcuts";
 import { useWorkspace } from "./workspace-context";
+import { useSessionTabs } from "./session-tabs-context";
 import { WorkspaceIcon } from "./workspace-icon";
 import { OperatorSurfaceView } from "./operator-surface";
 import { canterFetch, CanterAPIError } from "@/lib/canter-api";
@@ -68,7 +69,7 @@ const subscribeModel = (onChange: () => void) => { window.addEventListener("cant
 const activeRun = (run?: OperatorRun | null) => !!run && ["queued", "running"].includes(run.status);
 const restoredSurfaces = (events: OperatorEvent[]) => [...new Map(events.filter(event => event.kind === "surface" && isSurface(event.data) && !["github", "compute", "storage"].includes(String(event.data.kind))).map(event => [surfaceKey(event.data as OperatorSurface), event.data as OperatorSurface])).values()];
 
-export function OperatorWorkspace({ id: initialId, githubResult, focusComposer, initialDetail = null, initialLoadedAt, welcome = false, wren, room, roomPeopleCount, onConversationUpdate, sidebarContent, onEditWren, inspector, inspectorOpen, onCloseInspector, prefillPrompt }: { wren?: Wren; room?: WrenRoom; roomPeopleCount?:number; onConversationUpdate?: () => void; sidebarContent?: ReactNode; onEditWren?: () => void; inspector?: ReactNode; inspectorOpen?: boolean; onCloseInspector?: () => void; id?: string; githubResult?: string; focusComposer?: boolean; initialDetail?: ConversationDetail | null; initialLoadedAt?: number; welcome?: boolean; prefillPrompt?: string }) {
+export function OperatorWorkspace({ id: initialId, githubResult, focusComposer, initialDetail = null, initialLoadedAt, welcome = false, wren, room, roomPeopleCount, onConversationUpdate, sidebarContent, onEditWren, inspector, inspectorOpen, onCloseInspector, prefillPrompt, draftTab }: { wren?: Wren; room?: WrenRoom; roomPeopleCount?:number; onConversationUpdate?: () => void; sidebarContent?: ReactNode; onEditWren?: () => void; inspector?: ReactNode; inspectorOpen?: boolean; onCloseInspector?: () => void; id?: string; githubResult?: string; focusComposer?: boolean; initialDetail?: ConversationDetail | null; initialLoadedAt?: number; welcome?: boolean; prefillPrompt?: string; draftTab?: string }) {
   const router = useRouter();
   const searchParams=useSearchParams();
   const jumpMessage=searchParams.get("message"),jumpWork=searchParams.get("work"),jumpWorkId=searchParams.get("workId");
@@ -225,7 +226,10 @@ export function OperatorWorkspace({ id: initialId, githubResult, focusComposer, 
   const transcriptContent = useRef<HTMLDivElement>(null);
   const followScroll = useRef(true);
   const pending = useRef<{ id: string; requestId: string; message: string; signature: string } | null>(null);
-  const storageKey = operatorDraftKey(data?.account.id, workspace, id);
+  const sessionTabs = useSessionTabs();
+  const activeTab = sessionTabs?.state?.active;
+  const tabDraft = draftTab ?? (activeTab && activeTab !== "initial" ? activeTab : undefined);
+  const storageKey = operatorDraftKey(data?.account.id, workspace, id ?? (tabDraft ? "new-tab:"+tabDraft : undefined));
   const contextStorageKey = storageKey ? `${storageKey}:context` : null;
   const contextRaw = useSyncExternalStore(subscribeDraft, () => {
     const fallback = contextFallback?.key === contextStorageKey ? contextFallback.raw : "";

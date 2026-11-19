@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { canterFetch, CanterAPIError, type Me } from "./canter-api";
+import { expiredSessionDestination } from "./auth";
 import { requiredWorkspaceResources, workspaceResources, workspaceResourcePath, type WorkspaceBootstrap, type WorkspaceOverview as Overview, type WorkspaceResource } from "./workspace-data";
 
 type ResourceState = { loaded: boolean; error: string };
@@ -21,8 +22,9 @@ export function useWorkspaceOverview(initial: WorkspaceBootstrap) {
     const running = new Set<string>();
     const handleAuth = (cause: unknown) => {
       if (cause instanceof CanterAPIError && cause.status === 401) {
-        // A full navigation disposes of every private in-memory snapshot.
-        window.location.replace("/sign-in?next=/app");
+        // A full navigation disposes of every private in-memory snapshot. The
+        // live location wins over the rendered pathname under rewrites.
+        window.location.replace("/sign-in?next=" + encodeURIComponent(expiredSessionDestination(window.location.pathname)));
       } else if(cause instanceof CanterAPIError&&cause.status===403){void refreshAccount();}
     };
     async function refreshResource(resource: WorkspaceResource) {
@@ -87,7 +89,14 @@ export function workspaceActivities(data: Pick<Overview, "initialDeployments" | 
   ].sort((a, b) => (Date.parse(b.createdAt ?? "") || 0) - (Date.parse(a.createdAt ?? "") || 0));
 }
 
+export function phaseTone(phase: string) {
+  if (["succeeded", "committed", "active", "ready", "healthy"].includes(phase)) return "good";
+  if (["failed", "rejected", "revoked", "reverted"].includes(phase)) return "bad";
+  if (["drafted", "escalated", "authorized", "queued", "running", "applying", "verifying", "compensating", "pending"].includes(phase)) return "pending";
+  return "neutral";
+}
+
 export function activityLabel(phase: string) {
-  const labels: Record<string, string> = { drafted: "Needs review", authorized: "Approved", queued: "Queued", running: "Running", applying: "Applying", verifying: "Verifying", compensating: "Recovering", committed: "Completed", succeeded: "Completed", failed: "Failed", rejected: "Declined", reverted: "Reverted", escalated: "Needs attention" };
+  const labels: Record<string, string> = { pending: "Pending", drafted: "Needs review", authorized: "Approved", queued: "Queued", running: "Running", applying: "Applying", verifying: "Verifying", compensating: "Recovering", committed: "Completed", succeeded: "Completed", failed: "Failed", rejected: "Declined", reverted: "Reverted", escalated: "Needs attention" };
   return labels[phase] ?? phase;
 }

@@ -4,8 +4,10 @@ import {getSelectedWorkspace} from "@/lib/workspace-selection";
 import { useEffect, useState } from "react";
 import { useSurfaceWorkspace } from "./embedded-app-surface";
 import Link from "next/link";
-import { AppShell, SectionHeader } from "@/components/app-shell";
-import { activityLabel } from "@/lib/workspace-overview";
+import { AppShell } from "@/components/app-shell";
+import { WorkspaceIcon } from "./workspace-icon";
+import styles from "./detail-page.module.css";
+import { activityLabel, phaseTone } from "@/lib/workspace-overview";
 import { canterFetch, relativeTime, type ChangeDetail } from "@/lib/canter-api";
 
 export function ChangeReview({ id, system }: { id: string; system: string }) {
@@ -82,23 +84,38 @@ export function ChangeReview({ id, system }: { id: string; system: string }) {
     ["estimated monthly change (USD)", impact?.monthlyCostDeltaCents == null ? "not assessed" : `${impact.monthlyCostDeltaCents >= 0 ? "+" : "−"}$${Math.abs(impact.monthlyCostDeltaCents / 100).toFixed(2)}`],
   ] : [];
 
+  const reload = () => { setError(""); void load().catch(cause => setError(cause instanceof Error ? cause.message : "Could not reload this change.")); };
+
   return (
-    <AppShell active="Changes" context={`canter / default / ${id}`}>
-      <section className="flex min-h-[calc(100vh-80px)] flex-col overflow-x-auto px-6 pt-10 sm:px-10 lg:px-14 lg:pt-11">
-        <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-[1fr_160px] items-end border-b border-[var(--rule-strong)] pb-7"><div><div className="meta">{id} · drafted by {change?.draftedBy?.displayName ?? change?.draftedBy?.id ?? "agent"}</div><h1 className="display mt-3 text-[28px] break-words">{change?.summary ?? "Loading Change"}</h1></div><div className="flex items-center sm:justify-end gap-2 pb-1 text-[10px]"><span className="signal" />{change ? activityLabel(change.phase) : "Loading…"}</div></div>
-        {error ? <div role="alert" className="mt-8 rounded-lg border border-[#624040] bg-[#291f1f] p-4 text-[#e5b3b3]">{error} <button className="underline underline-offset-4" onClick={() => { setError(""); void load().catch(cause => setError(cause instanceof Error ? cause.message : "Could not reload this change.")); }}>Reload review</button></div> : null}
-        <div className="mt-10 grid min-w-0 gap-12 lg:grid-cols-[1.4fr_1fr]">
-          <div><SectionHeader left="EXECUTION PLAN" right={`${change?.operations?.length ?? 0} STEPS`} />{change?.operations?.map((operation, index) => <div key={operation.id} className="grid min-h-14 grid-cols-[28px_minmax(0,1fr)] gap-x-3 sm:grid-cols-[40px_minmax(0,1fr)_100px] items-center border-b border-[var(--rule)] py-3"><span className="text-[var(--muted)]">{String(index + 1).padStart(2, "0")}</span><div><div>{operation.description}</div><div className="mt-1 text-[var(--muted)]">{operation.kind}</div></div><span className="col-start-2 text-[var(--muted)] sm:col-start-auto sm:text-right">{activityLabel(operation.phase)}</span></div>)}</div>
-          <div><SectionHeader left="EXACT ASSESSMENT" />{assessment.map(([key, value]) => <div key={key} className="flex min-h-11 items-center justify-between gap-8 border-b border-[var(--rule)] py-3"><span>{key}</span><span className={`max-w-[240px] break-all text-right text-[var(--muted)] ${key === "digest" ? "font-mono text-[11px]" : ""}`}>{value}</span></div>)}</div>
+    <AppShell active="Changes" context={`canter / default / ${id}`} pageTitle={change?.summary ?? "Change review"}>
+      <section className={styles.page}><div className={styles.inner}>
+        <header className={styles.header}>
+          <div><div className={styles.eyebrow}>{system ? `${system} · ` : ""}Drafted by {change?.draftedBy?.displayName ?? change?.draftedBy?.id ?? "agent"}</div><h1>{change?.summary ?? "Loading change…"}</h1></div>
+          {change ? <span className={styles.status} data-tone={phaseTone(change.phase)}><span />{activityLabel(change.phase)}</span> : null}
+        </header>
+        {error ? <div role="alert" className={styles.error}>{error} <button onClick={reload}>Reload</button></div> : null}
+        <div className={styles.grid}>
+          <section className={styles.section}><h2>What will happen<small>{change?.operations?.length ?? 0} steps</small></h2>
+            {change?.operations?.length ? <ol className={styles.steps}>{change.operations.map((operation, index) => <li key={operation.id}><span className={styles.stepIndex}>{index + 1}</span><div>{operation.description}<small>{operation.kind}</small></div><span className={styles.stepPhase} data-tone={phaseTone(operation.phase)}>{activityLabel(operation.phase)}</span></li>)}</ol> : <p className={styles.empty}>{change ? "No steps recorded." : "Loading…"}</p>}
+          </section>
+          <section className={styles.section}><h2>Assessment</h2>
+            <dl className={styles.rows}>{assessment.map(([key, value]) => <div key={key}><dt>{key.charAt(0).toUpperCase() + key.slice(1)}</dt><dd className={key === "digest" ? styles.mono : undefined}>{value}</dd></div>)}</dl>
+          </section>
         </div>
-        <div className="mt-12 min-w-0"><SectionHeader left="EVIDENCE" right={`${change?.evidence?.length ?? 0} RECORDS`} />{change?.evidence?.map((record) => <div key={`${record.operationId}-${record.observedAt}`} className="grid min-h-12 grid-cols-1 gap-2 sm:grid-cols-[100px_minmax(0,1fr)_120px] items-center border-b border-[var(--rule)] py-3"><span className="text-[var(--muted)]">{record.operationId}</span><span>{record.statement}</span><span className="text-right text-[var(--muted)]">{relativeTime(record.observedAt)}</span></div>)}{change && !change.evidence?.length ? <div className="flex h-16 items-center border-b border-[var(--rule)] text-[var(--muted)]">No execution evidence yet.</div> : null}</div>
-        {execution ? <div role="status" className="mt-8 border-l-2 border-[var(--signal)] pl-4">Execution accepted: {String(execution.id ?? execution.executionId ?? "durable record created")}</div> : null}
-        <div className="mt-auto flex min-h-20 min-w-0 flex-wrap items-center justify-between gap-4 py-5 border-t border-[var(--rule-strong)]">
-          {change ? <Link href={`/app/system/${encodeURIComponent(system)}/policies?from=${encodeURIComponent(change.id)}`} className="rule-link">Create standing policy from this envelope ↗</Link> : <span />}
-          <div className="flex gap-3">{change?.phase === "drafted" ? <button onClick={() => void authorize()} disabled={pending} className="flex h-10 rounded-lg min-w-[176px] items-center justify-center bg-[var(--ink)] px-6 text-[var(--paper)] disabled:opacity-50">{pending ? "Authorizing…" : "Authorize exact digest"}</button> : null}
-          {change?.phase === "authorized" ? <button onClick={() => void apply()} disabled={pending} className="flex h-10 rounded-lg min-w-[176px] items-center justify-center bg-[var(--ink)] px-6 text-[var(--paper)] disabled:opacity-50">{pending ? "Starting…" : "Apply approved Change"}</button> : null}</div>
+        <div className={styles.stack}>
+          <section className={styles.section}><h2>Execution evidence<small>{change?.evidence?.length ?? 0}</small></h2>
+            {change?.evidence?.length ? <ul className={styles.list}>{change.evidence.map((record) => <li key={`${record.operationId}-${record.observedAt}`}><div>{record.statement}<small>{record.operationId}</small></div><small>{relativeTime(record.observedAt)}</small></li>)}</ul> : <p className={styles.empty}>No execution evidence yet.</p>}
+          </section>
         </div>
-      </section>
+        {execution ? <p role="status" className={styles.notice}>Execution accepted: {String(execution.id ?? execution.executionId ?? "durable record created")}</p> : null}
+        <div className={styles.actions}>
+          {change ? <Link href={`/app/system/${encodeURIComponent(system)}/policies?from=${encodeURIComponent(change.id)}`} className={styles.link}>Create a standing policy from this change<WorkspaceIcon name="right" width="14" height="14" /></Link> : <span />}
+          <div className={styles.buttons}>
+            {change?.phase === "drafted" ? <button onClick={() => void authorize()} disabled={pending} className={styles.primary}>{pending ? "Approving…" : "Approve this change"}</button> : null}
+            {change?.phase === "authorized" ? <button onClick={() => void apply()} disabled={pending} className={styles.primary}>{pending ? "Starting…" : "Apply approved change"}<WorkspaceIcon name="right" width="16" height="16" /></button> : null}
+          </div>
+        </div>
+      </div></section>
     </AppShell>
   );
 }

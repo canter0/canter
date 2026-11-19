@@ -91,6 +91,8 @@ export type WorkspaceInvitation = {
   inviterEmail: string;
   role: "owner" | "operator" | "viewer" | string;
   expiresAt: string;
+  // Older responses may omit the invite creation time.
+  createdAt?: string;
 };
 
 export type Product = {

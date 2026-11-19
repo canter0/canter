@@ -1,6 +1,6 @@
 import type { WorkspaceOverview } from "./workspace-data";
 
-export type WorkspaceNotification = { id: string; title: string; detail: string; href: string; kind: "review" | "failure" | "invite" | "security"; updatedAt: string; inviteId?: string; workspaceId?: string };
+export type WorkspaceNotification = { id: string; title: string; detail: string; href: string; kind: "review" | "failure" | "invite" | "security"; updatedAt: string; inviteId?: string; workspaceId?: string; expiresAt?: string };
 export type NotificationReceipts = Record<string, true>;
 
 export function notificationReceiptKey(account: string, workspace: string) {
@@ -20,7 +20,7 @@ export function parseNotificationReceipts(raw: string): NotificationReceipts {
 export function workspaceNotifications(data: WorkspaceOverview): WorkspaceNotification[] {
   const items: WorkspaceNotification[] = [];
   for (const invite of data.invites ?? []) {
-    items.push({ id: `invite:${invite.id}`, title: `${invite.inviterEmail || "Someone"} invited you to ${(invite.workspaceName === "default" ? "Personal" : invite.workspaceName) || "an organization"}`, detail: `Join as ${invite.role}.`, href: "", kind: "invite", updatedAt: invite.expiresAt, inviteId: invite.id, workspaceId: invite.workspaceId });
+    items.push({ id: `invite:${invite.id}`, title: `${invite.inviterEmail || "Someone"} invited you to ${(invite.workspaceName === "default" ? "Personal" : invite.workspaceName) || "an organization"}`, detail: `Join as ${invite.role}.`, href: "", kind: "invite", updatedAt: invite.createdAt ?? "", inviteId: invite.id, workspaceId: invite.workspaceId, expiresAt: invite.expiresAt });
   }
   for (const conversation of data.conversations) {
     if (conversation.workspaceId !== data.workspace.id || conversation.status !== "failed") continue;

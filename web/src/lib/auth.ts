@@ -15,6 +15,14 @@ export function authDestination(next: string, fallback = "/app") {
   } catch { return fallback; }
 }
 
+// A dead session returns the member to sign-in and back into the workspace
+// they were viewing. Only the normalized /app path survives; search, hash and
+// anything outside the app fall back to the workspace root.
+export function expiredSessionDestination(pathname: string) {
+  const path = authDestination(pathname).split(/[?#]/, 1)[0];
+  return path === "/app" || path.startsWith("/app/") ? path : "/app";
+}
+
 export function authError(code: string) {
   const messages: Record<string, string> = {
     provider_unavailable: "This sign-in provider is not available yet. Please use your email.",

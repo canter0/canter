@@ -1,4 +1,4 @@
-import type { KeyboardEvent } from "react";
+import type { KeyboardEvent, PointerEvent } from "react";
 
 /** Menus contain one tab stop; arrows move between enabled items. */
 export function moveMenuFocus(event: KeyboardEvent<HTMLElement>) {
@@ -9,6 +9,13 @@ export function moveMenuFocus(event: KeyboardEvent<HTMLElement>) {
   const current = items.indexOf(document.activeElement as HTMLElement);
   const next = event.key === "Home" ? 0 : event.key === "End" ? items.length - 1 : (current + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
   items[next]?.focus();
+}
+
+export function focusMenuItemUnderPointer(event: PointerEvent<HTMLElement>) {
+  if (event.pointerType !== "mouse") return;
+  delete event.currentTarget.dataset.keyboard;
+  const item = event.target instanceof Element ? event.target.closest<HTMLElement>('[role^="menuitem"]:not(:disabled)') : null;
+  if (item && item !== document.activeElement && event.currentTarget.contains(item)) item.focus({ preventScroll: true });
 }
 
 export function focusableElements(container: HTMLElement) {

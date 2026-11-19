@@ -17,6 +17,15 @@ import (
 const maxOperatorImagePixels = 20_000_000
 const maxOperatorImageDimension = 8192
 
+// Allow for base64 expansion, metadata and message text while staying below
+// the web proxy's 16 MiB buffer. Keep raw limits in sync with the composer.
+const (
+	maxOperatorAttachments      = 8
+	maxOperatorAttachmentBytes  = 8 << 20
+	maxOperatorAttachmentTotal  = 10 << 20
+	maxOperatorMessageBodyBytes = 14 << 20
+)
+
 // Attachments belong to an owner-scoped conversation, just like its messages.
 type OperatorAttachment struct {
 	ID         string `json:"id"`
@@ -27,8 +36,8 @@ type OperatorAttachment struct {
 }
 
 func validateOperatorAttachments(items []OperatorAttachment) error {
-	if len(items) > 4 {
-		return fmt.Errorf("attach up to 4 files per message")
+	if len(items) > maxOperatorAttachments {
+		return fmt.Errorf("attach up to %d files per message", maxOperatorAttachments)
 	}
 	total := 0
 	ids := map[string]bool{}
@@ -37,17 +46,17 @@ func validateOperatorAttachments(items []OperatorAttachment) error {
 			return fmt.Errorf("invalid attachment name or ID")
 		}
 		ids[item.ID] = true
-		if len(item.DataBase64) > 2800000 {
-			return fmt.Errorf("each attachment must be under 2 MB")
+		if item.Size > maxOperatorAttachmentBytes || len(item.DataBase64) > base64.StdEncoding.EncodedLen(maxOperatorAttachmentBytes) {
+			return fmt.Errorf("%s exceeds the 8 MB per-file limit", item.Name)
+		}
+		if item.Size > maxOperatorAttachmentTotal-total {
+			return fmt.Errorf("attachments can total up to 10 MB per message")
 		}
 		data, err := base64.StdEncoding.DecodeString(item.DataBase64)
-		if err != nil || len(data) == 0 || len(data) != item.Size || len(data) > 2<<20 {
-			return fmt.Errorf("invalid attachment data or size (2 MB maximum)")
+		if err != nil || len(data) == 0 || len(data) != item.Size {
+			return fmt.Errorf("invalid attachment data or size")
 		}
 		total += len(data)
-		if total > 5<<20 {
-			return fmt.Errorf("attachments must total under 5 MB")
-		}
 		switch item.MediaType {
 		case "image/png", "image/jpeg", "image/gif", "image/webp":
 			if http.DetectContentType(data) != item.MediaType {

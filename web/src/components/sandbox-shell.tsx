@@ -12,7 +12,7 @@ import styles from "./sandbox-shell.module.css";
 // The Sandboxes product shell: the shared quicknav rail plus a compact product
 // header. There is deliberately no Home/Sessions sidebar here — conversations
 // are where work is asked for, this canvas is for inspecting machines.
-export function SandboxShell({ children, actions }: { children: ReactNode; actions?: ReactNode }) {
+export function SandboxShell({ children, actions, tabs }: { children: ReactNode; actions?: ReactNode; tabs?: ReactNode }) {
   const { data } = useWorkspace();
   const [switching, setSwitching] = useState("");
   const [switchError, setSwitchError] = useState("");
@@ -41,6 +41,7 @@ export function SandboxShell({ children, actions }: { children: ReactNode; actio
       <div className={styles.page}>
         <header className={styles.header}>
           <span className={styles.product}>Sandboxes</span>
+          {tabs}
           <div className={styles.headerEnd}>
             {actions ? <div className={styles.headerActions}>{actions}</div> : null}
             <SandboxSelect

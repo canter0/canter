@@ -388,16 +388,17 @@ func (h *HTTPServer) auth(w http.ResponseWriter, r *http.Request, parts []string
 			methodNotAllowed(w)
 			return
 		}
-		var revokeErr error
-		if cookie, err := h.humanCookie(r); err == nil {
-			revokeErr = h.service.Store.RevokeHumanSession(r.Context(), cookie.Value)
-		}
-		h.setHumanCookie(w, "", -time.Hour)
-		if revokeErr != nil {
-			writeStoreError(w, revokeErr)
+		if cookie, err := h.humanCookie(r); err == nil && cookie.Value != "" {
+			if revokeErr := h.service.Store.RevokeHumanSession(r.Context(), cookie.Value); revokeErr != nil {
+				writeStoreError(w, revokeErr)
+				return
+			}
+			h.setHumanCookie(w, "", -time.Hour)
+			writeJSON(w, http.StatusOK, map[string]bool{"signedOut": true, "revocationConfirmed": true})
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]bool{"signedOut": true})
+		h.setHumanCookie(w, "", -time.Hour)
+		writeJSON(w, http.StatusOK, map[string]bool{"signedOut": true, "revocationConfirmed": false})
 	default:
 		writeError(w, http.StatusNotFound, ErrNotFound)
 	}

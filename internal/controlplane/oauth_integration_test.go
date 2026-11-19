@@ -18,6 +18,48 @@ import (
 	"golang.org/x/oauth2"
 )
 
+func TestSignOutConfirmsRevocationAndPreservesCookieOnFailure(t *testing.T) {
+	h, s, _ := operatorConnectionFixture(t, "http://127.0.0.1:19994")
+	ctx := context.Background()
+	const token = "signout-ui-fixture"
+	if _, err := s.pool.Exec(ctx, `INSERT INTO human_sessions(id,account_id,token_hash,created_at,last_seen_at,expires_at,auth_version,authenticated_at,mfa_verified_at) VALUES('hs_signout_ui','owner',$1,now(),now(),now()+interval '1 hour',0,now(),now())`, secretHash(token)); err != nil {
+		t.Fatal(err)
+	}
+	request := func(cookie bool) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(http.MethodPost, "/v1/auth/signout", nil)
+		if cookie {
+			r.AddCookie(&http.Cookie{Name: "canter_session", Value: token})
+		}
+		w := httptest.NewRecorder()
+		h.auth(w, r, []string{"signout"})
+		return w
+	}
+	w := request(true)
+	var result struct {
+		SignedOut           bool `json:"signedOut"`
+		RevocationConfirmed bool `json:"revocationConfirmed"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil || w.Code != http.StatusOK || !result.SignedOut || !result.RevocationConfirmed {
+		t.Fatalf("signout did not confirm revocation: %d %s %v", w.Code, w.Body.String(), err)
+	}
+	var revoked bool
+	if err := s.pool.QueryRow(ctx, `SELECT revoked_at IS NOT NULL FROM human_sessions WHERE id='hs_signout_ui'`).Scan(&revoked); err != nil || !revoked {
+		t.Fatalf("session was not revoked: %v", err)
+	}
+	if cookies := w.Result().Cookies(); len(cookies) == 0 || cookies[0].MaxAge >= 0 {
+		t.Fatal("successful signout did not clear the browser cookie")
+	}
+	w = request(false)
+	if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil || w.Code != http.StatusOK || result.RevocationConfirmed {
+		t.Fatalf("missing cookie falsely confirmed revocation: %d %s %v", w.Code, w.Body.String(), err)
+	}
+	s.pool.Close()
+	w = request(true)
+	if w.Code < http.StatusBadRequest || len(w.Result().Cookies()) != 0 {
+		t.Fatalf("failed revocation must retain the cookie for retry: %d", w.Code)
+	}
+}
+
 func TestGoogleSignupVerifiesRemoteKeysAndPreservesOnboarding(t *testing.T) {
 	key, sign := testGoogleSigner(t)
 	_, forgedSign := testGoogleSigner(t)

@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
+	"fmt"
 	"hash/crc32"
 	"image"
 	"image/png"
@@ -47,8 +48,38 @@ func TestOperatorAttachmentValidation(t *testing.T) {
 	if validateOperatorAttachments([]OperatorAttachment{valid, valid}) == nil {
 		t.Fatal("duplicate attachment IDs accepted")
 	}
-	if validateOperatorAttachments(make([]OperatorAttachment, 5)) == nil {
+	many := make([]OperatorAttachment, 9)
+	for i := range many {
+		many[i] = valid
+		many[i].ID = fmt.Sprintf("file-%d", i)
+	}
+	if validateOperatorAttachments(many) == nil {
 		t.Fatal("too many attachments accepted")
+	}
+	if err := validateOperatorAttachments(many[:8]); err != nil {
+		t.Fatalf("exactly 8 attachments were rejected: %v", err)
+	}
+}
+
+func testPDFAttachment(id, name string, size int) OperatorAttachment {
+	data := make([]byte, size)
+	copy(data, "%PDF-")
+	copy(data[size-5:], "%%EOF")
+	return OperatorAttachment{ID: id, Name: name, MediaType: "application/pdf", DataBase64: base64.StdEncoding.EncodeToString(data), Size: size}
+}
+
+func TestOperatorAttachmentSizeLimits(t *testing.T) {
+	big := testPDFAttachment("big", "big.pdf", 8<<20)
+	medium := testPDFAttachment("medium", "medium.pdf", 2<<20)
+	if err := validateOperatorAttachments([]OperatorAttachment{big, medium}); err != nil {
+		t.Fatalf("8 MiB + 2 MiB PDFs were rejected: %v", err)
+	}
+	text := OperatorAttachment{ID: "text", Name: "a.txt", MediaType: "text/plain", DataBase64: base64.StdEncoding.EncodeToString([]byte("a")), Size: 1}
+	if err := validateOperatorAttachments([]OperatorAttachment{big, medium, text}); err == nil || !strings.Contains(err.Error(), "10 MB") {
+		t.Fatalf("aggregate over 10 MB was not reported: %v", err)
+	}
+	if err := validateOperatorAttachments([]OperatorAttachment{testPDFAttachment("huge", "huge.pdf", 8<<20+1)}); err == nil || !strings.Contains(err.Error(), "huge.pdf") {
+		t.Fatalf("single file over 8 MiB was not reported: %v", err)
 	}
 }
 

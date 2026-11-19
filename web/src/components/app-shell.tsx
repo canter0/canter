@@ -20,18 +20,28 @@ import { usePopover } from "./use-popover";
 import { useMediaQuery } from "./use-media-query";
 import { useFocusContainment } from "./use-focus-containment";
 import { moveMenuFocus } from "@/lib/interaction";
-import { useWorkspace } from "./workspace-context";
+import { useWorkspace, useSessionTabs } from "./workspace-context";
+import { isSessionTabHref } from "@/lib/session-tabs";
 import { WorkspaceIcon, type WorkspaceIconName } from "./workspace-icon";
-import { Quicknav } from "./quicknav";
+import { ProfileButton, Quicknav } from "./quicknav";
 import { WorkspaceInbox } from "./workspace-inbox";
 import { WorkspaceLoading } from "./workspace-loading";
 import { ConversationList } from "./conversation-list";
 import { ConversationSearch } from "./conversation-search";
-import { ReleaseUpdateNotice } from "./release-update-notice";
+import { SessionTabs } from "./session-tabs";
 import { MorphLabel } from "./conversation-motion";
+import { ReleaseUpdateNotice } from "./release-update-notice";
 import { MotionNav } from "./motion-nav";
 import { MotionPresence } from "./motion-presence";
 import styles from "./workspace.module.css";
+
+export function Metric({ label, value }: { label: string; value: string }) {
+  return <div className="border-l border-[var(--rule)] pl-5"><div className="meta">{label}</div><div className="mt-2 text-[22px]"><MorphLabel text={value} /></div></div>;
+}
+
+export function SectionHeader({ left, right }: { left: string; right?: string }) {
+  return <div className="flex justify-between border-b border-[var(--rule-strong)] pb-3 text-[10px] tracking-[0.075em]"><span>{left}</span>{right ? <span>{right}</span> : null}</div>;
+}
 
 function subscribeToPageFocus(onChange: () => void) {
   window.addEventListener("focus", onChange);
@@ -121,6 +131,8 @@ export function AppShell({ active, context, children, onNewInstruction, agentVie
   useLayoutEffect(() => { if (!embedded) setPageTitle(title); }, [title, pathname, embedded, setPageTitle]);
   const [mobileOpen, setMobileOpen] = useState(false);
   const mobile = useMediaQuery("(max-width: 1023px)");
+  const sessionTabs = useSessionTabs();
+  const showTabs = !!sessionTabs?.state && !mobile && !onboarding;
   const navigationBackdrop = useRef<HTMLDivElement>(null);
   const closeNavigation = useCallback(() => setMobileOpen(false), []);
   const navigationModal = mobile && mobileOpen;
@@ -143,6 +155,19 @@ export function AppShell({ active, context, children, onNewInstruction, agentVie
     window.addEventListener("keydown", keyboard);
     return () => window.removeEventListener("keydown", keyboard);
   }, [embedded]);
+  // Cmd/Ctrl-click or middle-click on an internal sidebar destination opens it
+  // in a background workspace tab without moving the current tab. External,
+  // download, and targeted anchors are left to the browser.
+  function interceptTabClick(event: import("react").MouseEvent) {
+    const modified = event.type === "click" ? (event.metaKey || event.ctrlKey) : event.type === "auxclick" && event.button === 1;
+    if (!modified || !showTabs || !sessionTabs || !(event.target instanceof Element)) return;
+    const anchor = event.target.closest("a[href]");
+    if (!anchor || anchor.getAttribute("target") || anchor.hasAttribute("download")) return;
+    const href = anchor.getAttribute("href");
+    if (!href || !isSessionTabHref(href)) return;
+    event.preventDefault();
+    sessionTabs.openBackground(href);
+  }
   function newConversation() {
     setMobileOpen(false);
     if (onNewInstruction) onNewInstruction();
@@ -172,54 +197,55 @@ export function AppShell({ active, context, children, onNewInstruction, agentVie
     }
   }
 
+  const renderNavLink = (item: typeof navigation[number]) => <Link key={item.active} prefetch={true} href={item.href} title={`${item.label} · ${shortcutLabel(item.key)}`} aria-label={item.active === "Home" ? "New conversation" : item.label} aria-current={navActive === item.active ? "page" : undefined} data-motion-nav-skip={item.active === "Home" || undefined} className={styles.navLink} onNavigate={event => {
+            setMobileOpen(false);
+            if (item.active === "Home") startNewConversation(event);
+          }}><WorkspaceIcon name={item.icon} width="20" height="20" /><span>{item.label}</span></Link>;
+  const accountControl = <div className={styles.profileAnchor} ref={accountMenu}>
+    <ProfileButton name={accountName} aria-label={`Account menu for ${accountName}`} aria-haspopup="menu" aria-controls={accountOpen ? accountId : undefined} aria-expanded={accountOpen} onKeyDown={event => { if (["ArrowDown", "ArrowUp"].includes(event.key)) { event.preventDefault(); setAccountOpen(true); } }} onClick={() => setAccountOpen(!accountOpen)} />
+    <MotionPresence open={accountOpen}><div id={accountId} className={styles.accountMenu} role="menu" aria-label="Account" onKeyDown={moveMenuFocus}>
+      <p className={styles.menuLabel}>{data?.account.email ?? accountName}</p>
+      {(data?.workspaces??(data?[data.workspace]:[])).map(workspace=><button type="button" role="menuitemradio" tabIndex={-1} aria-checked={workspace.id===data?.workspace.id} key={workspace.id} className={styles.workspaceChoice} disabled={!!switchingWorkspace} onClick={()=>void switchWorkspace(workspace.id)}><span>{workspaceDisplayName(workspace.name)}</span><small>{workspace.id===data?.workspace.id?"Current":switchingWorkspace===workspace.id?"Opening…":workspace.role}</small></button>)}
+      <button type="button" role="menuitem" tabIndex={-1} className={styles.workspaceChoice} onClick={()=>{closeAccount();setCreateOpen(true);}}><span>Create organization</span><WorkspaceIcon name="plus" width="14" height="14" /></button>
+      {workspaceSwitchError?<p role="alert" className={styles.menuLabel}>{workspaceSwitchError}</p>:null}
+      <Link role="menuitem" tabIndex={-1} prefetch={true} href="/app/account" onNavigate={closeAccount}><WorkspaceIcon name="profile" />Profile</Link>
+      <Link role="menuitem" tabIndex={-1} prefetch={true} href="/app/settings" onNavigate={closeAccount}><WorkspaceIcon name="settings" />Settings</Link>
+      <Link role="menuitem" tabIndex={-1} prefetch={true} href="/app/billing" onNavigate={closeAccount}><WorkspaceIcon name="invoice" />Usage & billing</Link>
+    </div></MotionPresence>
+  </div>;
+
   if (embedded) return <>{children}</>;
-  if (navActive === "Wrens") return <><WrenShell title={title} icon={pageIcon} actions={<>{pageAction}<ReleaseUpdateNotice update={releaseUpdate}/></>} onDetails={pageTitleAction}>{loading ? <WorkspaceLoading variant="rows"/> : error && unavailable ? <section className={styles.loadFailure} role="alert"><h1>Couldn’t load this view</h1><p>{error}</p><button onClick={retry}>Try again</button></section> : children}</WrenShell>{searchOpen ? <ConversationSearch conversations={data?.conversations ?? []} commands={commands} shortcutsEnabled={shortcuts.enabled} onShortcutsChange={shortcuts.setEnabled} onClose={closeSearch} onNavigate={closeNavigation}/> : null}</>;
-  if (navActive === "Sandboxes") return <><SandboxShell actions={<>{pageAction}<ReleaseUpdateNotice update={releaseUpdate}/></>}>{loading ? <WorkspaceLoading variant="rows"/> : error && unavailable ? <section className={styles.loadFailure} role="alert"><h1>Couldn’t load this view</h1><p>{error}</p><button onClick={retry}>Try again</button></section> : children}</SandboxShell>{searchOpen ? <ConversationSearch conversations={data?.conversations ?? []} commands={commands} shortcutsEnabled={shortcuts.enabled} onShortcutsChange={shortcuts.setEnabled} onClose={closeSearch} onNavigate={closeNavigation}/> : null}</>;
+  if (navActive === "Wrens") return <><WrenShell title={title} icon={pageIcon} tabs={showTabs ? <SessionTabs/> : undefined} actions={<>{pageAction}<ReleaseUpdateNotice update={releaseUpdate}/></>} onDetails={pageTitleAction}>{loading ? <WorkspaceLoading variant="rows"/> : error && unavailable ? <section className={styles.loadFailure} role="alert"><h1>Couldn’t load this view</h1><p>{error}</p><button onClick={retry}>Try again</button></section> : children}</WrenShell>{searchOpen ? <ConversationSearch conversations={data?.conversations ?? []} commands={commands} shortcutsEnabled={shortcuts.enabled} onShortcutsChange={shortcuts.setEnabled} onClose={closeSearch} onNavigate={closeNavigation}/> : null}</>;
+  if (navActive === "Sandboxes") return <><SandboxShell tabs={showTabs ? <SessionTabs/> : undefined} actions={<>{pageAction}<ReleaseUpdateNotice update={releaseUpdate}/></>}>{loading ? <WorkspaceLoading variant="rows"/> : error && unavailable ? <section className={styles.loadFailure} role="alert"><h1>Couldn’t load this view</h1><p>{error}</p><button onClick={retry}>Try again</button></section> : children}</SandboxShell>{searchOpen ? <ConversationSearch conversations={data?.conversations ?? []} commands={commands} shortcutsEnabled={shortcuts.enabled} onShortcutsChange={shortcuts.setEnabled} onClose={closeSearch} onNavigate={closeNavigation}/> : null}</>;
 
   return (
     <div className={`dashboard-theme ${styles.shell}`} data-page-inactive={!pageFocused} data-collapsed={collapsed} data-mobile-open={mobileOpen} data-agent-view={agentView} data-settings={!!sidebarSettings} data-onboarding={onboarding || undefined} data-onboarding-transition={onboardingTransition || undefined}>
       <a className={styles.skipLink} href="#workspace-main" inert={navigationModal}>Skip to content</a>
-      <Quicknav className={styles.homeRail} inert={navigationModal || onboarding} onNavigate={closeAccount} />
-      <header className={styles.topBar} data-conversation={agentView || undefined} data-update-available={!!releaseUpdate.available || undefined} inert={navigationModal || onboarding}>
+      <Quicknav className={styles.homeRail} inert={navigationModal || onboarding} onNavigate={closeAccount} account={mobile ? undefined : accountControl} />
+      <header className={styles.topBar} data-conversation={agentView || undefined} data-session-tabs={showTabs || undefined} data-update-available={!!releaseUpdate.available || undefined} inert={navigationModal || onboarding}>
         <button ref={navigationTrigger} className={`${styles.iconButton} ${styles.mobileMenu}`} aria-label="Open navigation" aria-expanded={navigationModal} aria-controls={sidebarId} onClick={() => { setAccountOpen(false); setMobileOpen(true); }}><WorkspaceIcon name="panel" /></button>
+        {showTabs ? <SessionTabs/> : null}
         {agentView ? <h1 className={styles.topBarTitle} title={title}>{pageTitleAction ? <button type="button" className={styles.titleAction} data-page-title-action aria-label={`${title} settings`} onClick={pageTitleAction}>{pageIcon}<span>{title}</span><WorkspaceIcon name="settings" width="12" height="12" /></button> : <>{pageIcon}{pageIcon ? <span>{title}</span> : title}</>}</h1> : <Link className={`wordmark ${styles.mobileWordmark}`} prefetch={true} href="/app">canter</Link>}
         {pageAction}
         <ReleaseUpdateNotice update={releaseUpdate} />
       </header>
       <div ref={navigationBackdrop} className={styles.sidebarBackdrop} data-open={navigationModal} aria-hidden="true" onClick={closeNavigation} />
       <ViewTransition name={sidebarSettings ? "settings-sidebar" : "dashboard-sidebar"} default="none" enter={active === "Wrens" ? "none" : "sidebar-fade"} exit={active === "Wrens" ? "none" : "sidebar-fade"}>
-      <aside ref={sidebar} data-shortcut-navigation inert={onboarding || (mobile && !mobileOpen)} id={sidebarId} className={styles.sidebar} role={navigationModal ? "dialog" : undefined} aria-modal={navigationModal || undefined} tabIndex={-1} aria-label={sidebarSettings ? "Settings sidebar" : "Workspace sidebar"} onClick={event => { if (event.target instanceof Element && event.target.closest("a")) setMobileOpen(false); }}>
-        <Quicknav className={styles.mobileQuicknav} onNavigate={() => { closeAccount(); closeNavigation(); }} />
+      <aside ref={sidebar} data-shortcut-navigation inert={onboarding || (mobile && !mobileOpen)} id={sidebarId} className={styles.sidebar} role={navigationModal ? "dialog" : undefined} aria-modal={navigationModal || undefined} tabIndex={-1} aria-label={sidebarSettings ? "Settings sidebar" : "Workspace sidebar"} onAuxClick={interceptTabClick} onClick={event => { interceptTabClick(event); if (!event.defaultPrevented && event.target instanceof Element && event.target.closest("a")) setMobileOpen(false); }}>
+        <Quicknav className={styles.mobileQuicknav} onNavigate={() => { closeAccount(); closeNavigation(); }} account={mobile ? accountControl : undefined} />
         <div className={styles.workspaceHeading}>
           <button className={`${styles.iconButton} ${styles.desktopToggle}`} title="Toggle left sidebar · A + Q" aria-label={collapsed ? "Expand sidebar" : "Minimize sidebar"} aria-expanded={!collapsed} onClick={() => setCollapsed(!collapsed)}><WorkspaceIcon name="panel" width="20" height="20" /></button>
           <Link className={`wordmark ${styles.sidebarWordmark}`} href="/app" prefetch={true} aria-label="Canter home">canter</Link>
-          <div className={styles.historyControls}><button className={`${styles.iconButton} ${styles.historyBack}`} type="button" title="Back" aria-label="Go back" disabled={!canGoBack} onClick={() => router.back()}><WorkspaceIcon name="right" width="20" height="20" /></button><button className={styles.iconButton} type="button" title="Forward" aria-label="Go forward" disabled={!canGoForward} onClick={() => router.forward()}><WorkspaceIcon name="right" width="20" height="20" /></button></div>
+          <div className={styles.historyControls}><button className={`${styles.iconButton} ${styles.historyBack}`} type="button" title="Back" aria-label="Go back" disabled={showTabs ? !sessionTabs?.canBack : !canGoBack} onClick={() => { if (showTabs) sessionTabs?.back(); else router.back(); }}><WorkspaceIcon name="right" width="20" height="20" /></button><button className={styles.iconButton} type="button" title="Forward" aria-label="Go forward" disabled={showTabs ? !sessionTabs?.canForward : !canGoForward} onClick={() => { if (showTabs) sessionTabs?.forward(); else router.forward(); }}><WorkspaceIcon name="right" width="20" height="20" /></button></div>
           <button className={`${styles.iconButton} ${styles.mobileClose}`} aria-label="Close navigation" onClick={() => setMobileOpen(false)}><WorkspaceIcon name="close" /></button>
         </div>
-        <div className={styles.workspaceIdentity}>
-          <div className={styles.accountAnchor} ref={accountMenu}>
-            <button type="button" className={styles.accountSwitch} aria-label={`Account menu for ${accountName}`} aria-haspopup="menu" aria-controls={accountOpen ? accountId : undefined} aria-expanded={accountOpen} onKeyDown={event => { if (["ArrowDown", "ArrowUp"].includes(event.key)) { event.preventDefault(); setAccountOpen(true); } }} onClick={() => setAccountOpen(!accountOpen)}>
-              <span className={styles.profileAvatar} aria-hidden="true">{accountName.slice(0, 1).toUpperCase()}</span>
-              <span className={styles.accountIdentity}><strong>{accountName}</strong><span>{data ? workspaceDisplayName(data.workspace.name) : "Your organization"}</span></span>
-            </button>
-            <MotionPresence open={accountOpen}><div id={accountId} className={styles.accountMenu} role="menu" aria-label="Account" onKeyDown={moveMenuFocus}>
-              <p className={styles.menuLabel}>{data?.account.email ?? accountName}</p>
-              {(data?.workspaces??(data?[data.workspace]:[])).map(workspace=><button type="button" role="menuitemradio" tabIndex={-1} aria-checked={workspace.id===data?.workspace.id} key={workspace.id} className={styles.workspaceChoice} disabled={!!switchingWorkspace} onClick={()=>void switchWorkspace(workspace.id)}><span>{workspaceDisplayName(workspace.name)}</span><small>{workspace.id===data?.workspace.id?"Current":switchingWorkspace===workspace.id?"Opening…":workspace.role}</small></button>)}
-              <button type="button" role="menuitem" tabIndex={-1} className={styles.workspaceChoice} onClick={()=>{closeAccount();setCreateOpen(true);}}><span>Create organization</span><WorkspaceIcon name="plus" width="14" height="14" /></button>
-              {workspaceSwitchError?<p role="alert" className={styles.menuLabel}>{workspaceSwitchError}</p>:null}
-              <Link role="menuitem" tabIndex={-1} prefetch={true} href="/app/account" onNavigate={closeAccount}><WorkspaceIcon name="profile" />Profile</Link>
-              <Link role="menuitem" tabIndex={-1} prefetch={true} href="/app/settings" onNavigate={closeAccount}><WorkspaceIcon name="settings" />Settings</Link>
-              <Link role="menuitem" tabIndex={-1} prefetch={true} href="/app/billing" onNavigate={closeAccount}><WorkspaceIcon name="invoice" />Usage & billing</Link>
-            </div></MotionPresence>
-          </div>
+        {navActive !== "Customize" && <div className={styles.workspaceIdentity}>
+          <div className={`${styles.navigation} ${styles.newSessionSlot}`}>{renderNavLink(navigation[0])}</div>
           <button type="button" className={`${styles.iconButton} ${styles.workspaceSearch}`} aria-label="Search organization" title="Spotlight · ⌘K" aria-haspopup="dialog" aria-expanded={searchOpen} onClick={() => setSearchOpen(true)}><WorkspaceIcon name="search" width="20" height="20" /></button>
           <WorkspaceInbox collapsed={collapsed} onOpen={closeNavigation} navigationTrigger={navigationTrigger} />
-        </div>
+        </div>}
         {sidebarSettings ?? <>{sidebarContent ?? <><MotionNav name="workspace" className={styles.navigation} label="Main navigation">
-          {navigation.map(item => <Link key={item.active} prefetch={true} href={item.href} title={`${item.label} · ${shortcutLabel(item.key)}`} aria-label={item.active === "Home" ? "New conversation" : item.label} aria-current={navActive === item.active ? "page" : undefined} data-motion-nav-skip={item.active === "Home" || undefined} className={styles.navLink} onNavigate={event => {
-            setMobileOpen(false);
-            if (item.active === "Home") startNewConversation(event);
-          }}><WorkspaceIcon name={item.icon} width="20" height="20" /><span>{item.label}</span></Link>)}
+          {navigation.slice(1).map(renderNavLink)}
         </MotionNav>
         <div className={styles.recentSection} role="region" aria-label="Conversations" tabIndex={0}>
           <div className={styles.sidebarLabel}>
@@ -251,12 +277,4 @@ export function AppShell({ active, context, children, onNewInstruction, agentVie
       {createOpen ? <CreateOrganizationDialog onClose={() => setCreateOpen(false)} /> : null}
     </div>
   );
-}
-
-export function Metric({ label, value }: { label: string; value: string }) {
-  return <div className="border-l border-[var(--rule)] pl-5"><div className="meta">{label}</div><div className="mt-2 text-[22px]"><MorphLabel text={value} /></div></div>;
-}
-
-export function SectionHeader({ left, right }: { left: string; right?: string }) {
-  return <div className="flex justify-between border-b border-[var(--rule-strong)] pb-3 text-[10px] tracking-[0.075em]"><span>{left}</span>{right ? <span>{right}</span> : null}</div>;
 }

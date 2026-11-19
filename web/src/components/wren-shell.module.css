@@ -15,3 +15,13 @@
 .shell { margin-left:320px; }
 .back { display:none;align-items:center;justify-content:center;width:36px;height:36px;flex:none;border-radius:8px;color:rgb(var(--ui-text-secondary)); }
 @media(max-width:1023px) { .shell { margin-left:0; }.header { padding-left:60px; }.back { display:flex; } }
+
+/* Desktop frame: header row on the ground; main closes the card started by the conversation list. */
+@media(min-width:1024px) {
+  .shell { background:rgb(var(--ui-layout-ground)); }
+  .header { height:40px;border-bottom:0; }
+  .main { margin:0 var(--frame-gutter) var(--frame-gutter) 0;border:1px solid rgb(var(--ui-border-secondary));border-left:0;border-radius:0 var(--frame-radius) var(--frame-radius) 0;background:rgb(var(--ui-bg-page)); }
+}
+
+/* Workspace tab strip takes the free room between identity and actions. */
+.header [data-session-tabs] { flex: 1; min-width: 0; }

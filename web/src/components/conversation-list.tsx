@@ -17,7 +17,7 @@ import styles from "./conversation-list.module.css";
 type Selection = { conversation: Conversation; trigger: HTMLButtonElement; isOwner: boolean };
 type ActionKind = "rename" | "delete" | "share" | "unshare";
 
-function sessionUpdatedAt(value: string) {
+export function sessionUpdatedAt(value: string) {
   const time = relativeTime(value);
   if (time === "now") return "just now";
   if (time === "1 days") return "yesterday";
