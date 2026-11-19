@@ -1,6 +1,7 @@
 import type { OperatorEvent } from "./operator-api";
 
 export const toolLabels: Record<string, string> = {
+  canter_manage_customizations:"Configuring customizations",canter_search_skills:"Searching skills.sh",canter_inspect_skill:"Inspecting skill files",canter_install_skill:"Installing skill",canter_read_skill_file:"Reading skill instructions",
   canter_list_memory: "Reading saved memory", canter_save_memory: "Saving memory", canter_ask_room_wren: "Asking a teammate",
   canter_finish_report: "Reporting the result", canter_finish_blocked: "Reporting a blocker", canter_finish_quiet: "Recording an unchanged check",
   canter_list_app_actions: "Checking app actions",

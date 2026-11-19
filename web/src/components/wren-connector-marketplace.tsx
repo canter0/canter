@@ -1,7 +1,7 @@
 "use client";
 
 import {useEffect, useRef, useState} from "react";
-import type {KnowledgeTarget} from "@/lib/wren-knowledge";
+import type {ExtensionTarget} from "@/lib/wren-knowledge";
 import {installedSource} from "@/lib/wren-apps";
 import {addCatalogConnector} from "@/lib/wren-apps-api";
 import {extensionInstallationLabel, extensionToolSummary, type ConnectorCatalogEntry, type ExtensionInstallation} from "@/lib/wren-extensions";
@@ -10,7 +10,7 @@ import styles from "./wren-extensions-panel.module.css";
 
 export type ConnectorBrowseState={query:string;category:string;selected:string};
 
-export function WrenConnectorMarketplace({workspaceId,target,writer,installations,onInstalled,onManage,browse,onBrowseChange,entries,onUse,bare}:{bare?:boolean;workspaceId:string;target:KnowledgeTarget|null;writer:boolean;installations:ExtensionInstallation[];onInstalled:(value:ExtensionInstallation)=>void;onManage:(id:string)=>void;browse:ConnectorBrowseState;onBrowseChange:(value:ConnectorBrowseState)=>void;entries:ConnectorCatalogEntry[];onUse?:(prompt:string)=>void}) {
+export function WrenConnectorMarketplace({workspaceId,target,writer,installations,onInstalled,onManage,browse,onBrowseChange,entries,onUse,bare}:{bare?:boolean;workspaceId:string;target:ExtensionTarget|null;writer:boolean;installations:ExtensionInstallation[];onInstalled:(value:ExtensionInstallation)=>void;onManage:(id:string)=>void;browse:ConnectorBrowseState;onBrowseChange:(value:ConnectorBrowseState)=>void;entries:ConnectorCatalogEntry[];onUse?:(prompt:string)=>void}) {
   const base=`${workBase(workspaceId)}/wren-extensions`;
   const {selected}=browse;
   const [busy,setBusy]=useState(false),[error,setError]=useState("");

@@ -3,7 +3,8 @@
 import Link from "next/link";
 import {useRef,useState,type KeyboardEvent} from "react";
 import type {GitHubConnection} from "@/lib/github-connection";
-import {knowledgeQuery,knowledgeTarget} from "@/lib/wren-knowledge";
+import {extensionQuery,extensionTarget} from "@/lib/wren-knowledge";
+import type {Conversation} from "@/lib/operator-api";
 import {appMonogram,appProvider,appsPageHref,installedSource} from "@/lib/wren-apps";
 import {addCatalogConnector,setInstallationEnabled} from "@/lib/wren-apps-api";
 import {extensionInstallationLabel,type ConnectorCatalogEntry,type ExtensionInstallation,type WrenAppAccount} from "@/lib/wren-extensions";
@@ -16,13 +17,16 @@ import shared from "./workspace.module.css";
 import styles from "./wren-apps-menu.module.css";
 
 export function useChatApps(workspaceId?:string,conversationId?:string){
+ const {data:workspaceData}=useWorkspace();
+ const wrensEnabled=!!workspaceData?.products?.some(product=>product.id==="wrens"&&product.enabled);
  const base=workspaceId?workBase(workspaceId):"";
- const wrens=useWrenResource<{wrens:Wren[]}>(base?`${base}/wrens`:"");
- const rooms=useWrenResource<{rooms:WrenRoom[]}>(base?`${base}/rooms`:"");
- const target=knowledgeTarget(conversationId,wrens.data?.wrens??[],rooms.data?.rooms??[]);
- const installations=useWrenResource<{installations:ExtensionInstallation[]}>(base&&target?`${base}/wren-extensions/installations?${knowledgeQuery(target.scope)}`:"");
- const refresh=()=>{wrens.refresh();rooms.refresh();installations.refresh();};
- return {target,installations:installations.data?.installations,error:wrens.error||rooms.error||installations.error,loading:wrens.loading||rooms.loading||installations.loading,refresh};
+ const wrens=useWrenResource<{wrens:Wren[]}>(base&&wrensEnabled?`${base}/wrens`:"");
+ const rooms=useWrenResource<{rooms:WrenRoom[]}>(base&&wrensEnabled?`${base}/rooms`:"");
+ const conversations=useWrenResource<{conversations:Conversation[]}>(base?`${base}/conversations`:"");
+ const target=extensionTarget(conversationId,wrens.data?.wrens??[],rooms.data?.rooms??[],conversations.data?.conversations??[],workspaceData?.account.id);
+ const installations=useWrenResource<{installations:ExtensionInstallation[]}>(base&&target?`${base}/wren-extensions/installations?${extensionQuery(target.scope)}`:"");
+ const refresh=()=>{wrens.refresh();rooms.refresh();conversations.refresh();installations.refresh();};
+ return {target,installations:installations.data?.installations,error:wrens.error||rooms.error||conversations.error||installations.error,loading:wrens.loading||rooms.loading||conversations.loading||installations.loading,refresh};
 }
 
 const menuItems="a[href], button:not(:disabled)";
@@ -88,7 +92,7 @@ export function WrenAppsMenu({workspaceId,conversationId,onClose}:{workspaceId:s
   {writer?available.map(entry=><div className={styles.row} key={entry.slug}>
     <span className={styles.tile} aria-hidden="true"><AppTile name={entry.manifest.name} origin={entry.manifest.origin} tools={entry.manifest.tools}/></span>
     <span className={styles.meta}><strong>{entry.manifest.name}</strong><small>{entry.category} · No sign-in</small></span>
-    <button type="button" className={styles.addButton} aria-label={`Add ${entry.manifest.name}`} title={`Add ${entry.manifest.name}`} disabled={busy===entry.slug} onClick={()=>void add(entry)}><WorkspaceIcon name="plus" width="15" height="15"/></button>
+    <button type="button" className={styles.addButton} disabled={busy===entry.slug} onClick={()=>void add(entry)}>{busy===entry.slug?"Adding…":"Add"}</button>
    </div>):null}
   {github.data?<div className={styles.row}>
    <span className={styles.tile} aria-hidden="true"><ProviderIcon provider="github"/></span>

@@ -264,6 +264,15 @@ var ciRateV2Migration string
 //go:embed migrations/092_sandbox_transfers.sql
 var sandboxTransfersMigration string
 
+//go:embed migrations/093_operator_extensions.sql
+var operatorExtensionsMigration string
+
+//go:embed migrations/094_customizations.sql
+var customizationsMigration string
+
+//go:embed migrations/095_agent_customizations.sql
+var agentCustomizationsMigration string
+
 //go:embed migrations/091_sandbox_job_history.sql
 var sandboxJobHistoryMigration string
 
@@ -1024,6 +1033,9 @@ func (s *Store) Migrate(ctx context.Context) error {
 		{"090_sandbox_compute_tariff", sandboxComputeTariffMigration},
 		{"091_sandbox_job_history", sandboxJobHistoryMigration},
 		{"092_sandbox_transfers", sandboxTransfersMigration},
+		{"093_operator_extensions", operatorExtensionsMigration},
+		{"094_customizations", customizationsMigration},
+		{"095_agent_customizations", agentCustomizationsMigration},
 	} {
 		var inserted string
 		err := tx.QueryRow(ctx, `INSERT INTO schema_migrations(version) VALUES($1) ON CONFLICT DO NOTHING RETURNING version`, migration.version).Scan(&inserted)

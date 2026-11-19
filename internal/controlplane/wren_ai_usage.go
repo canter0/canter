@@ -73,7 +73,10 @@ func (s *Store) ReserveWrenAIUsage(ctx context.Context, in WrenAIReservationInpu
 	if in.Purpose != "" && in.Purpose != "welcome" && in.Purpose != "title" {
 		return out, fmt.Errorf("invalid AI purpose")
 	}
-	if in.ConversationID == "" && (in.Kind != "operator" || in.Purpose != "welcome" || in.RunID != "") {
+	// A human can dictate an unsent first message. It still reserves the same
+	// workspace allowance and rechecks writer authority before paid dispatch.
+	draftDictation := in.Kind == "dictation" && in.Purpose == "" && in.RunID == "" && in.RunLease == ""
+	if in.ConversationID == "" && !draftDictation && (in.Kind != "operator" || in.Purpose != "welcome" || in.RunID != "") {
 		return out, ErrForbidden
 	}
 	if in.AmountMicroUSD <= 0 || in.AmountMicroUSD > 1_000_000_000_000 || len(in.RequestKey) < 1 || len(in.RequestKey) > 256 || len(in.Model) < 1 || len(in.Model) > 160 || (in.Kind != "operator" && in.Kind != "acp" && in.Kind != "dictation" && in.Kind != "media") {

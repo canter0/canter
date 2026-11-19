@@ -31,6 +31,10 @@ func validateOperatorSurface(surface *OperatorSurface) error {
 		return nil
 	}
 	switch surface.Kind {
+	case "customization":
+		if surface.ID != "rule" && surface.ID != "hook" && surface.ID != "skill" {
+			return fmt.Errorf("select a customization type")
+		}
 	case "super-sandboxes", "super-sandbox":
 	case "wren-messaging", "wren-projects", "wren-extensions", "wren-library", "wren-members", "wren-memory", "wren-skills", "wren-responsibility", "wren-job", "computer", "wren-artifact", "vps", "compute", "storage", "apps", "deployments", "billing", "activity", "agents", "app", "deployment", "change", "repository", "github", "repository-changes", "file", "conversation", "sandboxes", "sandbox":
 	default:
@@ -105,7 +109,7 @@ func (o *OperatorRuntime) surface(ctx context.Context, r OperatorRun, surface Op
 	return o.Server.service.Store.operatorEvent(ctx, r, "surface", surface)
 }
 func (o *OperatorRuntime) tools() []mcpTool {
-	out := []mcpTool{}
+	out := customizationTools()
 	allowed := map[string]bool{"canter_list_tasks": true, "canter_inspect_task": true, "canter_read_task_context": true, "canter_inspect_system": true, "canter_list_changes": true, "canter_inspect_change": true, "canter_inspect_change_execution": true, "canter_draft_change": true, "canter_list_standing_policies": true, "canter_apply_change_under_policy": true, "canter_list_initial_deployments": true, "canter_inspect_initial_deployment": true, "canter_inspect_initial_deployment_execution": true, "canter_inspect_ci": true, "canter_inspect_ci_job": true}
 	for _, t := range mcpTools() {
 		if allowed[t.Name] {
@@ -119,6 +123,7 @@ func (o *OperatorRuntime) tools() []mcpTool {
 		return map[string]any{"type": "object", "properties": properties, "required": required, "additionalProperties": false}
 	}
 	str := map[string]string{"type": "string"}
+	out = append(out, mcpTool{Name: "canter_find_plugin_tools", Description: "Find authorized tools from installed plugins by service name or capability. Use this when you need a connected service whose tool is not yet listed. Only matching tool schemas are loaded on the next step. This does not install, connect, grant access, or call a provider.", InputSchema: object(map[string]any{"query": str}, "query")})
 	for _, item := range []struct{ name, description string }{
 		{"canter_show_compute", "Support the user's compute planning request. For an explicit VPS/VM request, plan that directly; do not redirect to app deployment or a repository. For an outcome-oriented request, compare managed app hosting and VM control only when it matters. Draft a usable plan in human terms: CPU, memory, disk, OS, each VM's role, Canter's estimated monthly usage charge, and relevant access, network, and backup notes. Use canter_estimate_compute_cost for proposed CPU/RAM allocations. Keep the plan and Canter price in the foreground; do not discuss execution limits or provider internals unless the user asks to provision. Never show c1/c2/c3 as VM sizes or invent provider availability, exact provider shapes, authorization, or provisioning."},
 		{"canter_show_storage", "Check storage bucket planning capabilities. Gather requirements conversationally, one question at a time; do not open a form. standalone bucket provisioning is unavailable. Never claim a bucket was created."},
@@ -285,6 +290,9 @@ func (o *OperatorRuntime) localTool(ctx context.Context, r OperatorRun, c Conver
 		}, true, nil
 	case "canter_show_connections":
 		result, err := o.showWrenApps(ctx, c, r)
+		return result, true, err
+	case "canter_find_plugin_tools":
+		result, err := o.findPluginTools(ctx, c, r, raw)
 		return result, true, err
 	case "canter_list_app_actions":
 		result, err := o.Server.listExtensionReviewOutcomes(ctx, c, r)

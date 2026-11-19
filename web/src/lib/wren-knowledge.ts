@@ -1,7 +1,12 @@
 import type { Wren, WrenRoom } from "./wrens";
-import type { OperatorEvent } from "./operator-api";
+import type { Conversation, OperatorEvent } from "./operator-api";
 export type KnowledgeScope = { conversationId: string; scope: "private" | "room"; wrenId?: string };
 export type KnowledgeTarget = { scope: KnowledgeScope; wren?: Wren; room?: WrenRoom; label: string };
+// Extensions additionally support the operator scope: an ordinary chat owned
+// by the signed-in person, without a Wren persona. Memory and skill surfaces
+// must keep the narrower KnowledgeScope.
+export type ExtensionScope = { conversationId: string; scope: "private" | "room" | "operator"; wrenId?: string };
+export type ExtensionTarget = { scope: ExtensionScope; wren?: Wren; room?: WrenRoom; label: string };
 export type MemorySources = { runId?: string; artifactId?: string; artifactRevision?: number; urls?: string[] };
 export type WrenMemoryRecord = KnowledgeScope & { id: string; workspaceId: string; ownerId?: string; authorId: string; revision: number; latestRevision: number; title: string; content: string; sources: MemorySources; promotedFromId?: string; promotedFromRevision?: number; deleted: boolean; createdAt: string; updatedAt: string };
 export type WrenSkillRecord = { id: string; workspaceId: string; ownerId: string; authorId: string; version: number; latestVersion: number; name: string; description: string; instructions: string; requiredCapabilities: string[]; disabled: boolean; createdAt: string; updatedAt: string };
@@ -16,6 +21,22 @@ export function knowledgeTarget(conversationId: string | undefined, wrens: Wren[
   return wren ? { scope: { conversationId, scope: "private", wrenId: wren.id }, wren, label: `Private · ${wren.name}` } : null;
 }
 export function knowledgeQuery(scope: KnowledgeScope) {
+  const query = new URLSearchParams({ conversationId: scope.conversationId, scope: scope.scope });
+  if (scope.scope === "private" && scope.wrenId) query.set("wrenId", scope.wrenId);
+  return query.toString();
+}
+// An ordinary conversation is only an operator destination when the workspace
+// conversation list positively identifies the signed-in owner: rooms and Wrens
+// resolve first, shared or foreign conversations never get a target.
+export function extensionTarget(conversationId: string | undefined, wrens: Wren[], rooms: WrenRoom[], conversations: Conversation[], accountId?: string): ExtensionTarget | null {
+  if (!conversationId) return null;
+  const base = knowledgeTarget(conversationId, wrens, rooms);
+  if (base) return { scope: base.scope, wren: base.wren, room: base.room, label: base.label };
+  const conversation = conversations.find(item => item.id === conversationId);
+  if (!conversation || conversation.shared || !accountId || conversation.ownerAccountId !== accountId) return null;
+  return { scope: { conversationId, scope: "operator" }, label: `Chat · ${conversation.title || "Conversation"}` };
+}
+export function extensionQuery(scope: ExtensionScope) {
   const query = new URLSearchParams({ conversationId: scope.conversationId, scope: scope.scope });
   if (scope.scope === "private" && scope.wrenId) query.set("wrenId", scope.wrenId);
   return query.toString();

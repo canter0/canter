@@ -187,6 +187,9 @@ func operatorRecentContext(history []OperatorMessage, run OperatorRun) []modelMe
 		if m.Surface != nil {
 			raw, _ := json.Marshal(m.Surface)
 			content += "\nSelected workspace view (context, not authorization): " + string(raw)
+			if m.Surface.Kind == "customization" {
+				content += "\nThis is a personal " + m.Surface.ID + " setup conversation. The person describes the outcome; you configure and persist it with the customization tools. Inspect existing saved items and actual tools first. Ask a focused question only when necessary. Do not send them to a settings form or just describe how to configure it. For skills, search skills.sh or inspect a supplied repository, then install a complete inspected bundle when requested. Only report saved/installed after a successful tool receipt. For hooks, translate the request into a real tool event and follow-up agent task; explain a concrete missing capability rather than inventing external infrastructure."
+			}
 		}
 		if len(content) > remaining && len(recent) > 0 {
 			break

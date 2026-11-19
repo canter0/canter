@@ -1,8 +1,8 @@
-import type {KnowledgeScope} from "./wren-knowledge";
+import type {ExtensionScope} from "./wren-knowledge";
 export type ExtensionTool={name:string;description:string;endpoint:string;method?:"GET"|"MCP";remoteName?:string;impact:"read"|"write";inputSchema:Record<string,unknown>;outputSchema?:Record<string,unknown>|boolean};
 export type ExtensionManifest={name:string;description:string;origin:string;auth:"none"|"bearer";tools:ExtensionTool[];events:string[]};
 export type WrenExtension={id:string;workspaceId:string;ownerId:string;authorId:string;version:number;latestVersion:number;disabled:boolean;manifest:ExtensionManifest;sha256:string;createdAt:string;updatedAt:string};
-export type ExtensionInstallation=KnowledgeScope&{id:string;workspaceId:string;ownerId:string;extensionId:string;version:number;revision:number;enabled:boolean;revokedAt?:string;allowWrite:boolean;credentialMode:"personal"|"service";credentialConfigured:boolean;appAccountId?:string;credentialRevision:number;extension:WrenExtension;createdAt:string;updatedAt:string};
+export type ExtensionInstallation=ExtensionScope&{id:string;workspaceId:string;ownerId:string;extensionId:string;version:number;revision:number;enabled:boolean;revokedAt?:string;allowWrite:boolean;credentialMode:"personal"|"service";credentialConfigured:boolean;appAccountId?:string;credentialRevision:number;extension:WrenExtension;createdAt:string;updatedAt:string};
 export type ExtensionCall={id:string;installationId:string;accountId:string;runId?:string;operationKey:string;toolName:string;version:number;status:"completed"|"failed"|"unknown"|"running";httpStatus:number;result?:unknown;failure?:string;private:boolean;createdAt:string;completedAt?:string};
 export type ExtensionEventBinding={id:string;installationId:string;ownerId:string;responsibilityId:string;eventName:string;revision:number;enabled:boolean;lastEventAt?:string;createdAt:string;updatedAt:string};
 function object(value:unknown):value is Record<string,unknown>{return !!value&&typeof value==="object"&&!Array.isArray(value);}

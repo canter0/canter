@@ -17,7 +17,7 @@ const extensionReviewStateSQL = `CASE WHEN p.status<>'pending' THEN p.status
  WHEN p.expires_at<=now() THEN 'expired'
  WHEN i.revision<>p.installation_revision OR i.version<>p.version
  OR EXISTS(SELECT 1 FROM operator_runs origin WHERE origin.id=p.run_id AND origin.status IN ('cancelled','failed'))
- OR (p.credential_revision>0 AND p.credential_revision<>COALESCE((SELECT cr.revision FROM wren_extension_credentials cr WHERE cr.installation_id=i.id AND cr.credential_key=CASE WHEN i.credential_mode='service' THEN 'service' ELSE 'user:'||p.account_id END),0))
+ OR (p.credential_revision>0 AND p.credential_revision<>COALESCE((SELECT pc.revision FROM plugin_connections pc WHERE pc.id=i.plugin_connection_id AND pc.enabled AND pc.state='ready'),(SELECT cr.revision FROM wren_extension_credentials cr WHERE cr.installation_id=i.id AND cr.credential_key=CASE WHEN i.credential_mode='service' THEN 'service' ELSE 'user:'||p.account_id END),0))
  THEN 'invalidated' ELSE 'pending' END`
 
 type WrenExtensionReview struct {
@@ -36,6 +36,11 @@ type WrenExtensionReview struct {
 }
 
 func extensionCredentialRevision(ctx context.Context, tx pgx.Tx, install WrenExtensionInstallation, account string) (int, error) {
+	if install.PluginConnectionID != "" {
+		var revision int
+		err := tx.QueryRow(ctx, `SELECT revision FROM plugin_connections WHERE id=$1 AND workspace_id=$2 AND account_id=$3 AND enabled AND state='ready' FOR SHARE`, install.PluginConnectionID, install.WorkspaceID, account).Scan(&revision)
+		return revision, err
+	}
 	if install.Extension.Manifest.Auth != "bearer" {
 		return 0, nil
 	}
@@ -53,7 +58,9 @@ func (h *HTTPServer) prepareExtensionReview(ctx context.Context, tx pgx.Tx, inst
 		return WrenExtensionCall{}, err
 	}
 	accountLabel := "No sign-in required"
-	if install.Extension.Manifest.Auth == "bearer" {
+	if install.PluginConnectionID != "" {
+		accountLabel = "Your personal plugin connection"
+	} else if install.Extension.Manifest.Auth == "bearer" {
 		accountLabel = "Your saved credential"
 		if install.CredentialMode == "service" {
 			accountLabel = "Shared service account"
@@ -247,6 +254,11 @@ func (h *HTTPServer) wrenExtensionReview(w http.ResponseWriter, r *http.Request,
 			return
 		}
 		result, err = h.decideExtensionReview(r.Context(), workspace, account, id, body.Decision)
+		if err == nil && body.Decision == "approve" {
+			if hookErr := h.continueReviewHooks(r.Context(), workspace, account, result); hookErr != nil {
+				err = fmt.Errorf("the action receipt is saved, but its hook follow-up could not start; retrying approval will not repeat the original action")
+			}
+		}
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
@@ -261,7 +273,7 @@ func (h *HTTPServer) wrenExtensionReview(w http.ResponseWriter, r *http.Request,
 // Only outcome metadata enters the model/shared event stream. Exact arguments,
 // account labels and provider result data remain in the requester's review UI.
 func (h *HTTPServer) listExtensionReviewOutcomes(ctx context.Context, c Conversation, run OperatorRun) (any, error) {
-	if _, ok, err := h.service.Store.knowledgeRunScope(ctx, c, run); err != nil || !ok {
+	if _, ok, _, err := h.service.Store.extensionRunScope(ctx, c, run); err != nil || !ok {
 		if err == nil {
 			err = ErrForbidden
 		}

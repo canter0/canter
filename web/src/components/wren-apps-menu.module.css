@@ -11,7 +11,7 @@
 .status { flex:none;font-size:11px;color:#939393; }
 .rowLink { flex:none;padding:4px 8px;border-radius:6px;color:#ddd;font-size:12px;text-decoration:none; }
 .rowLink:hover { background:#2d2d2d;color:#f1f1f1; }
-.addButton { display:grid;place-items:center;flex:none;width:26px;height:26px;border:0;border-radius:6px;background:transparent;color:#aaa;cursor:pointer; }
+.addButton { display:grid;place-items:center;flex:none;min-width:26px;height:26px;padding:0 9px;border:0;border-radius:6px;background:transparent;color:#aaa;cursor:pointer;font-size:12px; }
 .addButton:hover { background:#2d2d2d;color:#f1f1f1; }
 .addButton:disabled { opacity:.5; }
 .switch { position:relative;flex:none;width:30px;height:18px;padding:0;border:0;border-radius:9px;background:#3d3d3d;cursor:pointer;transition:background var(--motion-fast); }

@@ -18,7 +18,7 @@ import { wrenMention, type WrenMentionChoice } from "@/lib/wren-mentions";
 import type { Wren } from "@/lib/wrens";
 import { WorkspaceIcon } from "./workspace-icon";
 import { MotionPresence } from "./motion-presence";
-import { WrenAppsMenu, useChatApps } from "./wren-apps-menu";
+import { WrenAppsMenu } from "./wren-apps-menu";
 import shared from "./workspace.module.css";
 import styles from "./operator-workspace.module.css";
 
@@ -33,7 +33,7 @@ const subscribeHint = (onChange: () => void) => {
 };
 
 type Props = { wrens?: Wren[]; sharedConversation?: boolean; wrenApps?: boolean; conversationId?: string; managedModel?: boolean; replying?: boolean; recipient?: string; draft: string; onChange: (text: string) => void; onSend: () => void; onStop: () => void; running: boolean; stopLabel?: string; stopping?: boolean; disabled: boolean; sending: boolean; inputRef: RefObject<HTMLTextAreaElement | null>; model?: string; onModelChange: (model: string) => void; modelOptions: Record<string, OperatorModelOptions>; onModelOptionsChange: (model: string, options: OperatorModelOptions) => void; onSelect: (surface: OperatorSurface) => void; attachments: OperatorAttachment[]; onAttachments: (items: OperatorAttachment[]) => void; onClearContext: () => void; context: OperatorSurface | null };
-export function OperatorComposer({ wrens = [], sharedConversation = false, wrenApps = false, conversationId, draft, onChange, onSend, onStop, running, stopLabel = "Stop response", stopping, disabled, sending, inputRef, model, onModelChange, modelOptions, onModelOptionsChange, onSelect, attachments, onAttachments, context, onClearContext, recipient, replying = false, managedModel = false }: Props) {
+export function OperatorComposer({ wrens = [], sharedConversation = false, wrenApps = false, apps = false, conversationId, draft, onChange, onSend, onStop, running, stopLabel = "Stop response", stopping, disabled, sending, inputRef, model, onModelChange, modelOptions, onModelOptionsChange, onSelect, attachments, onAttachments, context, onClearContext, recipient, replying = false, managedModel = false, placeholder, dictationScope }: Props & {apps?:boolean;placeholder?:string;dictationScope?:string}) {
   const [menu, setMenu] = useState<"context" | "model" | "apps" | null>(null);
   const { data } = useWorkspace();
   const ready = useSyncExternalStore(subscribeReady, clientReady, serverReady);
@@ -90,7 +90,7 @@ export function OperatorComposer({ wrens = [], sharedConversation = false, wrenA
   function openApps() {
     setMenu("apps"); setMentionDismissed(true);
   }
-  const dictation = useWrenDictation({workspaceId:data?.workspace.id,conversationId,accountId:data?.account.id,disabled:disabled||sending,onTranscript:text=>{
+  const dictation = useWrenDictation({workspaceId:data?.workspace.id,conversationId,draftScope:dictationScope,accountId:data?.account.id,disabled:disabled||sending,onTranscript:text=>{
     const next=appendDictationDraft(inputRef.current?.value??draft,text);
     if(next===null)return false;
     onChange(next);setCaret(next.length);setMentionDismissed(true);
@@ -107,8 +107,7 @@ export function OperatorComposer({ wrens = [], sharedConversation = false, wrenA
   const hintId = useId();
   usePopover(menu === "context", contextMenu, closeMenu);
   usePopover(menu === "apps", appsMenu, closeMenu);
-  const chatApps = useChatApps(wrenApps ? data?.workspace.id : undefined, conversationId);
-  const enabledApps = chatApps.installations?.filter(item => !item.revokedAt && item.enabled).length ?? 0;
+  const appsEnabled = wrenApps || apps;
   const fileInput = useRef<HTMLInputElement>(null);
   const addButton = useRef<HTMLButtonElement>(null);
   const readLock = useRef(false);
@@ -166,22 +165,22 @@ export function OperatorComposer({ wrens = [], sharedConversation = false, wrenA
   const showHint = !!statusHint || (!hintDismissed && !draft);
   return <div className={styles.promptCard} data-operator-composer data-dragging={dragging} data-sending={sending} data-running={running} onDragOver={event => { if (event.dataTransfer.types.includes("Files")) { event.preventDefault(); setDragging(true); } }} onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false); }} onDrop={event => { if (transferredFiles(event.dataTransfer).length) { event.preventDefault(); setDragging(false); void attach(transferredFiles(event.dataTransfer)); } }}>
     {mention && wrenPicker ? <WrenMentionPicker wrens={wrens} shared={sharedConversation} query={mention.query} blockedConversation={sharedConversation && mention.category === "conversations"} inputRef={inputRef} onPick={pickWrenMention} onClose={() => setMentionDismissed(true)}/> : mention ? <GitHubMentionPicker workspaceId={data?.workspace.id} query={mention.query} category={mention.category} systems={(data?.systems ?? []).map(item => item.contract.metadata.name)} deployments={data?.initialDeployments ?? []} conversations={sharedConversation ? [] : data?.conversations ?? []} inputRef={inputRef} onPick={pickMention} onClose={() => setMentionDismissed(true)} /> : null}
-    <form className={styles.promptForm} data-has-apps={wrenApps||undefined} aria-busy={sending || reading || dictation.busy} onSubmit={event => { event.preventDefault(); if (canSend) onSend(); }}>
+    <form className={styles.promptForm} data-has-apps={appsEnabled||undefined} aria-busy={sending || reading || dictation.busy} onSubmit={event => { event.preventDefault(); if (canSend) onSend(); }}>
       <div className={styles.composerInput}>
       {attachments.length ? <OperatorAttachments items={attachments} disabled={sending || reading} onRemove={id => onAttachments(attachments.filter(item => item.id !== id))} /> : null}
-      <textarea ref={inputRef} aria-label={recipient ? `Message ${recipient}` : "Message Canter"} aria-controls={mention ? "context-mention-picker" : undefined} aria-haspopup="dialog" placeholder={replying ? "Reply to message…" : recipient ? `Message ${recipient}…` : "Ask Canter anything…"} aria-describedby={showHint ? hintId : undefined} rows={1} value={draft} readOnly={sending} maxLength={20000} onChange={event => { onChange(event.target.value); setCaret(event.target.selectionStart); setMentionDismissed(false); }} onSelect={event => setCaret(event.currentTarget.selectionStart)} onPaste={event => { const files = transferredFiles(event.clipboardData); if (files.length) { event.preventDefault(); void attach(files); } }} onKeyDown={event => { if (event.defaultPrevented) return; if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); if (!event.repeat && canSend) onSend(); } }} />
+      <textarea ref={inputRef} aria-label={recipient ? `Message ${recipient}` : "Message Canter"} aria-controls={mention ? "context-mention-picker" : undefined} aria-haspopup="dialog" placeholder={placeholder??(replying ? "Reply to message…" : recipient ? `Message ${recipient}…` : "Ask Canter anything…")} aria-describedby={showHint ? hintId : undefined} rows={1} value={draft} readOnly={sending} maxLength={20000} onChange={event => { onChange(event.target.value); setCaret(event.target.selectionStart); setMentionDismissed(false); }} onSelect={event => setCaret(event.currentTarget.selectionStart)} onPaste={event => { const files = transferredFiles(event.clipboardData); if (files.length) { event.preventDefault(); void attach(files); } }} onKeyDown={event => { if (event.defaultPrevented) return; if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); if (!event.repeat && canSend) onSend(); } }} />
       {context ? <button className={styles.contextPill} type="button" aria-label="Remove context" title="Remove context" onClick={onClearContext}><WorkspaceIcon name={context.kind === "conversation" ? "message" : "file"} width="13" height="13" />{context.kind === "conversation" ? data?.conversations.find(item => item.id === context.id)?.title ?? "Conversation" : context.path?.split("/").at(-1) ?? context.repository ?? context.system ?? surfaceLabels[context.kind]}<WorkspaceIcon name="close" width="12" height="12" /></button> : null}
       </div>
       <div className={styles.promptToolbar}><div className={styles.promptControls}>
         <div ref={contextMenu} className={styles.menuAnchor}><button ref={addButton} type="button" className={shared.iconButton} aria-label="Attach files or add context" title="Attach files or add context" aria-haspopup="menu" aria-expanded={menu === "context"} disabled={sending} onClick={() => setMenu(menu === "context" ? null : "context")}><WorkspaceIcon name="plus" /></button>
           <MotionPresence open={menu === "context"}><div className={`${shared.contextMenu} ${styles.composerMenu} ${styles.contextPicker}`} role="menu" aria-label="Attach files or add context" onKeyDown={moveMenuFocus}>
             <button type="button" role="menuitem" tabIndex={-1} onClick={() => { setMenu(null); fileInput.current?.click(); requestAnimationFrame(() => addButton.current?.focus()); }}><WorkspaceIcon name="attachment" />Upload images or files</button><p className={styles.uploadHint}>Up to 4 files · 2 MB each · 5 MB total</p><div className={styles.menuDivider} />
-            {wrenApps ? <button type="button" role="menuitem" tabIndex={-1} onClick={openApps}><WorkspaceIcon name="apps"/>Apps and connections</button> : null}
+            {appsEnabled ? <button type="button" role="menuitem" tabIndex={-1} onClick={openApps}><WorkspaceIcon name="apps"/>Apps and connections</button> : null}
             {contextCategories.map(kind => <button key={kind} type="button" role="menuitem" tabIndex={-1} onClick={() => insertContext(kind)}><WorkspaceIcon name={kind === "github" ? "folder" : kind === "apps" ? "apps" : kind === "conversations" ? "message" : kind === "billing" ? "file" : "activity"} />{kind === "github" ? "GitHub repositories" : kind === "conversations" ? "Conversations" : surfaceLabels[kind]}</button>)}
 
           </div></MotionPresence>
         </div>
-        {wrenApps?<div ref={appsMenu} className={styles.menuAnchor}><button type="button" className={styles.composerApps} onClick={()=>menu==="apps"?closeMenu():openApps()} aria-label="Apps" title="Apps and connections" aria-haspopup="dialog" aria-expanded={menu==="apps"}><WorkspaceIcon name="apps" width="16" height="16"/><span>Apps{enabledApps?` · ${enabledApps}`:""}</span></button><MotionPresence open={menu==="apps"}>{data?<WrenAppsMenu workspaceId={data.workspace.id} conversationId={conversationId} onClose={closeMenu}/>:null}</MotionPresence></div>:null}
+        {appsEnabled?<div ref={appsMenu} className={styles.menuAnchor}><MotionPresence open={menu==="apps"}>{data?<WrenAppsMenu workspaceId={data.workspace.id} conversationId={conversationId} onClose={closeMenu}/>:null}</MotionPresence></div>:null}
       </div><div className={styles.promptControls}>
         <WrenDictationControl dictation={dictation}/>
         {running && canSend ? <button type="button" className={styles.stopCircle} aria-label={stopping ? "Requesting stop" : stopLabel} title={`${stopLabel} · Completed operations remain saved`} disabled={!ready || stopping} onClick={onStop}><span /></button> : null}

@@ -94,7 +94,7 @@
 .appMeta strong { font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:rgb(var(--ui-text-primary)); }
 .appMeta small { margin-top:2px;font-size:12px;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
 .rowStatus { flex:none;padding:0 8px;font-size:11px;color:var(--text-secondary); }
-.rowAdd { display:grid;place-items:center;flex:none;width:30px;height:30px;padding:0!important;border:0!important;border-radius:8px!important;background:none;color:var(--text-secondary); }
+.rowAdd { display:grid;place-items:center;flex:none;min-width:30px;height:30px;padding:0 10px!important;font-size:12px;border:0!important;border-radius:8px!important;background:none;color:var(--text-secondary); }
 .rowAdd:hover { background:rgb(var(--ui-text-primary)/.07);color:rgb(var(--ui-text-primary)); }
 .detailBack { display:inline-flex;align-items:center;gap:6px;padding:6px 0!important;margin-bottom:18px;border:0!important;color:var(--text-secondary); }
 .detailBack:hover { color:rgb(var(--ui-text-primary)); }
@@ -109,3 +109,4 @@
 .bareAccount a { color:inherit;text-underline-offset:3px; }
 .bareAccount :is(button,a,input):focus-visible { outline:2px solid rgb(var(--ui-text-primary)/.7);outline-offset:3px; }
 .bareAccount>p { margin:12px 0; }
+.destination { display:flex;align-items:center;gap:10px;color:var(--text-secondary);font-size:13px;margin:0 0 20px; }

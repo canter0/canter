@@ -281,6 +281,10 @@ func (o *OperatorRuntime) work(ctx context.Context, run *OperatorRun) error {
 				if err != nil {
 					return err
 				}
+				result, err = s.customizationToolResult(ctx, c, *run, call, result)
+				if err != nil {
+					return err
+				}
 				messages = append(messages, modelMessage{Role: "tool", ToolCallID: call.ID, Content: string(result)})
 				if call.Function.Name == "canter_computer_screenshot" || call.Function.Name == "canter_sandbox_screenshot" {
 					capture, e := s.computerObservation(ctx, *run, call.ID)
@@ -346,12 +350,25 @@ func (o *OperatorRuntime) work(ctx context.Context, run *OperatorRun) error {
 		if err != nil {
 			return err
 		}
+		// Refresh personal rules every model turn without persisting stale copies
+		// in the checkpoint. Removing a rule takes effect on the next boundary.
+		customizations, err := s.customizationContext(ctx, c, *run)
+		if err != nil {
+			return err
+		}
+		if customizations != "" {
+			modelContext = append(append([]modelMessage{}, modelContext...), modelMessage{Role: "user", Content: customizations})
+		}
 		modelStarted := time.Now()
 		tools, err := s.wrenOutcomeToolsForRun(ctx, run.ID, o.tools())
 		if err != nil {
 			return err
 		}
 		externalTools, err := o.Server.WrenExtensionTools(ctx, c, *run)
+		if err != nil {
+			return err
+		}
+		externalTools, err = s.discoveredPluginTools(ctx, *run, externalTools)
 		if err != nil {
 			return err
 		}
@@ -491,6 +508,11 @@ func (o *OperatorRuntime) executeTool(ctx context.Context, run OperatorRun, c Co
 	if policy.RequireDraft && !p.Installation.Authority.Draft {
 		return json.Marshal(map[string]string{"status": "forbidden", "error": "Your current agent access does not permit this action."})
 	}
+	if reason, err := s.customizationToolBlock(ctx, c, run, call.Function.Name); err != nil {
+		return nil, err
+	} else if reason != "" {
+		return json.Marshal(map[string]string{"status": "blocked", "error": reason})
+	}
 	var args map[string]any
 	if err := json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil || args == nil || len(call.Function.Arguments) > 24000 {
 		return json.Marshal(map[string]string{"error": "Invalid tool arguments."})
@@ -505,6 +527,10 @@ func (o *OperatorRuntime) executeTool(ctx context.Context, run OperatorRun, c Co
 		args["operationKey"] = run.ID + ":" + call.ID
 	}
 	raw, _ := json.Marshal(args)
+	if call.Function.Name == "canter_manage_customizations" || call.Function.Name == "canter_install_skill" {
+		args["operationKey"] = run.ID + ":" + call.ID
+		raw, _ = json.Marshal(args)
+	}
 	var stored []byte
 	err := s.pool.QueryRow(ctx, `SELECT result FROM operator_tool_calls WHERE run_id=$1 AND call_id=$2`, run.ID, call.ID).Scan(&stored)
 	if err == nil && len(stored) > 0 {
@@ -571,6 +597,9 @@ func (o *OperatorRuntime) executeTool(ctx context.Context, run OperatorRun, c Co
 	return modelResult, nil
 }
 func (o *OperatorRuntime) callTool(ctx context.Context, run OperatorRun, c Conversation, p Principal, name string, raw json.RawMessage, operationKeys ...string) (any, error) {
+	if value, handled, err := o.customizationTool(ctx, c, run, name, raw); handled {
+		return value, err
+	}
 	if strings.HasPrefix(name, "wext_") {
 		if len(operationKeys) != 1 || operationKeys[0] == "" {
 			return nil, ErrConflict
