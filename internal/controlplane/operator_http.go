@@ -36,7 +36,7 @@ func (h *HTTPServer) conversations(w http.ResponseWriter, r *http.Request, p Pri
 			Surface      *OperatorSurface     `json:"surface"`
 			Attachments  []OperatorAttachment `json:"attachments"`
 		}
-		if !decodeLimit(w, r, &input, 8<<20) {
+		if !decodeLimit(w, r, &input, maxOperatorMessageBodyBytes) {
 			return
 		}
 		if strings.HasPrefix(input.ID, "conv_job_") {
@@ -175,7 +175,7 @@ func (h *HTTPServer) conversations(w http.ResponseWriter, r *http.Request, p Pri
 			Surface          *OperatorSurface     `json:"surface"`
 			Attachments      []OperatorAttachment `json:"attachments"`
 		}
-		if !decodeLimit(w, r, &input, 8<<20) {
+		if !decodeLimit(w, r, &input, maxOperatorMessageBodyBytes) {
 			return
 		}
 		if !input.PostOnly && !h.workspaceOperatorReady(r.Context(), workspace) && h.config.Secrets == nil {

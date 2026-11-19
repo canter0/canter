@@ -68,3 +68,8 @@
   .row[data-compact="true"] .sessionLeading { display: none; }
 }
 .sharedMarker { color: rgb(var(--ui-text-tertiary)); }
+
+/* Devin two-line session rows: 13px title, 12px metadata. */
+.row { padding-inline: 8px; }
+.link { font-size: 13px; line-height: 18px; }
+.link .sessionMetadata { font-size: 12px; line-height: 16px; }

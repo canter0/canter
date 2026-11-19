@@ -1,13 +1,18 @@
 import type { OperatorAttachment } from "./operator-api";
 
 export const attachmentAccept = ".pdf,.docx,.xlsx,.png,.jpg,.jpeg,.gif,.webp,image/png,image/jpeg,image/gif,image/webp,.txt,.md,.json,.csv,.ts,.tsx,.js,.jsx,.css,.html,.yaml,.yml,.go,.py,.sh,.log,.xml,.toml";
+// Match the control plane's chat attachment limits.
+export const attachmentLimits = { count: 8, fileMB: 8, totalMB: 10 } as const;
+const bytesPerMB = 1048576;
+export function attachmentBytes(items: ReadonlyArray<{ size: number }>) { return items.reduce((sum, item) => sum + item.size, 0); }
 export function attachmentURL(item: OperatorAttachment) { return `data:${item.mediaType};base64,${item.dataBase64}`; }
 export function attachmentSize(size: number) { return size < 1024 ? `${size} B` : size < 1048576 ? `${Math.ceil(size / 1024)} KB` : `${(size / 1048576).toFixed(1)} MB`; }
 
 export async function readAttachments(files: File[], current: OperatorAttachment[]): Promise<OperatorAttachment[]> {
-  if (files.length + current.length > 4) throw new Error("Add up to 4 attachments per message.");
-  if (files.some(file => !file.size || file.size > 2 * 1048576)) throw new Error("Each file must be nonempty and under 2 MB.");
-  if ([...files, ...current].reduce((sum, file) => sum + file.size, 0) > 5 * 1048576) throw new Error("Attachments can total up to 5 MB.");
+  if (files.length + current.length > attachmentLimits.count) throw new Error(`This message can hold up to ${attachmentLimits.count} files. Remove an attachment to make room.`);
+  if (files.some(file => !file.size)) throw new Error("This file is empty.");
+  if (files.some(file => file.size > attachmentLimits.fileMB * bytesPerMB)) throw new Error(`This file exceeds ${attachmentLimits.fileMB} MB.`);
+  if (attachmentBytes(files) + attachmentBytes(current) > attachmentLimits.totalMB * bytesPerMB) throw new Error(`This would exceed ${attachmentLimits.totalMB} MB total. Remove an attachment or pick a smaller file.`);
   return Promise.all(files.map(async file => {
     const image = /^(image\/(png|jpeg|gif|webp))$/.test(file.type);
     const office = /\.(pdf|docx|xlsx)$/i.test(file.name);

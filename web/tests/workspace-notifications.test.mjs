@@ -93,3 +93,25 @@ test('security notifications include only listed actions and exclude the viewer'
   assert.equal(items[1].detail, 'Performed by a connected agent.');
   assert.deepEqual(securityNotifications(events, 'usr_me').some(item => item.id === 'security:e3'), false);
 });
+
+test('invite notifications order by creation time and carry a separate expiry', () => {
+  const notifications = workspaceNotifications(workspace({
+    invites: [
+      { id: 'winvite_old', workspaceId: 'wrk_team', workspaceName: 'Team Org', inviterEmail: 'a@example.com', role: 'viewer', createdAt: '2026-10-20T10:00:00Z', expiresAt: '2099-01-01T00:00:00Z' },
+      { id: 'winvite_new', workspaceId: 'wrk_team', workspaceName: 'Team Org', inviterEmail: 'b@example.com', role: 'operator', createdAt: '2026-10-25T10:00:00Z', expiresAt: '2026-10-26T00:00:00Z' },
+    ],
+  }));
+  assert.deepEqual(notifications.map(item => item.id), ['invite:winvite_new', 'invite:winvite_old']);
+  assert.equal(notifications[0].updatedAt, '2026-10-25T10:00:00Z');
+  assert.equal(notifications[1].expiresAt, '2099-01-01T00:00:00Z');
+});
+
+test('invites without a creation time sort last instead of blocking the list', () => {
+  const notifications = workspaceNotifications(workspace({
+    invites: [
+      { id: 'winvite_legacy', workspaceId: 'wrk_team', workspaceName: 'Team Org', inviterEmail: 'a@example.com', role: 'viewer', expiresAt: '2099-01-01T00:00:00Z' },
+      { id: 'winvite_dated', workspaceId: 'wrk_team', workspaceName: 'Team Org', inviterEmail: 'b@example.com', role: 'viewer', createdAt: '2026-10-20T10:00:00Z', expiresAt: '2026-10-21T00:00:00Z' },
+    ],
+  }));
+  assert.deepEqual(notifications.map(item => item.id), ['invite:winvite_dated', 'invite:winvite_legacy']);
+});

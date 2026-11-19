@@ -16,10 +16,10 @@ test('an invalid file does not discard good files before or after it', async () 
   assert.match(result.errors[0], /unsupported.exe/);
 });
 test('retains allowed files when a batch exceeds remaining slots', async () => {
-  const existing = (await readAttachmentBatch([file('a.txt'), file('b.txt'), file('c.txt')], [])).items;
+  const existing = (await readAttachmentBatch(Array.from({ length: 7 }, (_, i) => file(`${i}.txt`)), [])).items;
   const result = await readAttachmentBatch([file('d.txt'), file('e.txt')], existing);
   assert.equal(result.items.length, 1);
-  assert.match(result.errors[0], /up to 4/);
+  assert.match(result.errors[0], /up to 8/);
 });
 test('clipboard file items are a fallback, not duplicate attachments', () => {
   const image = new File(['image'], 'paste.png', { type: 'image/png' });
@@ -28,8 +28,15 @@ test('clipboard file items are a fallback, not duplicate attachments', () => {
   assert.deepEqual(transferredFiles({ files: [], items }), [image]);
 });
 test('oversized image reports its name and preserves valid neighbors', async () => {
-  const large = new File([new Uint8Array(2 * 1048576 + 1)], 'screenshot.png', { type: 'image/png' });
+  const large = new File([new Uint8Array(8 * 1048576 + 1)], 'screenshot.png', { type: 'image/png' });
   const result = await readAttachmentBatch([large, file('note.txt')], []);
   assert.equal(result.items[0].name, 'note.txt');
-  assert.match(result.errors[0], /screenshot.png.*2 MB/);
+  assert.match(result.errors[0], /screenshot.png.*8 MB/);
+});
+test('retains files within the total budget and reports the overflow', async () => {
+  const pdf = (name, size) => new File([new Uint8Array(size)], name, { type: 'application/pdf' });
+  const result = await readAttachmentBatch([pdf('big.pdf', 8 * 1048576), pdf('medium.pdf', 2 * 1048576), pdf('tiny.pdf', 1)], []);
+  assert.deepEqual(result.items.map(item => item.name), ['big.pdf', 'medium.pdf']);
+  assert.equal(result.errors.length, 1);
+  assert.match(result.errors[0], /tiny\.pdf.*10 MB/);
 });

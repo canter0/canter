@@ -45,14 +45,10 @@
 .shell[data-onboarding-transition="true"] :is(.homeRail, .sidebar, .topBar) { animation: onboardingChrome 900ms cubic-bezier(.22,.8,.18,1) both; }
 @keyframes onboardingChrome { from { opacity: 0; filter: blur(6px); translate: -12px 0; } to { opacity: 1; filter: blur(0); translate: 0 0; } }
 @media (prefers-reduced-motion: reduce) { .shell[data-onboarding-transition="true"] :is(.homeRail, .sidebar, .topBar) { animation: none; } }
-.homeRail { grid-column: 1; grid-row: 1 / 3; position: sticky; top: 0; z-index: 46; display: flex; flex-direction: column; align-items: center; gap: 6px; height: 100dvh; padding: 12px 8px; border-right: 1px solid rgb(var(--ui-border-secondary)); background: rgb(var(--ui-bg-wash)); }
+.homeRail { grid-column: 1; grid-row: 1 / 3; position: sticky; top: 0; z-index: 46; height: 100dvh; }
 .railHome { display: grid; place-items: center; flex-shrink: 0; width: 40px; height: 40px; padding: 0; border: 0; border-radius: 12px; background: transparent; color: #aaa; transition: background var(--motion-fast), color var(--motion-fast); }
 .railHome:hover, .railHome[aria-current="location"] { color: #eee; background: #272727; }
 .railHome:disabled { color: #6f6f6f; background: transparent; }
-.homeRail .accountAnchor { margin: auto 0 0; }
-.homeRail .profile { display: grid; place-items: center; width: 40px; height: 40px; margin: 0; padding: 0; border-radius: 50%; }
-.homeRail .profileAvatar { width: 32px; height: 32px; }
-.homeRail .accountMenu { top: auto; bottom: 0; left: calc(100% + 12px); right: auto; max-width: calc(100vw - 76px); transform-origin: bottom left; }
 .sidebar {
   --surface: rgb(var(--ui-bg-page));
   grid-column: 2;
@@ -389,15 +385,8 @@ a.actionRow:hover { background: #1b1b1b; }
 .sidebarDropdownPanel [role="menuitemradio"] > svg { margin-left: auto; }
 .sidebarDropdownPanel .menuLabel { margin: 0; padding: 5px 8px; color: var(--text-secondary); font-size: 12px; }
 .sidebarDropdown[data-upward="true"] .sidebarDropdownPanel { top: auto; bottom: calc(100% + 8px); }
-.workspaceIdentity { display: flex; flex: none; align-items: center; min-width: 0; height: 56px; gap: 4px; padding: 0 0 8px; }
-.workspaceIdentity .accountAnchor { flex: 1; min-width: 0; margin: 0; }
-.accountSwitch { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; min-height: 48px; padding: 2px 0; border: 0; border-radius: 6px; background: transparent; text-align: left; }
-.accountSwitch:hover, .accountSwitch[aria-expanded="true"] { background: rgb(var(--ui-tint-secondary)); }
-.accountSwitch .profileAvatar { display: grid; place-items: center; flex: none; width: 32px; height: 32px; border-radius: 50%; background: rgb(var(--ui-bg-elevated)); color: var(--ink); font-size: 13px; }
-.accountIdentity { display: flex; flex: 1; flex-direction: column; min-width: 0; gap: 0; padding-top: 3px; }
-.accountIdentity strong, .accountIdentity > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; line-height: 20px; }
-.accountIdentity strong { font-weight: 500; }
-.accountIdentity > span { color: var(--text-secondary); font-size: 13px; line-height: 18px; }
+.workspaceIdentity { display: flex; flex: none; align-items: center; min-width: 0; gap: 4px; margin-bottom: 2px; }
+.newSessionSlot { flex: 1; min-width: 0; }
 .workspaceSearch, .workspaceInbox { width: 28px; height: 28px; color: var(--text-secondary); }
 .workspaceIdentity .iconButton > svg { width: 16px; height: 16px; }
 .navigation { --motion-nav-surface: rgb(var(--ui-tint-secondary)); margin-top: 0; gap: 2px; }
@@ -426,6 +415,8 @@ a.actionRow:hover { background: #1b1b1b; }
 .accountMenu .menuLabel { border-color: rgb(var(--ui-border-secondary)); }
 .accountMenu a { min-height: 30px; padding-block: 5px; border-radius: 4px; }
 .accountMenu a:hover { background: rgb(var(--ui-tint-secondary)); }
+.profileAnchor { position: relative; z-index: 45; display: flex; }
+.profileAnchor .accountMenu { position: absolute; top: auto; bottom: 0; left: calc(100% + 8px); max-height: calc(100dvh - 24px); overflow-y: auto; transform-origin: bottom left; }
 .topBar { background: rgb(var(--ui-bg-page)); }
 .topBarTitle { color: var(--text-secondary); font-size: 13px; font-weight: 400; }
 .main { background: rgb(var(--ui-bg-page)); }
@@ -440,11 +431,8 @@ a.actionRow:hover { background: #1b1b1b; }
   .shell[data-collapsed="true"] .workspaceInbox,
   .shell[data-collapsed="true"] .conversationActions,
   .shell[data-collapsed="true"] .recentHeading > span { display: none; }
-  .shell[data-collapsed="true"] .workspaceIdentity { justify-content: center; padding: 0 0 8px; }
-  .shell[data-collapsed="true"] .accountSwitch { justify-content: center; padding: 0; }
-  .shell[data-collapsed="true"] .accountIdentity,
+  .shell[data-collapsed="true"] .workspaceIdentity { justify-content: center; }
   .shell[data-collapsed="true"] .workspaceSearch { display: none; }
-  .shell[data-collapsed="true"] .accountMenu { left: 128px; top: 48px; }
   .shell[data-collapsed="true"] .recentSection { border-color: rgb(var(--ui-border-secondary)); }
   .shell[data-collapsed="true"] .recentHeading { justify-content: center; padding-inline: 0; }
   .shell[data-collapsed="true"] .sidebarBottom { flex-direction: column; }
@@ -518,4 +506,63 @@ a.actionRow:hover { background: #1b1b1b; }
   .shell[data-mobile-open="true"] .sidebar { transition:transform 320ms cubic-bezier(.22,1,.36,1),visibility 0s; }
   .sidebarBackdrop { opacity:0;visibility:hidden;pointer-events:none;transition:opacity 220ms ease,visibility 0s linear 220ms; }
   .sidebarBackdrop[data-open="true"] { opacity:1;visibility:visible;pointer-events:auto;transition:opacity 320ms ease,visibility 0s; }
+}
+
+/* Desktop frame: the rail and top row sit on the ground; sidebar and main share one inset card. */
+@media (min-width: 1024px) {
+  .shell { --rail-surface: rgb(var(--ui-layout-ground)); --frame-top: 40px; --main-viewport-height: calc(100dvh - 40px - var(--frame-gutter)); }
+  .shell::before { content: ""; grid-column: 2 / 4; grid-row: 2; margin: 0 var(--frame-gutter) var(--frame-gutter) 0; border: 1px solid rgb(var(--ui-border-secondary)); border-radius: var(--frame-radius); background: rgb(var(--ui-bg-page)); box-shadow: 0 1px 3px rgb(0 0 0 / .25); }
+  .sidebar, .topBar { background: transparent; }
+  .sidebar { border-right: 0; }
+  .main { margin: 0 var(--frame-gutter) var(--frame-gutter) 0; border-left: 1px solid rgb(var(--ui-border-secondary)); border-radius: 0 var(--frame-radius) var(--frame-radius) 0; background: transparent; }
+  .shell[data-onboarding="true"] { --rail-surface: rgb(var(--ui-bg-page)); }
+  .shell[data-onboarding="true"]::before { display: none; }
+  .shell[data-onboarding="true"] .main { border-left: 0; }
+}
+
+/* Devin sidebar geometry: 8px inset, 30px rows, 13px text, 16px icons, 12px after the primary nav. */
+.workspaceIdentity { margin: 8px 0 2px; gap: 2px; }
+.workspaceIdentity .iconButton { width: 30px; height: 30px; border-radius: 6px; }
+.navigation .navLink, .navigation .navLink[href="/app"] { min-height: 30px; height: 30px; gap: 8px; padding: 0 8px; border-radius: 6px; font-size: 13px; line-height: 18px; }
+.navigation .navLink > svg, .navigation .navLink[href="/app"] > svg { width: 16px; height: 16px; margin: 0; }
+.recentSection { margin-top: 12px; }
+.sidebarLabel { min-height: 40px; padding-left: 8px; font-size: 13px; line-height: 18px; }
+.recentHeading { height: 30px; margin: 0 0 2px; padding: 0 8px; font-size: 13px; line-height: 18px; }
+@media (pointer: coarse) {
+  .navigation .navLink, .navigation .navLink[href="/app"] { min-height: 44px; height: auto; }
+  .workspaceIdentity .iconButton { width: 40px; height: 40px; }
+}
+
+/* Desktop session tabs: browser-style per-tab history, kept per window. */
+.sessionTabs { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.sessionTabsScroll { display: flex; align-items: center; gap: 4px; flex: 0 1 auto; min-width: 0; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; }
+.sessionTabsScroll::-webkit-scrollbar { display: none; }
+.sessionTabItem { position: relative; display: flex; align-items: center; flex: none; height: 28px; min-width: 0; max-width: 160px; padding: 0; border-radius: 6px; color: var(--text-secondary); font-size: 12px; line-height: 1; }
+.sessionTabItem:hover { background: rgb(var(--ui-tint-secondary)); color: var(--ink); }
+.sessionTabItem[data-active] { background: rgb(var(--ui-tint-primary)); color: var(--ink); }
+.sessionTabLink { display: flex; align-items: center; flex: 1 1 auto; min-width: 0; height: 100%; gap: 6px; padding: 0 8px; color: inherit; text-decoration: none; border-radius: 6px; }
+.sessionTabMark { display: grid; place-items: center; flex: none; width: 16px; height: 16px; color: var(--icon-muted); transition: opacity var(--motion-fast); }
+.sessionTabDot { width: 4px; height: 4px; border-radius: 50%; background: currentColor; opacity: .6; }
+.sessionTabSpinner { width: 14px; height: 14px; border: 1.5px dotted currentColor; border-radius: 50%; opacity: .8; animation: sessionTabSpin 1.2s linear infinite; }
+@keyframes sessionTabSpin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .sessionTabSpinner { animation: none; } }
+.sessionTabTitle { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The close control overlays the leading icon slot on hover/keyboard focus. */
+.sessionTabClose { position: absolute; left: 6px; top: 50%; transform: translateY(-50%); display: grid; place-items: center; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: var(--text-secondary); opacity: 0; pointer-events: none; }
+.sessionTabClose:hover { background: rgb(var(--ui-tint-primary)); color: var(--ink); }
+@media (hover: hover) {
+  .sessionTabItem:hover .sessionTabMark, .sessionTabItem:has(:focus-visible) .sessionTabMark { opacity: 0; }
+  .sessionTabItem:hover .sessionTabClose, .sessionTabItem:has(:focus-visible) .sessionTabClose { opacity: 1; pointer-events: auto; }
+}
+@media (hover: none) {
+  .sessionTabItem[data-active] .sessionTabMark { opacity: 0; }
+  .sessionTabItem[data-active] .sessionTabClose { opacity: 1; pointer-events: auto; }
+  .sessionTabClose:focus-visible { opacity: 1; pointer-events: auto; }
+}
+.sessionTabNew { display: grid; place-items: center; flex: none; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--text-secondary); }
+.sessionTabNew:hover { background: rgb(var(--ui-tint-secondary)); color: var(--ink); }
+@media (min-width: 1024px) {
+  .topBar[data-session-tabs][data-conversation] { display: flex; grid-template-columns: none; gap: 6px; padding: 0 12px; }
+  .topBar[data-session-tabs][data-conversation] .topBarTitle:not(:has(button)) { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0; }
+  .topBar[data-session-tabs] .sessionTabs { flex: 1 1 auto; }
 }

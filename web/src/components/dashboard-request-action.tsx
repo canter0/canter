@@ -44,13 +44,12 @@ export function DashboardRequestDialog({ source, prompt, surface, onClose }: { s
   // is open it closes rather than lingering for the receiver to reject.
   if (data?.workspace.role === "viewer") return null;
   const current = data ? { accountId: data.account.id, workspaceId: data.workspace.id } : null;
-  const wrensAvailable = !!data?.products?.some(product => product.id === "wrens" && product.enabled);
-  return <RequestTakeover key={`${source.accountId}:${source.workspaceId}`} source={source} current={current} accountId={source.accountId} workspaceId={source.workspaceId} conversations={data?.conversations ?? []} wrensAvailable={wrensAvailable} prompt={prompt} surface={surface} onClose={onClose} />;
+  return <RequestTakeover key={`${source.accountId}:${source.workspaceId}`} source={source} current={current} accountId={source.accountId} workspaceId={source.workspaceId} conversations={data?.conversations ?? []} prompt={prompt} surface={surface} onClose={onClose} />;
 }
 
 const surfaceLabel = (surface?: OperatorSurface) => surface?.kind === "super-sandbox" && surface.id ? `Super Sandbox ${surface.id}` : surface?.kind === "super-sandboxes" ? "Super Sandboxes" : surface?.kind === "sandbox" && surface.id ? `Sandbox ${surface.id}` : surface?.kind === "sandboxes" ? "Sandboxes" : surface?.kind === "apps" ? "Apps" : null;
 
-function RequestTakeover({ source, current, accountId, workspaceId, conversations, wrensAvailable, prompt, surface, onClose }: { source: DashboardRequestSource; current: { accountId: string; workspaceId: string } | null; accountId: string; workspaceId: string; conversations: Conversation[]; wrensAvailable: boolean; prompt: string; surface?: OperatorSurface; onClose: () => void }) {
+function RequestTakeover({ source, current, accountId, workspaceId, conversations, prompt, surface, onClose }: { source: DashboardRequestSource; current: { accountId: string; workspaceId: string } | null; accountId: string; workspaceId: string; conversations: Conversation[]; prompt: string; surface?: OperatorSurface; onClose: () => void }) {
   const ref = useRef<HTMLDialogElement>(null);
   const dismiss = useDialog(ref, "textarea");
   const router = useRouter();
@@ -65,8 +64,8 @@ function RequestTakeover({ source, current, accountId, workspaceId, conversation
   const [search, setSearch] = useState("");
   const [selectedKey, setSelectedKey] = useState(newCanterDestinationKey);
   usePopover(selectorOpen, selectorRoot, () => setSelectorOpen(false));
-  const wrens = useWrenResource<{ wrens: Wren[] }>(wrensAvailable ? `${workBase(workspaceId)}/wrens` : "");
-  const rooms = useWrenResource<{ rooms: WrenRoom[] }>(wrensAvailable ? `${workBase(workspaceId)}/rooms` : "");
+  const wrens = useWrenResource<{ wrens: Wren[] }>(`${workBase(workspaceId)}/wrens`);
+  const rooms = useWrenResource<{ rooms: WrenRoom[] }>(`${workBase(workspaceId)}/rooms`);
 
   const groups = useMemo(() => dashboardRequestDestinations({ conversations, wrens: wrens.data?.wrens ?? [], rooms: rooms.data?.rooms ?? [] }, conversationHref), [conversations, wrens.data, rooms.data]);
   const flat = useMemo(() => flattenDashboardRequestDestinations(groups), [groups]);

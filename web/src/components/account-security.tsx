@@ -5,6 +5,7 @@ import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type R
 import { SettingsShell, SettingRow } from "./settings-shell";
 import { WorkspaceIcon } from "./workspace-icon";
 import { canterFetch, CanterAPIError } from "@/lib/canter-api";
+import { sessionDeviceLabel } from "@/lib/session-device";
 import { registerPasskey, authenticatePasskey } from "@/lib/passkeys";
 import styles from "./settings.module.css";
 import security from "./account-security.module.css";
@@ -193,9 +194,14 @@ export function AccountSecurity() {
       <section className={styles.section}>
         <h2>Active sessions</h2>
         <div className={styles.card}>
-          {data.sessions.map(session => <SettingRow key={session.id} title={session.current ? "This browser" : session.userAgent || "Browser session"} description={`${session.ip || "Location unavailable"} · Active ${new Date(session.lastSeenAt).toLocaleString()}`}>
-            {session.current ? <span className={styles.badge}>Current</span> : <button disabled={busy} className={styles.button} onClick={() => void run(async () => { await mutate(`sessions/${session.id}`, {}, "DELETE"); setMessage("Session signed out."); }, false)}>Sign out</button>}
-          </SettingRow>)}
+          {data.sessions.map(session => {
+            const label = sessionDeviceLabel(session.userAgent);
+            const seen = new Date(session.lastSeenAt).toLocaleString();
+            const where = session.ip || "Location unavailable";
+            return <SettingRow key={session.id} title={session.current ? `This browser · ${label}` : label} description={`${where} · Active ${seen}${session.userAgent ? ` · ${session.userAgent}` : ""}`}>
+              {session.current ? <span className={styles.badge}>Current</span> : <button disabled={busy} className={styles.button} aria-label={`Sign out ${label}, ${where}, active ${seen}`} onClick={() => void run(async () => { await mutate(`sessions/${session.id}`, {}, "DELETE"); setMessage("Session signed out."); }, false)}>Sign out</button>}
+            </SettingRow>;
+          })}
           <SettingRow title="Sign out other sessions"><button className={styles.button} disabled={busy || data.sessions.length < 2} onClick={() => void run(async () => { await mutate("sessions/others", {}, "DELETE"); setMessage("Other sessions signed out."); }, false)}>Sign out others</button></SettingRow>
         </div>
       </section>

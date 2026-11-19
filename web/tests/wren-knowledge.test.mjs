@@ -39,3 +39,31 @@ test('shared-copy navigation resolves the exact confirmed record and current roo
   assert.equal(sharedMemoryDestination({...copy, conversationId: 'conv_elsewhere'}, rooms), null);
   assert.equal(sharedMemoryDestination(copy, []), null);
 });
+
+test('extension scope adds ordinary owner chats without broadening memory or skill scopes (synthetic)', async () => {
+  const { extensionTarget, extensionQuery } = await import('../src/lib/wren-knowledge.ts');
+  const wren = { id: 'wren_a', conversationId: 'conv_wren', name: 'A' };
+  const room = { id: 'room_a', conversationId: 'conv_room', name: 'Project', kind: 'group' };
+  const conversations = [
+    { id: 'conv_plain', title: 'Budget chat', ownerAccountId: 'acct_me' },
+    { id: 'conv_shared', title: 'Shared chat', ownerAccountId: 'acct_me', shared: true },
+    { id: 'conv_peer', title: 'Peer chat', ownerAccountId: 'acct_peer', shared: true },
+    { id: 'conv_wren', title: 'Wren chat' },
+    { id: 'conv_room', title: 'Room chat' },
+  ];
+  // Ordinary chats resolve the extension-only operator scope with a truthful label.
+  assert.deepEqual(extensionTarget('conv_plain', [wren], [room], conversations, 'acct_me').scope, { conversationId: 'conv_plain', scope: 'operator' });
+  assert.match(extensionTarget('conv_plain', [wren], [room], conversations, 'acct_me').label, /Budget chat/);
+  // A chat once shared, a peer's shared chat, and a missing account never get a target.
+  assert.equal(extensionTarget('conv_shared', [wren], [room], conversations, 'acct_me'), null);
+  assert.equal(extensionTarget('conv_peer', [wren], [room], conversations, 'acct_me'), null);
+  assert.equal(extensionTarget('conv_plain', [wren], [room], conversations), null);
+  // Rooms and Wren chats keep their existing scopes; unknown or foreign ids never guess.
+  assert.deepEqual(extensionTarget('conv_wren', [wren], [room], conversations, 'acct_me').scope, { conversationId: 'conv_wren', scope: 'private', wrenId: 'wren_a' });
+  assert.deepEqual(extensionTarget('conv_room', [wren], [room], conversations, 'acct_me').scope, { conversationId: 'conv_room', scope: 'room' });
+  assert.equal(extensionTarget('conv_foreign', [wren], [room], conversations, 'acct_me'), null);
+  assert.equal(extensionTarget(undefined, [wren], [room], conversations, 'acct_me'), null);
+  assert.equal(extensionQuery({ conversationId: 'conv_plain', scope: 'operator' }), 'conversationId=conv_plain&scope=operator');
+  // Memory/skill targets still reject the operator scope entirely.
+  assert.equal(knowledgeTarget('conv_plain', [wren], [room]), null);
+});

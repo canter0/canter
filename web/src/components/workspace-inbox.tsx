@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useId, useRef, useState, useSyncExternalStore, type CSSProperties, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { notificationReceiptKey, parseNotificationReceipts, securityNotifications, workspaceNotifications, type WorkspaceNotification } from "@/lib/workspace-notifications";
-import { canterFetch, relativeTime } from "@/lib/canter-api";
+import { canterFetch, CanterAPIError, relativeTime } from "@/lib/canter-api";
 import type { AuditEvent } from "@/lib/audit";
 import { selectWorkspace, openSelectedWorkspace } from "@/lib/workspace-selection";
 import { useWorkspace } from "./workspace-context";
@@ -47,6 +47,7 @@ function InviteNotification({ item, onRead, onChanged, onAccepted }: { item: Wor
       <strong>{item.title}</strong>
       <span>{item.detail}</span>
       {item.updatedAt ? <time dateTime={item.updatedAt}>{relativeTime(item.updatedAt) === "now" ? "just now" : `${relativeTime(item.updatedAt)} ago`}</time> : null}
+      {item.expiresAt ? <time dateTime={item.expiresAt}>Expires {new Date(item.expiresAt).toLocaleString()}</time> : null}
       {state === "accepted" ? <span className={styles.inviteActions}><button type="button" disabled={opening} onClick={() => void open()}>{opening ? "Opening…" : "Open organization"}</button></span> : <span className={styles.inviteActions}><button type="button" disabled={state === "busy"} onClick={() => void respond("accept")}>Accept</button><button type="button" disabled={state === "busy"} onClick={() => void respond("decline")}>Decline</button></span>}
       {error ? <span role="alert">{error}</span> : null}
     </span>
@@ -67,23 +68,40 @@ export function WorkspaceInbox({ collapsed, onOpen, navigationTrigger }: { colla
   const getReceipts = useCallback(() => { if (fallback.key === key && fallback.localOnly) return fallback.raw; try { return localStorage.getItem(key) ?? ""; } catch { return fallback.key === key ? fallback.raw : ""; } }, [key, fallback]);
   const raw = useSyncExternalStore(subscribeToReceipts, getReceipts, noReceipts);
   const read = parseNotificationReceipts(raw);
-  const [security, setSecurity] = useState<AuditEvent[]>([]);
   const securityAllowed = data.workspace.role === "owner" || data.workspace.role === "operator";
+  const scope = `${data.workspace.id}:${data.account.id}:${securityAllowed}`;
+  const [audit, setAudit] = useState<{ scope: string; events: AuditEvent[]; loading: boolean; error: string }>({ scope, events: [], loading: securityAllowed, error: "" });
+  const [auditAttempt, setAuditAttempt] = useState(0);
+  if (audit.scope !== scope) setAudit({ scope, events: [], loading: securityAllowed, error: "" });
   useEffect(() => {
     if (!securityAllowed) return;
     const controller = new AbortController();
-    canterFetch<{ events: AuditEvent[] }>(`/workspaces/${encodeURIComponent(data.workspace.id)}/audit?limit=50`, { signal: controller.signal }).then(page => setSecurity(page.events)).catch(() => {});
+    canterFetch<{ events: AuditEvent[] }>(`/workspaces/${encodeURIComponent(data.workspace.id)}/audit?limit=50`, { signal: controller.signal })
+      .then(page => { if (!controller.signal.aborted) setAudit(current => current.scope === scope ? { scope, events: page.events, loading: false, error: "" } : current); })
+      .catch(cause => {
+        if (controller.signal.aborted) return;
+        // A lost grant clears events immediately even before roles refresh;
+        // transient failures keep the same-scope data already shown.
+        if (cause instanceof CanterAPIError && (cause.status === 401 || cause.status === 403)) {
+          setAudit(current => current.scope === scope ? { scope, events: [], loading: false, error: "Security activity is unavailable for this session." } : current);
+          return;
+        }
+        setAudit(current => current.scope === scope ? { ...current, loading: false, error: cause instanceof Error ? cause.message : "Security activity could not be loaded." } : current);
+      });
     return () => controller.abort();
-  }, [data.workspace.id, securityAllowed]);
-  const notifications = [...workspaceNotifications(data), ...securityNotifications(securityAllowed ? security : [], data.account.id)].sort((a, b) => (Date.parse(b.updatedAt) || 0) - (Date.parse(a.updatedAt) || 0));
+  }, [scope, securityAllowed, auditAttempt, data.workspace.id]);
+  const scoped = audit.scope === scope ? audit : { scope, events: [] as AuditEvent[], loading: securityAllowed, error: "" };
+  const notifications = [...workspaceNotifications(data), ...securityNotifications(securityAllowed ? scoped.events : [], data.account.id)].sort((a, b) => (Date.parse(b.updatedAt) || 0) - (Date.parse(a.updatedAt) || 0));
   const unread = notifications.filter(item => !read[item.id]);
   // Accepted invites leave /me/invites immediately; keep them rendered so the
   // "Open organization" action survives the refresh.
   const base = filter === "unread" ? unread : notifications;
   const shown = [...base, ...Object.values(accepted).filter(item => !base.some(current => current.id === item.id))];
   const sources = [resources.conversations, resources.tasks, resources.changes, resources.initialDeployments, resources.invites];
-  const failed = sources.some(source => source.error);
-  const checking = sources.some(source => !source.loaded);
+  const sourceFailed = sources.some(source => source.error);
+  const failed = sourceFailed || !!scoped.error;
+  const checking = sources.some(source => !source.loaded) || scoped.loading;
+  const retryAll = () => { retry(); if (securityAllowed) { setAudit(current => ({ ...current, loading: true, error: "" })); setAuditAttempt(value => value + 1); } };
   const close = useCallback(() => setOpen(false), []);
   useFocusContainment(open && mobile, panel, close, navigationTrigger);
 
@@ -114,12 +132,13 @@ export function WorkspaceInbox({ collapsed, onOpen, navigationTrigger }: { colla
   function dismiss() { close(); if (!mobile) trigger.current?.focus(); }
 
   return <>
-    <button ref={trigger} type="button" className={`${shell.iconButton} ${shell.workspaceInbox} ${styles.trigger}`} aria-label={`Notifications${unread.length ? `, ${unread.length} unread` : ""}`} title="Notifications" aria-haspopup="dialog" aria-expanded={open} aria-controls={open ? id : undefined} onClick={() => { if (!open) onOpen(); setOpen(!open); }}><WorkspaceIcon name="inbox" />{unread.length ? <span className={styles.unreadDot} aria-hidden="true" /> : null}</button>
+    <button ref={trigger} type="button" className={`${shell.iconButton} ${shell.workspaceInbox} ${styles.trigger}`} aria-label={`Notifications${unread.length ? `, ${unread.length} unread` : ""}`} title="Notifications" aria-haspopup="dialog" aria-expanded={open} aria-controls={open ? id : undefined} onClick={() => { if (!open) { onOpen(); if (securityAllowed) setAuditAttempt(value => value + 1); } setOpen(!open); }}><WorkspaceIcon name="inbox" />{unread.length ? <span className={styles.unreadDot} aria-hidden="true" /> : null}</button>
     {typeof document !== "undefined" ? createPortal(<MotionPresence open={open}><aside ref={panel} tabIndex={-1} role="dialog" aria-modal={mobile || undefined} aria-label="Notifications" id={id} className={`dashboard-theme ${styles.panel}`} style={{ "--inbox-left": `${56 + (collapsed ? 64 : 300)}px` } as CSSProperties}>
       <header className={styles.header}><h2>Notifications</h2><div className={styles.headerActions}><button type="button" disabled={!unread.length} aria-label="Mark all notifications as read" title="Mark all as read" onClick={() => markRead(unread.map(item => item.id))}><WorkspaceIcon name="check" width="17" height="17" /></button><button type="button" aria-label="Close notifications" onClick={dismiss}><WorkspaceIcon name="close" width="18" height="18" /></button></div></header>
       <MotionNav name="notification-tabs" label="Notification filters" role="tablist" className={styles.tabs}><button type="button" role="tab" aria-selected={filter === "all"} aria-controls={`${id}-items`} id={`${id}-all`} onClick={() => setFilter("all")} onKeyDown={event => { if (event.key === "ArrowRight") { event.preventDefault(); setFilter("unread"); panel.current?.querySelector<HTMLButtonElement>(`#${CSS.escape(id)}-unread`)?.focus(); } }}>All</button><button type="button" role="tab" aria-selected={filter === "unread"} aria-controls={`${id}-items`} id={`${id}-unread`} onClick={() => setFilter("unread")} onKeyDown={event => { if (event.key === "ArrowLeft") { event.preventDefault(); setFilter("all"); panel.current?.querySelector<HTMLButtonElement>(`#${CSS.escape(id)}-all`)?.focus(); } }}>Unread <span>{unread.length}</span></button></MotionNav>
       <div className={styles.content} role="tabpanel" id={`${id}-items`} aria-labelledby={`${id}-${filter}`}>
-        {failed ? <div className={styles.syncNotice} role="status">Some notifications couldn’t refresh.<button type="button" onClick={retry}>Retry</button></div> : null}
+        {sourceFailed ? <div className={styles.syncNotice} role="status">Some notifications couldn’t refresh.<button type="button" onClick={retryAll}>Retry</button></div> : null}
+        {scoped.error ? <div className={styles.syncNotice} role="status">Security activity couldn’t refresh.<button type="button" onClick={() => setAuditAttempt(value => value + 1)}>Retry</button></div> : null}
         {shown.length ? <ul className={styles.list}>{shown.map(item => <li key={item.id} data-unread={!read[item.id]}>{item.kind === "invite" && item.inviteId ? <InviteNotification item={item} onRead={markRead} onChanged={retry} onAccepted={item => setAccepted(current => ({ ...current, [item.id]: item }))} /> : <><Link href={item.href} onClick={() => markRead([item.id])} onNavigate={close} className={styles.notification}><span className={styles.itemIcon} data-kind={item.kind}><WorkspaceIcon name={item.kind === "review" ? "changes" : item.kind === "security" ? "lock" : "activity"} width="18" height="18" /></span><span className={styles.itemBody}><strong>{item.title}</strong><span>{item.detail}</span>{item.updatedAt ? <time dateTime={item.updatedAt}>{relativeTime(item.updatedAt) === "now" ? "just now" : `${relativeTime(item.updatedAt)} ago`}</time> : null}</span>{!read[item.id] ? <span className={styles.itemDot} aria-label="Unread" /> : null}</Link>{!read[item.id] ? <button type="button" className={styles.markRead} aria-label={`Mark ${item.title} as read`} title="Mark as read" onClick={() => markRead([item.id])}><WorkspaceIcon name="check" width="14" height="14" /></button> : null}</>}</li>)}</ul> : <div className={styles.empty} role="status"><span className={styles.emptyIcon}><WorkspaceIcon name="bell" width="24" height="24" /></span><h3>{checking ? "Checking your organization…" : failed ? "Couldn’t load notifications" : "You’re all caught up"}</h3><p>{checking ? "Looking for updates that need your attention." : failed ? "Retry to check for updates." : filter === "unread" ? "You have no unread notifications." : "New notifications will show up here."}</p></div>}
       </div>
     </aside></MotionPresence>, document.body) : null}

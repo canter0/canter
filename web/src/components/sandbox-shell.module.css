@@ -27,3 +27,14 @@
   .settings { display: none; }
   .switchError { margin: 4px 12px 0; }
 }
+
+/* Desktop frame: header row on the ground; the section rail and main share one inset card. */
+@media (min-width: 1024px) {
+  .shell { --frame-top: 40px; background: rgb(var(--ui-layout-ground)); }
+  .subnav { height: calc(100dvh - 40px - var(--frame-gutter)); margin-top: 40px; border: 1px solid rgb(var(--ui-border-secondary)); border-radius: var(--frame-radius) 0 0 var(--frame-radius); }
+  .header { min-height: 40px; border-bottom: 0; }
+  .main { margin: 0 var(--frame-gutter) var(--frame-gutter) 0; border: 1px solid rgb(var(--ui-border-secondary)); border-left: 0; border-radius: 0 var(--frame-radius) var(--frame-radius) 0; background: rgb(var(--ui-bg-page)); }
+}
+
+/* Workspace tab strip takes the free room between product name and actions. */
+.header [data-session-tabs] { flex: 1; min-width: 0; }

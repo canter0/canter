@@ -273,7 +273,7 @@ func TestOperatorMessagePagesBoundBytesCountAndPreserveOwnerScope(t *testing.T) 
 	s, c, token := operatorFixture(t)
 	ctx := context.Background()
 	base := time.Now().UTC().Truncate(time.Microsecond)
-	attachmentJSON, err := json.Marshal([]OperatorAttachment{{ID: "large-file", Name: "large.txt", MediaType: "text/plain", DataBase64: strings.Repeat("A", 1_200_000), Size: 900_000}})
+	attachmentJSON, err := json.Marshal([]OperatorAttachment{{ID: "large-file", Name: "large.txt", MediaType: "text/plain", DataBase64: strings.Repeat("A", 2_400_000), Size: 1_800_000}})
 	if err != nil {
 		t.Fatal(err)
 	}

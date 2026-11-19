@@ -11,7 +11,7 @@ export function OperatorAttachments({ items, onRemove, disabled }: { items: Oper
   const [preview, setPreview] = useState<OperatorAttachment | null>(null);
   useEffect(()=>{if(preview&&!items.some(item=>item.id===preview.id))dialog.current?.close();},[items,preview]);
   return <>
-    <div className={styles.attachments} aria-label="Attachments">{items.map(item => <div key={item.id} className={styles.attachment} data-image={item.mediaType.startsWith("image/")}>
+    <div className={styles.attachments} data-draft={!!onRemove || undefined} role="group" aria-label="Attachments">{items.map(item => <div key={item.id} className={styles.attachment} data-image={item.mediaType.startsWith("image/")}>
       <button type="button" className={styles.attachmentPreview} aria-label={`Preview ${item.name}`} title={`${item.name} · ${attachmentSize(item.size)}`} onClick={() => { setPreview(item); dialog.current?.showModal(); }}>
         {/* Local validated data URLs do not need the remote image optimizer. */}
         {/* eslint-disable-next-line @next/next/no-img-element */}

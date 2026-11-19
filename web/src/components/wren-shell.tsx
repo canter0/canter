@@ -10,11 +10,13 @@ export function WrenShell({
   icon,
   actions,
   onDetails,
+  tabs,
   children,
 }: {
   title: string;
   icon?: ReactNode;
   actions?: ReactNode;
+  tabs?: ReactNode;
   onDetails?: () => void;
   children: ReactNode;
 }) {
@@ -56,6 +58,7 @@ export function WrenShell({
             </>
           )}
         </div>
+        {tabs}
         <div className={styles.actions}>
           {actions}
           <Link

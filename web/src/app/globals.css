@@ -49,6 +49,7 @@
 .dashboard-theme {
   --font-interface: "Canter Interface", Inter, var(--font-app);
   /* Visual roles are independent of Canter's preserved motion vocabulary. */
+  --ui-layout-ground: 15 15 15;
   --ui-bg-page: 20 20 20;
   --ui-bg-wash: 25 25 25;
   --ui-bg-elevated: 37 37 37;
@@ -73,6 +74,8 @@
   --focus: #bcbcbc;
   --radius-control: 6px;
   --radius-panel: 12px;
+  --frame-gutter: 6px;
+  --frame-radius: 12px;
   --radius-menu: 12px;
   --menu-inset: 5px;
   --radius-menu-item: calc(var(--radius-menu) - var(--menu-inset) - 1px);

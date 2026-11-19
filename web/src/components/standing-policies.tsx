@@ -3,7 +3,10 @@ import {getSelectedWorkspace} from "@/lib/workspace-selection";
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { AppShell, Metric, SectionHeader } from "@/components/app-shell";
+import { AppShell } from "@/components/app-shell";
+import { WorkspaceIcon } from "./workspace-icon";
+import styles from "./detail-page.module.css";
+import { phaseTone } from "@/lib/workspace-overview";
 import { canterFetch, relativeTime, type ChangeDetail, type Installation, type StandingPolicy, type StandingPolicyEnvelope } from "@/lib/canter-api";
 
 function unique(values: Array<string | undefined>) {
@@ -138,28 +141,51 @@ export function StandingPolicies({ system, fromChange }: { system: string; fromC
 
 	const active = policies.filter((policy) => !policy.revokedAt && new Date(policy.expiresAt).getTime() > observedAt);
 
+  const derived: Array<[string, string]> = change && envelope ? [["Services", envelope.affectedServices.join(", ")], ["Operations", envelope.operationKinds.join(", ")], ["Availability", envelope.availability.join(", ")], ["Data", envelope.data.join(", ")], ["Reversibility", envelope.allowedReversibility.join(", ")], ...(change.plan?.scale ? [["Capacity", `${change.plan.scale.fromReplicas} → ${change.plan.scale.toReplicas} replicas`], ["Duration", change.plan.scale.leaseSeconds ? `${change.plan.scale.leaseSeconds} seconds, then restore ${change.plan.scale.restoreToReplicas}` : "Permanent"]] as Array<[string, string]> : [])] : [];
+
   return (
     <AppShell active="System" context={`canter / default / ${system} / policies`} pageTitle={`${system} policies`}>
-      <section className="flex min-h-[calc(100vh-80px)] flex-col [overflow-wrap:anywhere] px-6 pt-10 sm:px-10 lg:px-14 lg:pt-11">
-        <div className="grid min-w-0 items-end border-b border-[var(--rule-strong)] pb-7 lg:grid-cols-[1fr_170px_170px]">
-          <div><div className="meta">System / {system}</div><h1 className="display mt-3 text-[32px]">Standing policies</h1></div>
-          <div className="mt-8 grid grid-cols-2 lg:contents"><Metric label="Active" value={String(active.length)} /><Metric label="Recorded" value={String(policies.length)} /></div>
+      <section className={styles.page}><div className={styles.inner}>
+        <header className={styles.header}>
+          <div><div className={styles.eyebrow}>{system}</div><h1>Standing policies</h1><p>Bounded authority that lets matching changes proceed without a separate approval.</p></div>
+        </header>
+        {error ? <div role="alert" className={styles.error}>{error}</div> : null}
+        <div className={styles.metrics}>
+          <div><span>Active</span><strong>{active.length}</strong></div>
+          <div><span>Recorded</span><strong>{policies.length}</strong></div>
         </div>
-        {error ? <div role="alert" className="mt-8 border-l-2 border-[var(--rule-strong)] pl-4">{error}</div> : null}
-        <div className="mt-10 min-w-0"><SectionHeader left="DURABLE ENVELOPES" right={`${policies.length} RECORDED`} />
-          {policies.map((policy) => {
+        <section className={styles.section}><h2>Policies<small>{policies.length}</small></h2>
+          {policies.length ? <ul className={styles.list}>{policies.map((policy) => {
             const status = policy.revokedAt ? "revoked" : new Date(policy.expiresAt).getTime() <= observedAt ? "expired" : "active";
-			const scale = Object.entries(policy.envelope.scaleLimits ?? {}).map(([service, range]) => `${service} ${range.min}–${range.max}`).join(", ");
-            return <div key={policy.id} className="grid min-h-20 sm:grid-cols-2 xl:grid-cols-[1.3fr_1fr_1fr_100px] items-center gap-5 border-b border-[var(--rule)] py-3"><div><div className="display text-[17px]">{policy.name}</div><div className="mt-1 text-[10px] text-[var(--muted)]">{policy.digest.slice(0, 16)} · rev {policy.systemRevision}</div></div><span>{scale || `${policy.envelope.operationKinds.length} operation kinds`} · ${(policy.envelope.maxAdditionalMonthlyCostCents / 100).toFixed(2)} USD/month max</span><span className="text-[var(--muted)]">{status === "active" ? `expires ${relativeTime(policy.expiresAt)}` : status}</span>{status === "active" ? <button disabled={pending} onClick={() => void revoke(policy)} className="rule-link text-right">{confirmRevoke === policy.id ? "Confirm revoke" : "Revoke"}</button> : <span className="text-right text-[var(--muted)]">{status}</span>}</div>;
-          })}
-          {!policies.length ? <div className="flex h-24 items-center border-b border-[var(--rule)] text-[var(--muted)]">No standing authority. Every Change requires exact human approval.</div> : null}
+            const scale = Object.entries(policy.envelope.scaleLimits ?? {}).map(([service, range]) => `${service} ${range.min}–${range.max}`).join(", ");
+            return <li key={policy.id}>
+              <div>{policy.name}<small>{scale || `${policy.envelope.operationKinds.length} operation kinds`} · ${(policy.envelope.maxAdditionalMonthlyCostCents / 100).toFixed(2)} USD/month max · <span className={styles.mono}>{policy.digest.slice(0, 16)}</span> · rev {policy.systemRevision}</small></div>
+              <div className={styles.buttons}>
+                <span className={styles.stepPhase} data-tone={phaseTone(status)}>{status === "active" ? `Expires ${relativeTime(policy.expiresAt)}` : status.charAt(0).toUpperCase() + status.slice(1)}</span>
+                {status === "active" ? <button disabled={pending} onClick={() => void revoke(policy)} className={styles.textButton} data-confirm={confirmRevoke === policy.id}>{confirmRevoke === policy.id ? "Confirm revoke" : "Revoke"}</button> : null}
+              </div>
+            </li>;
+          })}</ul> : <p className={styles.empty}>No standing authority. Every change requires exact human approval.</p>}
+        </section>
+        {change && envelope ? <div className={`${styles.grid} ${styles.spaced}`}>
+          <section className={styles.section}><h2>Derived from change<small className={styles.mono}>{change.id}</small></h2>
+            <dl className={styles.rows}>{derived.map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{value || "—"}</dd></div>)}</dl>
+          </section>
+          <section className={styles.section}><h2>Your bounds</h2>
+            <div className={styles.fields}>
+              <label><span>Policy name</span><input value={name} onChange={(event) => setName(event.target.value)} /></label>
+              <label><span>Allowed installation</span><select value={installationId} onChange={(event) => setInstallationId(event.target.value)}>{installations.map((installation) => <option key={installation.id} value={installation.id}>{installation.name}</option>)}</select></label>
+              {change.plan?.scale ? <div className={styles.pair}><label><span>Minimum replicas</span><input type="number" min={1} max={scaleMax} value={scaleMin} onChange={(event) => setScaleMin(Number(event.target.value))} /></label><label><span>Maximum replicas</span><input type="number" min={scaleMin} value={scaleMax} onChange={(event) => setScaleMax(Number(event.target.value))} /></label></div> : null}
+              <label><span>Additional monthly cost ceiling (USD cents)</span><input type="number" min={0} value={maxCost} onChange={(event) => setMaxCost(Number(event.target.value))} /></label>
+              <label><span>Expires after (hours)</span><input type="number" min={1} max={8760} value={hours} onChange={(event) => setHours(Number(event.target.value))} /></label>
+            </div>
+          </section>
+        </div> : <p className={styles.notice}>Policies start from a real server-generated change. <Link href="/app/changes" className={styles.link}>Choose a change<WorkspaceIcon name="right" width="14" height="14" /></Link></p>}
+        <div className={styles.actions}>
+          <Link href={`/app/system/${encodeURIComponent(system)}`} className={styles.link}>Back to {system}</Link>
+          {change && envelope ? <div className={styles.buttons}><button onClick={() => void createPolicy()} disabled={pending || !name || !installationId} className={styles.primary}>{pending ? "Creating…" : "Create policy"}</button></div> : null}
         </div>
-        {change && envelope ? <div className="mt-14 grid min-w-0 gap-14 lg:grid-cols-[1.2fr_1fr]">
-		  <div><SectionHeader left="DERIVED FROM CHANGE" right={change.id} />{[["services", envelope.affectedServices.join(", ")], ["operations", envelope.operationKinds.join(", ")], ["availability", envelope.availability.join(", ")], ["data", envelope.data.join(", ")], ["reversibility", envelope.allowedReversibility.join(", ")], ...(change.plan?.scale ? [["capacity", `${change.plan.scale.fromReplicas} → ${change.plan.scale.toReplicas} replicas`], ["duration", change.plan.scale.leaseSeconds ? `${change.plan.scale.leaseSeconds} seconds, then restore ${change.plan.scale.restoreToReplicas}` : "permanent"]] : [])].map(([key, value]) => <div key={key} className="flex min-h-12 items-center justify-between gap-8 border-b border-[var(--rule)] py-3"><span>{key}</span><span className="min-w-0 max-w-[65%] text-right text-[var(--muted)]">{value}</span></div>)}</div>
-          <div><SectionHeader left="HUMAN BOUNDS" /><label className="block border-b border-[var(--rule)] py-3"><span className="meta">Policy name</span><input value={name} onChange={(event) => setName(event.target.value)} className="mt-2 min-h-11 w-full rounded-[var(--radius-control)] border border-[var(--rule-strong)] bg-[var(--paper)] px-3 text-base" /></label><label className="block border-b border-[var(--rule)] py-3"><span className="meta">Allowed installation</span><select value={installationId} onChange={(event) => setInstallationId(event.target.value)} className="mt-2 min-h-11 w-full rounded-[var(--radius-control)] border border-[var(--rule-strong)] bg-[var(--paper)] px-3 text-base">{installations.map((installation) => <option key={installation.id} value={installation.id}>{installation.name}</option>)}</select></label>{change.plan?.scale ? <div className="grid grid-cols-2 gap-5 border-b border-[var(--rule)] py-3"><label><span className="meta">Minimum replicas</span><input type="number" min={1} max={scaleMax} value={scaleMin} onChange={(event) => setScaleMin(Number(event.target.value))} className="mt-2 min-h-11 w-full rounded-[var(--radius-control)] border border-[var(--rule-strong)] bg-[var(--paper)] px-3 text-base" /></label><label><span className="meta">Maximum replicas</span><input type="number" min={scaleMin} value={scaleMax} onChange={(event) => setScaleMax(Number(event.target.value))} className="mt-2 min-h-11 w-full rounded-[var(--radius-control)] border border-[var(--rule-strong)] bg-[var(--paper)] px-3 text-base" /></label></div> : null}<label className="block border-b border-[var(--rule)] py-3"><span className="meta">Additional monthly cost ceiling · USD cents</span><input type="number" min={0} value={maxCost} onChange={(event) => setMaxCost(Number(event.target.value))} className="mt-2 min-h-11 w-full rounded-[var(--radius-control)] border border-[var(--rule-strong)] bg-[var(--paper)] px-3 text-base" /></label><label className="block border-b border-[var(--rule)] py-3"><span className="meta">Expires after · hours</span><input type="number" min={1} max={8760} value={hours} onChange={(event) => setHours(Number(event.target.value))} className="mt-2 min-h-11 w-full rounded-[var(--radius-control)] border border-[var(--rule-strong)] bg-[var(--paper)] px-3 text-base" /></label></div>
-        </div> : <div className="mt-14 min-w-0 border-t border-[var(--rule-strong)] py-8"><span className="text-[var(--muted)]">Policies begin from a real server-generated Change envelope.</span> <Link href="/app/changes" className="rule-link ml-2">Choose a Change ↗</Link></div>}
-        <div className="mt-auto flex flex-wrap gap-y-4 py-5 min-h-20 min-w-0 items-center justify-between border-t border-[var(--rule-strong)]"><Link href={`/app/system/${encodeURIComponent(system)}`} className="rule-link">Back to System ↗</Link>{change && envelope ? <button onClick={() => void createPolicy()} disabled={pending || !name || !installationId} className="flex min-h-11 rounded-[var(--radius-control)] items-center justify-center bg-[var(--ink)] px-6 text-[var(--paper)] disabled:opacity-30">{pending ? "Creating…" : "Create exact envelope"}</button> : null}</div>
-      </section>
+      </div></section>
     </AppShell>
   );
 }

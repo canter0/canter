@@ -2,6 +2,7 @@ import Link from "next/link";
 import { AgentCarousel } from "@/components/agent-carousel";
 import { AgentOnboardingPrompt } from "@/components/agent-onboarding-prompt";
 import { DitherBackground } from "@/components/dither-background";
+import { HeroProducts } from "@/components/hero-products";
 import { SiteHeader } from "@/components/site-header";
 import { AcquisitionVisit } from "@/components/acquisition-visit";
 import { publicPageMetadata, siteDescription, siteTitle } from "@/lib/seo";
@@ -19,8 +20,9 @@ export default function Home() {
           <section className={styles.hero} aria-labelledby="home-headline">
             <DitherBackground className={styles.background} />
             <h1 id="home-headline" className={styles.headline}>
-              <span data-motion="reveal">Infrastructure</span>
-              <span className={styles.accent} data-motion="reveal" data-motion-delay="70">you can talk to.</span>
+              <span className="sr-only">Infrastructure you can talk to: servers, sandboxes, and CI.</span>
+              <span aria-hidden="true" data-motion="reveal"><HeroProducts /></span>
+              <span className={styles.accent} aria-hidden="true" data-motion="reveal" data-motion-delay="70">you can talk to.</span>
             </h1>
             <p className={styles.description} data-motion="reveal" data-motion-delay="120">
               <span>Deploy and manage your apps through Canter or your own agent.</span>

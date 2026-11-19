@@ -375,11 +375,12 @@ func (s *Store) enqueueOperatorWithSource(ctx context.Context, c Conversation, r
 
 const (
 	operatorMessagePageCount = 50
-	operatorMessagePageBytes = 8 << 20
+	// One page must fit at least one maximum-size message.
+	operatorMessagePageBytes = maxOperatorMessageBodyBytes
 )
 
 var errInvalidOperatorMessageCursor = errors.New("invalid message cursor")
-var errOperatorMessageTooLarge = errors.New("a message exceeds the 8 MiB conversation history page limit")
+var errOperatorMessageTooLarge = errors.New("a message exceeds the conversation history page limit")
 
 type OperatorMessagePage struct {
 	Messages   []OperatorMessage `json:"messages"`
