@@ -1,0 +1,4652 @@
+{
+  "revision": "5e03294303858569af796325ad05e86526df4d05",
+  "manifests": {
+    "plugins/activecampaign": {
+      "name": "activecampaign",
+      "displayName": "ActiveCampaign",
+      "description": "Manage ActiveCampaign contacts, lists, tags, and deal pipelines, build email campaigns and automations, and report on performance",
+      "shortDescription": "CRM contacts and email marketing",
+      "homepage": "https://www.activecampaign.com",
+      "repository": "https://github.com/ActiveCampaign/activecampaign-plugin",
+      "logo": "logo.png",
+      "keywords": [
+        "Customer & Sales"
+      ],
+      "mcpServers": {
+        "activecampaign": {
+          "url": "https://mcp.app-us1.com/http"
+        }
+      }
+    },
+    "plugins/airtable": {
+      "name": "airtable",
+      "displayName": "Airtable",
+      "description": "Create and update Airtable records, organize bases and tables, and automate data workflows",
+      "shortDescription": "Bases, tables and records",
+      "homepage": "https://airtable.com",
+      "logo": "logo.svg",
+      "keywords": [
+        "Productivity",
+        "Databases"
+      ],
+      "mcpServers": {
+        "airtable": {
+          "url": "https://mcp.airtable.com"
+        }
+      }
+    },
+    "plugins/aiven": {
+      "name": "aiven",
+      "displayName": "Aiven",
+      "description": "Deploy and manage PostgreSQL, Kafka, OpenSearch, ClickHouse, and other managed data services in Aiven",
+      "shortDescription": "Managed databases and search services",
+      "homepage": "https://aiven.io",
+      "repository": "https://github.com/aiven/aiven-ai-plugins",
+      "logo": "logo.png",
+      "keywords": [
+        "Databases"
+      ],
+      "mcpServers": {
+        "aiven": {
+          "url": "https://mcp.aiven.live/mcp"
+        }
+      }
+    },
+    "plugins/amplemarket": {
+      "name": "amplemarket",
+      "displayName": "Amplemarket",
+      "description": "Find prospects, enrich leads, and run outbound sales sequences in Amplemarket",
+      "shortDescription": "Sales leads and outreach sequences",
+      "homepage": "https://www.amplemarket.com",
+      "logo": "logo.png",
+      "keywords": [
+        "Customer & Sales"
+      ],
+      "mcpServers": {
+        "amplemarket": {
+          "url": "https://mcp.amplemarket.com/mcp"
+        }
+      }
+    },
+    "plugins/amplitude": {
+      "name": "amplitude",
+      "displayName": "Amplitude",
+      "description": "Analyze Amplitude product data, build charts and dashboards, and review experiments, cohorts, and session replays",
+      "shortDescription": "Product analytics and experiment reports",
+      "homepage": "https://amplitude.com/",
+      "logo": "logo.png",
+      "keywords": [
+        "Monitoring & Analytics",
+        "Productivity"
+      ],
+      "mcpServers": {
+        "amplitude": {
+          "url": "https://${AMPLITUDE_MCP_DOMAIN:-mcp.amplitude.com}/mcp"
+        }
+      }
+    },
+    "plugins/angellist": {
+      "name": "angellist",
+      "displayName": "AngelList",
+      "description": "Look up capital calls, LP holdings, valuations, distributions, and source documents across your AngelList funds, with financials refreshed daily",
+      "shortDescription": "Fund operations and investor records",
+      "setup": {
+        "notice": "Read-only. Each user sees only the funds and vehicles they're entitled to."
+      },
+      "homepage": "https://www.angellist.com",
+      "logo": "logo.svg",
+      "keywords": [
+        "Finance"
+      ],
+      "mcpServers": {
+        "angellist": {
+          "url": "https://mcp.angellist.com/mcp"
+        }
+      }
+    },
+    "plugins/apollo-io": {
+      "name": "apollo-io",
+      "displayName": "Apollo.io",
+      "description": "Find Apollo.io prospects, enrich contact details, and manage sales outreach sequences",
+      "shortDescription": "Prospect search and sales engagement",
+      "homepage": "https://www.apollo.io",
+      "logo": "logo.svg",
+      "keywords": [
+        "Customer & Sales"
+      ],
+      "mcpServers": {
+        "apollo-io": {
+          "url": "https://mcp.apollo.io/mcp"
+        }
+      }
+    },
+    "plugins/appwrite": {
+      "name": "appwrite",
+      "displayName": "Appwrite",
+      "description": "Manage Appwrite projects, databases, authentication, storage, functions, and deployments",
+      "shortDescription": "Cloud projects, databases and auth",
+      "homepage": "https://appwrite.io",
+      "logo": "logo.svg",
+      "keywords": [
+        "Cloud & Infrastructure"
+      ],
+      "mcpServers": {
+        "appwrite": {
+          "url": "https://mcp.appwrite.io"
+        }
+      }
+    },
+    "plugins/arcade": {
+      "name": "arcade",
+      "displayName": "Arcade",
+      "description": "Build and deploy AI tools and run workflows in Arcade",
+      "shortDescription": "Build and run AI workflows",
+      "homepage": "https://arcade.dev",
+      "logo": "logo.jpg",
+      "keywords": [
+        "AI & Machine Learning"
+      ],
+      "mcpServers": {
+        "arcade": {
+          "url": "https://api.arcade.dev"
+        }
+      }
+    },
+    "plugins/asana": {
+      "name": "asana",
+      "displayName": "Asana",
+      "description": "Create Asana tasks, organize projects, and track team progress",
+      "shortDescription": "Projects, tasks and team workflows",
+      "homepage": "https://asana.com",
+      "logo": "logo.svg",
+      "keywords": [
+        "Essentials",
+        "Productivity"
+      ],
+      "mcpServers": {
+        "asana": {
+          "url": "https://mcp.asana.com/mcp"
+        }
+      }
+    },
+    "plugins/ashby": {
+      "name": "ashby",
+      "displayName": "Ashby",
+      "description": "Find Ashby candidates, prepare interviews, and manage recruiting pipeline tasks",
+      "shortDescription": "Recruiting pipelines and interviews",
+      "homepage": "https://www.ashbyhq.com",
+      "logo": "logo.png",
+      "keywords": [
+        "Productivity"
+      ],
+      "mcpServers": {
+        "ashby": {
+          "url": "https://mcp.ashbyhq.com/mcp/v1"
+        }
+      }
+    },
+    "plugins/atlan": {
+      "name": "atlan",
+      "displayName": "Atlan",
+      "description": "Search your Atlan data catalog, trace lineage, manage glossary terms, and check data quality",
+      "shortDescription": "Data catalog search and governance",
+      "homepage": "https://atlan.com",
+      "repository": "https://github.com/atlanhq/agent-toolkit",
+      "logo": "logo.png",
+      "keywords": [
+        "Databases"
+      ],
+      "mcpServers": {
+        "atlan": {
+          "url": "https://mcp.atlan.com/mcp"
+        }
+      }
+    },
+    "plugins/atlassian": {
+      "name": "atlassian",
+      "displayName": "Atlassian",
+      "description": "Search Jira issues and Confluence pages, update project work, and create team documentation",
+      "shortDescription": "Jira issues and Confluence pages",
+      "homepage": "https://www.atlassian.com/",
+      "logo": "logo.svg",
+      "keywords": [
+        "Featured",
+        "Essentials",
+        "Productivity"
+      ],
+      "mcpServers": {
+        "atlassian": {
+          "url": "https://mcp.atlassian.com/v2/mcp"
+        }
+      }
+    },
+    "plugins/attio": {
+      "name": "attio",
+      "displayName": "Attio",
+      "description": "Manage Attio contacts, companies, deals, notes, and tasks across your sales pipeline",
+      "shortDescription": "CRM contacts, companies and deals",
+      "homepage": "https://attio.com",
+      "logo": "logo.svg",
+      "keywords": [
+        "Customer & Sales"
+      ],
+      "mcpServers": {
+        "attio": {
+          "url": "https://mcp.attio.com/mcp"
+        }
+      }
+    },
+    "plugins/aura": {
+      "name": "aura",
+      "displayName": "Aura",
+      "description": "Research companies and analyze workforce trends with Aura",
+      "shortDescription": "Company and workforce analytics",
+      "homepage": "https://www.getaura.ai",
+      "logo": "logo.png",
+      "keywords": [
+        "Monitoring & Analytics"
+      ],
+      "mcpServers": {
+        "aura": {
+          "url": "https://mcp.auraintelligence.com/mcp"
+        }
+      }
+    },
+    "plugins/aws-agent-toolkit": {
+      "name": "aws-agent-toolkit",
+      "displayName": "Agent Toolkit for AWS",
+      "description": "Call AWS APIs, search AWS documentation, and follow curated AWS skills",
+      "shortDescription": "AWS API calls and documentation search",
+      "setup": {
+        "notice": "AWS credentials use environment variables, shared configuration, SSO, or instance roles. Direct access keys take precedence over profiles.",
+        "steps": [
+          "Choose one or more AWS profiles to set the default and allow switching between profiles",
+          "Specify an AWS region if your profile does not set one",
+          "Alternatively, provide an access key ID and secret access key, plus a session token for temporary credentials"
+        ]
+      },
+      "homepage": "https://aws.amazon.com/products/developer-tools/agent-toolkit-for-aws/",
+      "repository": "https://github.com/aws/mcp-proxy-for-aws",
+      "logo": "logo.svg",
+      "keywords": [
+        "Development Tools"
+      ],
+      "mcpServers": {
+        "aws-agent-toolkit": {
+          "command": "uvx",
+          "args": [
+            "mcp-proxy-for-aws-cli@latest",
+            "https://aws-mcp.us-east-1.api.aws/mcp"
+          ],
+          "env": {
+            "AWS_ACCESS_KEY_ID": "${AWS_ACCESS_KEY_ID:-}",
+            "AWS_MCP_PROXY_PROFILES": "${AWS_MCP_PROXY_PROFILES:-}",
+            "AWS_REGION": "${AWS_REGION:-}",
+            "AWS_SECRET_ACCESS_KEY": "${AWS_SECRET_ACCESS_KEY:-}",
+            "AWS_SESSION_TOKEN": "${AWS_SESSION_TOKEN:-}"
+          }
+        }
+      }
+    },
+    "plugins/aws-aurora-dsql": {
+      "name": "aws-aurora-dsql",
+      "displayName": "Amazon Aurora DSQL",
+      "description": "Run SQL operations on Amazon Aurora DSQL distributed databases",
+      "shortDescription": "Serverless distributed SQL queries",
+      "homepage": "https://aws.amazon.com/rds/aurora/",
+      "repository": "https://github.com/awslabs/mcp",
+      "logo": "logo.svg",
+      "keywords": [
+        "Databases"
+      ],
+      "mcpServers": {
+        "aws-aurora-dsql": {
+          "command": "uvx",
+          "args": [
+            "awslabs.aurora-dsql-mcp-server@latest"
+          ],
+          "env": {
+            "AWS_PROFILE": "${AWS_PROFILE}",
+            "AWS_REGION": "${AWS_REGION}"
+          }
+        }
+      }
+    },
+    "plugins/aws-aurora-postgresql": {
+      "name": "aws-aurora-postgresql",
+      "displayName": "Amazon Aurora PostgreSQL",
+      "description": "Query Amazon Aurora PostgreSQL records with read-only access",
+      "shortDescription": "Aurora PostgreSQL queries and management",
+      "homepage": "https://aws.amazon.com/rds/aurora/",
+      "repository": "https://github.com/awslabs/mcp",
+      "logo": "logo.svg",
+      "keywords": [
+        "Databases"
+      ],
+      "mcpServers": {
+        "aws-aurora-postgresql": {
+          "command": "docker",
+          "args": [
+            "run",
+            "-i",
+            "--rm",
+            "-e",
+            "AWS_ACCESS_KEY_ID",
+            "-e",
+            "AWS_SECRET_ACCESS_KEY",
+            "-e",
+            "AWS_REGION",
+            "awslabs/postgres-mcp-server:latest",
+            "--resource_arn",
+            "${AWS_RESOURCE_ARN}",
+            "--secret_arn",
+            "${AWS_SECRET_ARN}",
+            "--database",
+            "${AWS_DATABASE}",
+            "--region",
+            "${AWS_DATABASE_REGION}",
+            "--readonly",
+            "True"
+          ],
+          "env": {
+            "AWS_ACCESS_KEY_ID": "${AWS_ACCESS_KEY_ID}",
+            "AWS_SECRET_ACCESS_KEY": "${AWS_SECRET_ACCESS_KEY}",
+            "AWS_REGION": "${AWS_REGION}",
+            "AWS_RESOURCE_ARN": "${AWS_RESOURCE_ARN}",
+            "AWS_SECRET_ARN": "${AWS_SECRET_ARN}",
+            "AWS_DATABASE": "${AWS_DATABASE}",
+            "AWS_DATABASE_REGION": "${AWS_DATABASE_REGION}"
+          }
+        }
+      }
+    },
+    "plugins/aws-documentdb": {
+      "name": "aws-documentdb",
+      "displayName": "Amazon DocumentDB",
+      "description": "Query and manage documents in MongoDB-compatible Amazon DocumentDB databases",
+      "shortDescription": "MongoDB-compatible document database",
+      "homepage": "https://aws.amazon.com/documentdb/",
+      "repository": "https://github.com/awslabs/mcp",
+      "logo": "logo.svg",
+      "keywords": [
+        "Databases"
+      ],
+      "mcpServers": {
+        "aws-documentdb": {
+          "command": "uvx",
+          "args": [
+            "awslabs.documentdb-mcp-server@latest"
+          ],
+          "env": {
+            "AWS_PROFILE": "${AWS_PROFILE}",
+            "AWS_REGION": "${AWS_REGION}"
+          }
+        }
+      }
+    },
+    "plugins/aws-dynamodb": {
+      "name": "aws-dynamodb",
+      "displayName": "Amazon DynamoDB",
+      "description": "Query and update DynamoDB tables and items",
+      "shortDescription": "NoSQL tables and item operations",
+      "homepage": "https://aws.amazon.com/dynamodb/",
+      "repository": "https://github.com/awslabs/mcp",
+      "logo": "logo.svg",
+      "keywords": [
+        "Databases"
+      ],
+      "mcpServers": {
+        "aws-dynamodb": {
+          "command": "uvx",
+          "args": [
+            "awslabs.dynamodb-mcp-server@latest"
+          ],
+          "env": {
+            "AWS_PROFILE": "${AWS_PROFILE}",
+            "AWS_REGION": "${AWS_REGION}"
+          }
+        }
+      }
+    },
+    "plugins/aws-elasticache": {
+      "name": "aws-elasticache",
+      "displayName": "Amazon ElastiCache",
+      "description": "Manage Redis and Memcached caches in Amazon ElastiCache",
+      "shortDescription": "Redis and Memcached caching",
+      "homepage": "https://aws.amazon.com/elasticache/",
+      "repository": "https://github.com/awslabs/mcp",
+      "logo": "logo.svg",
+      "keywords": [
+        "Databases"
+      ],
+      "mcpServers": {
+        "aws-elasticache": {
+          "command": "uvx",
+          "args": [
+            "awslabs.elasticache-mcp-server@latest"
+          ],
+          "env": {
+            "AWS_PROFILE": "${AWS_PROFILE}",
+            "AWS_REGION": "${AWS_REGION}"
+          }
+        }
+      }
+    },
+    "plugins/aws-iam": {
+      "name": "aws-iam",
+      "displayName": "AWS IAM",
+      "description": "Manage AWS IAM users, roles, and access policies",
+      "shortDescription": "Identity and access management",
+      "homepage": "https://aws.amazon.com/iam/",
+      "repository": "https://github.com/awslabs/mcp",
+      "logo": "logo.svg",
+      "keywords": [
+        "Cloud & Infrastructure"
+      ],
+      "mcpServers": {
+        "aws-iam": {
+          "command": "uvx",
+          "args": [
+            "awslabs.iam-mcp-server@latest"
+          ],
+          "env": {
+            "AWS_PROFILE": "${AWS_PROFILE}",
+            "AWS_REGION": "${AWS_REGION}"
+          }
+        }
+      }
+    },
+    "plugins/aws-lambda": {
+      "name": "aws-lambda",
+      "displayName": "AWS Lambda",
+      "description": "Manage and deploy AWS Lambda functions",
+      "shortDescription": "Serverless function deployment",
+      "homepage": "https://aws.amazon.com/lambda/",
+      "repository": "https://github.com/awslabs/mcp",
+      "logo": "logo.svg",
+      "keywords": [
+        "Cloud & Infrastructure"
+      ],
+      "mcpServers": {
+        "aws-lambda": {
+          "command": "uvx",
+          "args": [
+            "awslabs.lambda-mcp-server@latest"
+          ],
+          "env": {
+            "AWS_PROFILE": "${AWS_PROFILE}",
+            "AWS_REGION": "${AWS_REGION}"
+          }
+        }
+      }
+    },
+    "plugins/aws-marketplace": {
+      "name": "aws-marketplace",
+      "displayName": "AWS Marketplace",
+      "description": "Find, evaluate, and buy cloud software in AWS Marketplace",
+      "shortDescription": "Find and buy cloud software",
+      "homepage": "https://aws.amazon.com/marketplace",
+      "logo": "logo.svg",
+      "keywords": [
+        "Cloud & Infrastructure"
+      ],
+      "mcpServers": {
+        "aws-marketplace": {
+          "url": "https://marketplace-mcp.us-east-1.api.aws/"
+        }
+      }
+    },
+    "plugins/aws-neptune": {
+      "name": "aws-neptune",
+      "displayName": "Amazon Neptune",
+      "description": "Query and manage graph data in Amazon Neptune",
+      "shortDescription": "Graph database queries and management",
+      "homepage": "https://aws.amazon.com/neptune/",
+      "repository": "https://github.com/awslabs/mcp",
+      "logo": "logo.svg",
+      "keywords": [
+        "Databases"
+      ],
+      "mcpServers": {
+        "aws-neptune": {
+          "command": "uvx",
+          "args": [
+            "awslabs.amazon-neptune-mcp-server@latest"
+          ],
+          "env": {
+            "AWS_PROFILE": "${AWS_PROFILE}",
+            "AWS_REGION": "${AWS_REGION}"
+          }
+        }
+      }
+    },
+    "plugins/aws-redshift": {
+      "name": "aws-redshift",
+      "displayName": "Amazon Redshift (IAM Auth)",
+      "description": "Query warehouse data and manage Amazon Redshift resources",
+      "shortDescription": "Data warehouse queries and analytics",
+      "homepage": "https://aws.amazon.com/redshift/",
+      "repository": "https://github.com/awslabs/mcp",
+      "logo": "logo.svg",
+      "keywords": [
+        "Databases",
+        "Monitoring & Analytics"
+      ],
+      "mcpServers": {
+        "aws-redshift": {
+          "command": "uvx",
+          "args": [
+            "awslabs.redshift-mcp-server@latest"
+          ],
+          "env": {
+            "AWS_PROFILE": "${AWS_PROFILE}",
+            "AWS_REGION": "${AWS_REGION}"
+          }
+        }
+      }
+    },
+    "plugins/aws-sns-sqs": {
+      "name": "aws-sns-sqs",
+      "displayName": "Amazon SNS SQS",
+      "description": "Manage Amazon SNS notifications and SQS message queues",
+      "shortDescription": "Queues, topics and notifications",
+      "homepage": "https://aws.amazon.com/sns/",
+      "repository": "https://github.com/awslabs/mcp",
+      "logo": "logo.svg",
+      "keywords": [
+        "Communication"
+      ],
+      "mcpServers": {
+        "aws-sns-sqs": {
+          "command": "uvx",
+          "args": [
+            "awslabs.amazon-sns-sqs-mcp-server@latest"
+          ],
+          "env": {
+            "AWS_PROFILE": "${AWS_PROFILE}",
+            "AWS_REGION": "${AWS_REGION}"
+          }
+        }
+      }
+    },
+    "plugins/axiom": {
+      "name": "axiom",
+      "displayName": "Axiom (OAuth)",
+      "description": "Query Axiom logs, traces, and events with APL, inspect dataset schemas, and monitor alerts",
+      "shortDescription": "Logs, traces and events",
+      "homepage": "https://axiom.co",
+      "logo": "logo.svg",
+      "keywords": [
+        "Monitoring & Analytics"
+      ],
+      "mcpServers": {
+        "axiom": {
+          "url": "https://mcp.axiom.co/mcp"
+        }
+      }
+    },
+    "plugins/axiom-api-key": {
+      "name": "axiom-api-key",
+      "displayName": "Axiom (API key)",
+      "description": "Query Axiom logs, traces, and events with APL, inspect dataset schemas, and monitor alerts",
+      "shortDescription": "Logs, traces and events",
+      "homepage": "https://axiom.co",
+      "logo": "logo.svg",
+      "keywords": [
+        "Monitoring & Analytics"
+      ],
+      "mcpServers": {
+        "axiom-api-key": {
+          "url": "https://mcp.axiom.co/mcp",
+          "headers": {
+            "Authorization": "${AXIOM_API_KEY_AUTHORIZATION}",
+            "x-axiom-org-id": "${AXIOM_API_KEY_X_AXIOM_ORG_ID}"
+          }
+        }
+      }
+    },
+    "plugins/azure": {
+      "name": "azure",
+      "displayName": "Azure",
+      "description": "Manage Azure cloud services and resources",
+      "shortDescription": "Cloud resources and service management",
+      "homepage": "https://azure.microsoft.com",
+      "logo": "logo.svg",
+      "keywords": [
+        "Cloud & Infrastructure"
+      ],
+      "mcpServers": {
+        "azure": {
+          "command": "docker",
+          "args": [
+            "run",
+            "--rm",
+            "-i",
+            "mcp/azure"
+          ]
+        }
+      }
+    },
+    "plugins/brex": {
+      "name": "brex",
+      "displayName": "Brex",
+      "description": "Review Brex expenses, receipts, bills, cards, budgets, and travel spending",
+      "shortDescription": "Expenses, cards, bills and travel",
+      "homepage": "https://www.brex.com",
+      "logo": "logo.svg",
+      "keywords": [
+        "Finance"
+      ],
+      "mcpServers": {
+        "brex": {
+          "url": "https://api.brex.com/mcp"
+        }
+      }
+    },
+    "plugins/browserless": {
+      "name": "browserless",
+      "displayName": "Browserless",
+      "description": "Scrape, crawl, and search the web, run Lighthouse audits, and execute Puppeteer code in the cloud with Browserless",
+      "shortDescription": "Browser actions, scraping and automation",
+      "homepage": "https://www.browserless.io",
+      "logo": "logo.svg",
+      "keywords": [
+        "Development Tools"
+      ],
+      "mcpServers": {
+        "browserless": {
+          "url": "https://mcp.browserless.io/mcp"
+        }
+      }
+    },
+    "plugins/buildkite": {
+      "name": "buildkite",
+      "displayName": "Buildkite",
+      "description": "Inspect Buildkite pipelines, builds, and job logs, trigger and retry builds, and check test analytics and agent status",
+      "shortDescription": "Build pipelines, jobs and test results",
+      "homepage": "https://buildkite.com",
+      "repository": "https://github.com/buildkite/skills",
+      "logo": "logo.svg",
+      "keywords": [
+        "Development Tools"
+      ],
+      "mcpServers": {
+        "buildkite": {
+          "url": "https://mcp.buildkite.com/mcp"
+        }
+      }
+    },
+    "plugins/calendly": {
+      "name": "calendly",
+      "displayName": "Calendly",
+      "description": "Schedule Calendly meetings, manage events, and automate booking workflows",
+      "shortDescription": "Meeting scheduling and event management",
+      "homepage": "https://calendly.com",
+      "logo": "logo.svg",
+      "keywords": [
+        "Productivity",
+        "Communication"
+      ],
+      "mcpServers": {
+        "calendly": {
+          "url": "https://mcp.calendly.com"
+        }
+      }
+    },
+    "plugins/canva": {
+      "name": "canva",
+      "displayName": "Canva",
+      "description": "Create Canva designs, customize templates, and generate visual content",
+      "shortDescription": "Designs, templates and visual content",
+      "homepage": "https://www.canva.com",
+      "logo": "logo.svg",
+      "keywords": [
+        "Design & Creative"
+      ],
+      "mcpServers": {
+        "canva": {
+          "url": "https://mcp.canva.com/mcp"
+        }
+      }
+    },
+    "plugins/cdata-connect-ai": {
+      "name": "cdata-connect-ai",
+      "displayName": "CData Connect AI",
+      "description": "Query 350+ data sources through CData Connect AI",
+      "shortDescription": "Query connected data sources",
+      "homepage": "https://www.cdata.com",
+      "logo": "logo.png",
+      "keywords": [
+        "Databases"
+      ],
+      "mcpServers": {
+        "cdata-connect-ai": {
+          "url": "https://mcp.cloud.cdata.com/mcp"
+        }
+      }
+    },
+    "plugins/cello": {
+      "name": "cello",
+      "displayName": "Cello",
+      "description": "Check Cello integration health and referral events, find top referrers, and review program performance",
+      "shortDescription": "Referral programs and partners",
+      "homepage": "https://cello.so",
+      "logo": "logo.png",
+      "keywords": [
+        "Customer & Sales"
+      ],
+      "mcpServers": {
+        "cello": {
+          "url": "https://mcp.cello.so/mcp"
+        }
+      }
+    },
+    "plugins/checkmarx": {
+      "name": "checkmarx",
+      "displayName": "Checkmarx SAST Resolution",
+      "description": "Triage a finding from a recent Checkmarx One SAST scan and open a fix PR for a verified vulnerability",
+      "shortDescription": "Triage and fix Checkmarx SAST findings",
+      "setup": {
+        "notice": "Requires a Checkmarx One tenant with an existing SAST scan and a Checkmarx API key available to the session as a secret."
+      },
+      "keywords": [
+        "Security",
+        "SAST"
+      ]
+    },
+    "plugins/chronosphere": {
+      "name": "chronosphere",
+      "displayName": "Chronosphere",
+      "description": "Query Chronosphere metrics, logs, traces, and events to investigate incidents",
+      "shortDescription": "Metrics, logs, traces and events",
+      "homepage": "https://chronosphere.io/",
+      "logo": "logo.png",
+      "keywords": [
+        "Monitoring & Analytics"
+      ],
+      "mcpServers": {
+        "chronosphere": {
+          "url": "https://${CHRONOSPHERE_ORG_NAME}.chronosphere.io/api/mcp/mcp",
+          "headers": {
+            "Authorization": "Bearer ${CHRONOSPHERE_API_TOKEN}"
+          }
+        }
+      }
+    },
+    "plugins/circle": {
+      "name": "circle",
+      "displayName": "Circle",
+      "description": "Find Circle SDK guidance for USDC payments, cross-chain transfers, wallets, and smart contracts",
+      "shortDescription": "USDC payments and smart contracts",
+      "homepage": "https://www.circle.com",
+      "repository": "https://github.com/circlefin/skills",
+      "logo": "logo.svg",
+      "keywords": [
+        "Finance"
+      ],
+      "mcpServers": {
+        "circle": {
+          "url": "https://api.circle.com/v1/codegen/mcp"
+        }
+      }
+    },
+    "plugins/circleback": {
+      "name": "circleback",
+      "displayName": "Circleback",
+      "description": "Search Circleback meetings, notes, action items, emails, and calendar events",
+      "shortDescription": "Meeting notes, transcripts and actions",
+      "homepage": "https://circleback.ai",
+      "logo": "logo.png",
+      "keywords": [
+        "Productivity"
+      ],
+      "mcpServers": {
+        "circleback": {
+          "url": "https://circleback.ai/api/mcp"
+        }
+      }
+    },
+    "plugins/circleci": {
+      "name": "circleci",
+      "displayName": "CircleCI",
+      "description": "Investigate CircleCI build failures and flaky tests, check pipeline status, trigger pipelines, and validate configs",
+      "shortDescription": "CI pipelines, flaky tests and workflows",
+      "homepage": "https://circleci.com",
+      "logo": "logo.svg",
+      "keywords": [
+        "Development Tools"
+      ],
+      "mcpServers": {
+        "circleci": {
+          "url": "https://mcp.circleci.com/v1/mcp"
+        }
+      }
+    },
+    "plugins/claude-code": {
+      "name": "claude-code",
+      "displayName": "Claude Code",
+      "description": "Delegate coding tasks to Claude Code as a subagent, using your Claude subscription or Anthropic API key",
+      "shortDescription": "Run Claude Code as a subagent",
+      "setup": {
+        "notice": "Runs the unmodified Claude Code CLI with your own Anthropic account and requires Node.js 22 or later. Not made or endorsed by Anthropic. The token or key you save here is stored in Devin, so new sessions can use it without signing in.",
+        "steps": [
+          "Using a Claude subscription (Pro, Max, Ultra, Team or Enterprise): on any computer with Node.js and a browser, run `npx -y @anthropic-ai/claude-code@2.1.315 setup-token`.",
+          "Approve access in the browser, then copy the token printed in your terminal. It is shown only once and lasts one year.",
+          "Paste it into CLAUDE_CODE_OAUTH_TOKEN below and save. When it expires, repeat these steps.",
+          "Using an API key instead: leave the token empty and paste a key from platform.claude.com into ANTHROPIC_API_KEY. If you save both, the subscription token is used.",
+          "To have Claude Code preinstalled instead of fetched with npx on first use, add `npm install -g @anthropic-ai/claude-code` to the environment's blueprint."
+        ]
+      },
+      "homepage": "https://code.claude.com/docs",
+      "keywords": [
+        "Developer Tools"
+      ],
+      "mcpServers": {
+        "claude-code": {
+          "command": "node",
+          "args": [
+            "${CLAUDE_PLUGIN_ROOT}/server/server.mjs"
+          ],
+          "env": {
+            "ANTHROPIC_API_KEY": "${ANTHROPIC_API_KEY:-}",
+            "CLAUDE_CODE_BILLING": "${CLAUDE_CODE_BILLING:-auto}",
+            "CLAUDE_CODE_OAUTH_TOKEN": "${CLAUDE_CODE_OAUTH_TOKEN:-}"
+          }
+        }
+      },
+      "logo": "logo.svg"
+    },
+    "plugins/clerk": {
+      "name": "clerk",
+      "displayName": "Clerk",
+      "description": "Configure Clerk authentication, organizations, and billing",
+      "shortDescription": "Sign-in, organizations and billing",
+      "homepage": "https://clerk.com",
+      "logo": "logo.svg",
+      "keywords": [
+        "Development Tools"
+      ],
+      "mcpServers": {
+        "clerk": {
+          "url": "https://mcp.clerk.com/mcp"
+        }
+      }
+    },
+    "plugins/cloudinary": {
+      "name": "cloudinary",
+      "displayName": "Cloudinary",
+      "description": "Manage, transform, and deliver Cloudinary images and videos",
+      "shortDescription": "Image and video asset delivery",
+      "homepage": "https://cloudinary.com",
+      "logo": "logo.svg",
+      "keywords": [
+        "Design & Creative"
+      ],
+      "mcpServers": {
+        "cloudinary": {
+          "url": "https://asset-management.mcp.cloudinary.com/sse"
+        }
+      }
+    },
+    "plugins/cockroachdb": {
+      "name": "cockroachdb",
+      "displayName": "CockroachDB Cloud",
+      "description": "Inspect CockroachDB Cloud schemas, debug SQL, and manage distributed database clusters",
+      "shortDescription": "Distributed SQL databases and clusters",
+      "homepage": "https://www.cockroachlabs.com",
+      "logo": "logo.svg",
+      "keywords": [
+        "Databases"
+      ],
+      "mcpServers": {
+        "cockroachdb": {
+          "url": "https://cockroachlabs.cloud/mcp",
+          "headers": {
+            "mcp-cluster-id": "${COCKROACHDB_CLUSTER_ID}"
+          }
+        }
+      }
+    },
+    "plugins/codspeed": {
+      "name": "codspeed",
+      "displayName": "CodSpeed",
+      "description": "Compare CodSpeed benchmarks and inspect flamegraphs to find performance bottlenecks",
+      "shortDescription": "Benchmarks, flamegraphs and speed trends",
+      "homepage": "https://codspeed.io",
+      "repository": "https://github.com/CodSpeedHQ/codspeed",
+      "logo": "logo.png",
+      "keywords": [
+        "Monitoring & Analytics"
+      ],
+      "mcpServers": {
+        "codspeed": {
+          "url": "https://mcp.codspeed.io/mcp"
+        }
+      }
+    },
+    "plugins/cognition-alloydb": {
+      "name": "cognition-alloydb",
+      "displayName": "AlloyDB",
+      "description": "Query AlloyDB with SQL and inspect database records",
+      "shortDescription": "AlloyDB database queries and management",
+      "homepage": "https://github.com/googleapis/genai-toolbox",
+      "logo": "logo.svg",
+      "keywords": [
+        "Databases"
+      ],
+      "mcpServers": {
+        "cognition-alloydb": {
+          "command": "docker",
+          "args": [
+            "run",
+            "--rm",
+            "-i",
+            "-e",
+            "ALLOYDB_POSTGRES_PROJECT",
+            "-e",
+            "ALLOYDB_POSTGRES_REGION",
+            "-e",
+            "ALLOYDB_POSTGRES_CLUSTER",
+            "-e",
+            "ALLOYDB_POSTGRES_INSTANCE",
+            "-e",
+            "ALLOYDB_POSTGRES_DATABASE",
+            "-e",
+            "ALLOYDB_POSTGRES_USER",
+            "-e",
+            "ALLOYDB_POSTGRES_PASSWORD",
+            "-e",
+            "GOOGLE_SERVICE_ACCOUNT_JSON",
+            "ghcr.io/cognitionai/database-toolbox/alloydb-postgres:main",
+            "--stdio"
+          ],
+          "env": {
+            "ALLOYDB_POSTGRES_PROJECT": "${ALLOYDB_POSTGRES_PROJECT}",
+            "ALLOYDB_POSTGRES_REGION": "${ALLOYDB_POSTGRES_REGION}",
+            "ALLOYDB_POSTGRES_CLUSTER": "${ALLOYDB_POSTGRES_CLUSTER}",
+            "ALLOYDB_POSTGRES_INSTANCE": "${ALLOYDB_POSTGRES_INSTANCE}",
+            "ALLOYDB_POSTGRES_DATABASE": "${ALLOYDB_POSTGRES_DATABASE}",
+            "ALLOYDB_POSTGRES_USER": "${ALLOYDB_POSTGRES_USER}",
+            "ALLOYDB_POSTGRES_PASSWORD": "${ALLOYDB_POSTGRES_PASSWORD}",
+            "GOOGLE_SERVICE_ACCOUNT_JSON": "${GOOGLE_SERVICE_ACCOUNT_JSON}"
+          }
+        }
+      }
+    },
+    "plugins/cognition-bigquery": {
+      "name": "cognition-bigquery",
+      "displayName": "BigQuery",
+      "description": "Run BigQuery SQL analytics and manage datasets",
+      "shortDescription": "BigQuery analytics queries and datasets",
+      "homepage": "https://github.com/googleapis/genai-toolbox",
+      "logo": "logo.svg",
+      "keywords": [
+        "Databases"
+      ],
+      "mcpServers": {
+        "cognition-bigquery": {
+          "command": "docker",
+          "args": [
+            "run",
+            "--rm",
+            "-i",
+            "-e",
+            "BIGQUERY_PROJECT",
+            "-e",
+            "BIGQUERY_DATASET",
+            "-e",
+            "GOOGLE_SERVICE_ACCOUNT_JSON",
+            "ghcr.io/cognitionai/database-toolbox/bigquery:main",
+            "--stdio"
+          ],
+          "env": {
+            "BIGQUERY_PROJECT": "${BIGQUERY_PROJECT}",
+            "BIGQUERY_DATASET": "${BIGQUERY_DATASET}",
+            "GOOGLE_SERVICE_ACCOUNT_JSON": "${GOOGLE_SERVICE_ACCOUNT_JSON}"
+          }
+        }
+      }
+    },
+    "plugins/cognition-cloud-sql-mssql": {
+      "name": "cognition-cloud-sql-mssql",
+      "displayName": "Cloud SQL (SQL Server)",
+      "description": "Query Cloud SQL for SQL Server with T-SQL and inspect database records",
+      "shortDescription": "Cloud SQL for SQL Server databases",
+      "homepage": "https://github.com/googleapis/genai-toolbox",
+      "logo": "logo.svg",
+      "keywords": [
+        "Databases"
+      ],
+      "mcpServers": {
+        "cognition-cloud-sql-mssql": {
+          "command": "docker",
+          "args": [
+            "run",
+            "--rm",
+            "-i",
+            "-e",
+            "CLOUD_SQL_MSSQL_PROJECT",
+            "-e",
+            "CLOUD_SQL_MSSQL_REGION",
+            "-e",
+            "CLOUD_SQL_MSSQL_INSTANCE",
+            "-e",
+            "CLOUD_SQL_MSSQL_DATABASE",
+            "-e",
+            "CLOUD_SQL_MSSQL_USER",
+            "-e",
+            "CLOUD_SQL_MSSQL_IP_ADDRESS",
+            "-e",
+            "CLOUD_SQL_MSSQL_PASSWORD",
+            "-e",
+            "GOOGLE_SERVICE_ACCOUNT_JSON",
+            "ghcr.io/cognitionai/database-toolbox/cloud-sql-mssql:main",
+            "--stdio"
+          ],
+          "env": {
+            "CLOUD_SQL_MSSQL_PROJECT": "${CLOUD_SQL_MSSQL_PROJECT}",
+            "CLOUD_SQL_MSSQL_REGION": "${CLOUD_SQL_MSSQL_REGION}",
+            "CLOUD_SQL_MSSQL_INSTANCE": "${CLOUD_SQL_MSSQL_INSTANCE}",
+            "CLOUD_SQL_MSSQL_DATABASE": "${CLOUD_SQL_MSSQL_DATABASE}",
+            "CLOUD_SQL_MSSQL_USER": "${CLOUD_SQL_MSSQL_USER}",
+            "CLOUD_SQL_MSSQL_IP_ADDRESS": "${CLOUD_SQL_MSSQL_IP_ADDRESS}",
+            "CLOUD_SQL_MSSQL_PASSWORD": "${CLOUD_SQL_MSSQL_PASSWORD}",
+            "GOOGLE_SERVICE_ACCOUNT_JSON": "${GOOGLE_SERVICE_ACCOUNT_JSON}"
+          }
+        }
+      }
+    },
+    "plugins/cognition-cloud-sql-mysql": {
+      "name": "cognition-cloud-sql-mysql",
+      "displayName": "Cloud SQL (MySQL)",
+      "description": "Query Cloud SQL for MySQL with SQL and inspect database records",
+      "shortDescription": "Cloud SQL for MySQL databases",
+      "homepage": "https://github.com/googleapis/genai-toolbox",
+      "logo": "logo.svg",
+      "keywords": [
+        "Databases"
+      ],
+      "mcpServers": {
+        "cognition-cloud-sql-mysql": {
+          "command": "docker",
+          "args": [
+            "run",
+            "--rm",
+            "-i",
+            "-e",
+            "CLOUD_SQL_MYSQL_PROJECT",
+            "-e",
+            "CLOUD_SQL_MYSQL_REGION",
+            "-e",
+            "CLOUD_SQL_MYSQL_INSTANCE",
+            "-e",
+            "CLOUD_SQL_MYSQL_DATABASE",
+            "-e",
+            "CLOUD_SQL_MYSQL_USER",
+            "-e",
+            "CLOUD_SQL_MYSQL_IP_ADDRESS",
+            "-e",
+            "CLOUD_SQL_MYSQL_PASSWORD",
+            "-e",
+            "GOOGLE_SERVICE_ACCOUNT_JSON",
+            "ghcr.io/cognitionai/database-toolbox/cloud-sql-mysql:main",
+            "--stdio"
+          ],
+          "env": {
+            "CLOUD_SQL_MYSQL_PROJECT": "${CLOUD_SQL_MYSQL_PROJECT}",
+            "CLOUD_SQL_MYSQL_REGION": "${CLOUD_SQL_MYSQL_REGION}",
+            "CLOUD_SQL_MYSQL_INSTANCE": "${CLOUD_SQL_MYSQL_INSTANCE}",
+            "CLOUD_SQL_MYSQL_DATABASE": "${CLOUD_SQL_MYSQL_DATABASE}",
+            "CLOUD_SQL_MYSQL_USER": "${CLOUD_SQL_MYSQL_USER}",
+            "CLOUD_SQL_MYSQL_IP_ADDRESS": "${CLOUD_SQL_MYSQL_IP_ADDRESS}",
+            "CLOUD_SQL_MYSQL_PASSWORD": "${CLOUD_SQL_MYSQL_PASSWORD}",
+            "GOOGLE_SERVICE_ACCOUNT_JSON": "${GOOGLE_SERVICE_ACCOUNT_JSON}"
+          }
+        }
+      }
+    },
+    "plugins/cognition-cloud-sql-postgres": {
+      "name": "cognition-cloud-sql-postgres",
+      "displayName": "Cloud SQL (PostgreSQL)",
+      "description": "Query Cloud SQL for PostgreSQL with SQL and inspect database records",
+      "shortDescription": "Cloud SQL for PostgreSQL databases",
+      "homepage": "https://github.com/googleapis/genai-toolbox",
+      "logo": "logo.svg",
+      "keywords": [
+        "Databases"
+      ],
+      "mcpServers": {
+        "cognition-cloud-sql-postgres": {
+          "command": "docker",
+          "args": [
+            "run",
+            "--rm",
+            "-i",
+            "-e",
+            "CLOUD_SQL_POSTGRES_PROJECT",
+            "-e",
+            "CLOUD_SQL_POSTGRES_REGION",
+            "-e",
+            "CLOUD_SQL_POSTGRES_INSTANCE",
+            "-e",
+            "CLOUD_SQL_POSTGRES_DATABASE",
+            "-e",
+            "CLOUD_SQL_POSTGRES_USER",
+            "-e",
+            "CLOUD_SQL_POSTGRES_IP_ADDRESS",
+            "-e",
+            "CLOUD_SQL_POSTGRES_PASSWORD",
+            "-e",
+            "GOOGLE_SERVICE_ACCOUNT_JSON",
+            "ghcr.io/cognitionai/database-toolbox/cloud-sql-postgres:main",
+            "--stdio"
+          ],
+          "env": {
+            "CLOUD_SQL_POSTGRES_PROJECT": "${CLOUD_SQL_POSTGRES_PROJECT}",
+            "CLOUD_SQL_POSTGRES_REGION": "${CLOUD_SQL_POSTGRES_REGION}",
+            "CLOUD_SQL_POSTGRES_INSTANCE": "${CLOUD_SQL_POSTGRES_INSTANCE}",
+            "CLOUD_SQL_POSTGRES_DATABASE": "${CLOUD_SQL_POSTGRES_DATABASE}",
+            "CLOUD_SQL_POSTGRES_USER": "${CLOUD_SQL_POSTGRES_USER}",
+            "CLOUD_SQL_POSTGRES_PASSWORD": "${CLOUD_SQL_POSTGRES_PASSWORD}",
+            "CLOUD_SQL_POSTGRES_IP_ADDRESS": "${CLOUD_SQL_POSTGRES_IP_ADDRESS}",
+            "GOOGLE_SERVICE_ACCOUNT_JSON": "${GOOGLE_SERVICE_ACCOUNT_JSON}"
+          }
+        }
+      }
+    },
+    "plugins/cognition-dataplex": {
+      "name": "cognition-dataplex",
+      "displayName": "Dataplex",
+      "description": "Find and catalog data assets with Dataplex Universal Catalog",
+      "shortDescription": "Data catalog discovery and governance",
+      "homepage": "https://github.com/googleapis/genai-toolbox",
+      "logo": "logo.svg",
+      "keywords": [
+        "Databases"
+      ],
+      "mcpServers": {
+        "cognition-dataplex": {
+          "command": "docker",
+          "args": [
+            "run",
+            "--rm",
+            "-i",
+            "-e",
+            "DATAPLEX_PROJECT",
+            "-e",
+            "DATAPLEX_LOCATION",
+            "-e",
+            "GOOGLE_SERVICE_ACCOUNT_JSON",
+            "ghcr.io/cognitionai/database-toolbox/dataplex:main",
+            "--stdio"
+          ],
+          "env": {
+            "DATAPLEX_PROJECT": "${DATAPLEX_PROJECT}",
+            "DATAPLEX_LOCATION": "${DATAPLEX_LOCATION}",
+            "GOOGLE_SERVICE_ACCOUNT_JSON": "${GOOGLE_SERVICE_ACCOUNT_JSON}"
+          }
+        }
+      }
+    },
+    "plugins/cognition-firestore": {
+      "name": "cognition-firestore",
+      "displayName": "Firestore",
+      "description": "Query and manage Firestore documents and collections",
+      "shortDescription": "Firestore documents and data queries",
+      "homepage": "https://github.com/googleapis/genai-toolbox",
+      "logo": "logo.svg",
+      "keywords": [
+        "Databases"
+      ],
+      "mcpServers": {
+        "cognition-firestore": {
+          "command": "docker",
+          "args": [
+            "run",
+            "--rm",
+            "-i",
+            "-e",
+            "FIRESTORE_PROJECT",
+            "-e",
+            "FIRESTORE_DATABASE",
+            "-e",
+            "GOOGLE_SERVICE_ACCOUNT_JSON",
+            "ghcr.io/cognitionai/database-toolbox/firestore:main",
+            "--stdio"
+          ],
+          "env": {
+            "FIRESTORE_PROJECT": "${FIRESTORE_PROJECT}",
+            "FIRESTORE_DATABASE": "${FIRESTORE_DATABASE}",
+            "GOOGLE_SERVICE_ACCOUNT_JSON": "${GOOGLE_SERVICE_ACCOUNT_JSON}"
+          }
+        }
+      }
+    },
+    "plugins/cognition-looker": {
+      "name": "cognition-looker",
+      "displayName": "Looker",
+      "description": "Run Looker BI queries and manage analytics content",
+      "shortDescription": "BI dashboards and data queries",
+      "homepage": "https://github.com/googleapis/genai-toolbox",
+      "logo": "logo.svg",
+      "keywords": [
+        "Databases"
+      ],
+      "mcpServers": {
+        "cognition-looker": {
+          "command": "docker",
+          "args": [
+            "run",
+            "--rm",
+            "-i",
+            "-e",
+            "LOOKER_BASE_URL",
+            "-e",
+            "LOOKER_CLIENT_ID",
+            "-e",
+            "LOOKER_CLIENT_SECRET",
+            "us-central1-docker.pkg.dev/database-toolbox/toolbox/toolbox:latest",
+            "--prebuilt",
+            "looker",
+            "--stdio"
+          ],
+          "env": {
+            "LOOKER_BASE_URL": "${LOOKER_BASE_URL}",
+            "LOOKER_CLIENT_ID": "${LOOKER_CLIENT_ID}",
+            "LOOKER_CLIENT_SECRET": "${LOOKER_CLIENT_SECRET}"
+          }
+        }
+      }
+    },
+    "plugins/cognition-mssql": {
+      "name": "cognition-mssql",
+      "displayName": "SQL Server",
+      "description": "Query SQL Server with T-SQL and inspect database records",
+      "shortDescription": "SQL Server queries and data management",
+      "homepage": "https://github.com/googleapis/genai-toolbox",
+      "logo": "logo.svg",
+      "keywords": [
+        "Databases"
+      ],
+      "mcpServers": {
+        "cognition-mssql": {
+          "command": "docker",
+          "args": [
+            "run",
+            "--rm",
+            "-i",
+            "-e",
+            "MSSQL_HOST",
+            "-e",
+            "MSSQL_DATABASE",
+            "-e",
+            "MSSQL_USER",
+            "-e",
+            "MSSQL_PASSWORD",
+            "-e",
+            "MSSQL_PORT",
+            "us-central1-docker.pkg.dev/database-toolbox/toolbox/toolbox:latest",
+            "--prebuilt",
+            "mssql",
+            "--stdio"
+          ],
+          "env": {
+            "MSSQL_HOST": "${MSSQL_HOST}",
+            "MSSQL_DATABASE": "${MSSQL_DATABASE}",
+            "MSSQL_USER": "${MSSQL_USER}",
+            "MSSQL_PASSWORD": "${MSSQL_PASSWORD}",
+            "MSSQL_PORT": "${MSSQL_PORT}"
+          }
+        }
+      }
+    },
+    "plugins/cognition-mysql": {
+      "name": "cognition-mysql",
+      "displayName": "MySQL",
+      "description": "Query MySQL with SQL and inspect database records",
+      "shortDescription": "MySQL queries and schema inspection",
+      "homepage": "https://github.com/googleapis/genai-toolbox",
+      "logo": "logo.svg",
+      "keywords": [
+        "Databases"
+      ],
+      "mcpServers": {
+        "cognition-mysql": {
+          "command": "docker",
+          "args": [
+            "run",
+            "--rm",
+            "-i",
+            "-e",
+            "MYSQL_HOST",
+            "-e",
+            "MYSQL_DATABASE",
+            "-e",
+            "MYSQL_USER",
+            "-e",
+            "MYSQL_PASSWORD",
+            "-e",
+            "MYSQL_PORT",
+            "us-central1-docker.pkg.dev/database-toolbox/toolbox/toolbox:latest",
+            "--prebuilt",
+            "mysql",
+            "--stdio"
+          ],
+          "env": {
+            "MYSQL_HOST": "${MYSQL_HOST}",
+            "MYSQL_DATABASE": "${MYSQL_DATABASE}",
+            "MYSQL_USER": "${MYSQL_USER}",
+            "MYSQL_PASSWORD": "${MYSQL_PASSWORD}",
+            "MYSQL_PORT": "${MYSQL_PORT}"
+          }
+        }
+      }
+    },
+    "plugins/cognition-postgres": {
+      "name": "cognition-postgres",
+      "displayName": "PostgreSQL",
+      "description": "Query PostgreSQL with SQL and inspect database records",
+      "shortDescription": "PostgreSQL queries and schema inspection",
+      "homepage": "https://github.com/googleapis/genai-toolbox",
+      "logo": "logo.svg",
+      "keywords": [
+        "Databases"
+      ],
+      "mcpServers": {
+        "cognition-postgres": {
+          "command": "docker",
+          "args": [
+            "run",
+            "--rm",
+            "-i",
+            "-e",
+            "POSTGRES_HOST",
+            "-e",
+            "POSTGRES_DATABASE",
+            "-e",
+            "POSTGRES_USER",
+            "-e",
+            "POSTGRES_PASSWORD",
+            "-e",
+            "POSTGRES_PORT",
+            "us-central1-docker.pkg.dev/database-toolbox/toolbox/toolbox:latest",
+            "--prebuilt",
+            "postgres",
+            "--stdio"
+          ],
+          "env": {
+            "POSTGRES_HOST": "${POSTGRES_HOST}",
+            "POSTGRES_DATABASE": "${POSTGRES_DATABASE}",
+            "POSTGRES_USER": "${POSTGRES_USER}",
+            "POSTGRES_PASSWORD": "${POSTGRES_PASSWORD}",
+            "POSTGRES_PORT": "${POSTGRES_PORT}"
+          }
+        }
+      }
+    },
+    "plugins/cognition-redshift": {
+      "name": "cognition-redshift",
+      "displayName": "Amazon Redshift (Password Auth)",
+      "description": "Query Amazon Redshift warehouse data with username and password authentication",
+      "shortDescription": "Data warehouse queries and analytics",
+      "homepage": "https://aws.amazon.com/redshift/",
+      "repository": "https://github.com/cognitionai/database-toolbox",
+      "logo": "logo.svg",
+      "keywords": [
+        "Databases",
+        "Monitoring & Analytics"
+      ],
+      "mcpServers": {
+        "cognition-redshift": {
+          "command": "docker",
+          "args": [
+            "run",
+            "--rm",
+            "-i",
+            "-e",
+            "REDSHIFT_HOST",
+            "-e",
+            "REDSHIFT_DATABASE",
+            "-e",
+            "REDSHIFT_USER",
+            "-e",
+            "REDSHIFT_PASSWORD",
+            "-e",
+            "REDSHIFT_PORT",
+            "-e",
+            "REDSHIFT_SSL_MODE",
+            "ghcr.io/cognitionai/database-toolbox/redshift:main"
+          ],
+          "env": {
+            "REDSHIFT_HOST": "${REDSHIFT_HOST}",
+            "REDSHIFT_DATABASE": "${REDSHIFT_DATABASE}",
+            "REDSHIFT_USER": "${REDSHIFT_USER}",
+            "REDSHIFT_PASSWORD": "${REDSHIFT_PASSWORD}",
+            "REDSHIFT_PORT": "${REDSHIFT_PORT}",
+            "REDSHIFT_SSL_MODE": "${REDSHIFT_SSL_MODE}"
+          }
+        }
+      }
+    },
+    "plugins/cognition-spanner": {
+      "name": "cognition-spanner",
+      "displayName": "Spanner",
+      "description": "Query and manage relational data in Spanner",
+      "shortDescription": "Distributed SQL database",
+      "homepage": "https://github.com/googleapis/genai-toolbox",
+      "logo": "logo.svg",
+      "keywords": [
+        "Databases"
+      ],
+      "mcpServers": {
+        "cognition-spanner": {
+          "command": "docker",
+          "args": [
+            "run",
+            "--rm",
+            "-i",
+            "-e",
+            "SPANNER_PROJECT",
+            "-e",
+            "SPANNER_INSTANCE",
+            "-e",
+            "SPANNER_DATABASE",
+            "-e",
+            "GOOGLE_SERVICE_ACCOUNT_JSON",
+            "ghcr.io/cognitionai/database-toolbox/spanner:main",
+            "--stdio"
+          ],
+          "env": {
+            "SPANNER_PROJECT": "${SPANNER_PROJECT}",
+            "SPANNER_INSTANCE": "${SPANNER_INSTANCE}",
+            "SPANNER_DATABASE": "${SPANNER_DATABASE}",
+            "GOOGLE_SERVICE_ACCOUNT_JSON": "${GOOGLE_SERVICE_ACCOUNT_JSON}"
+          }
+        }
+      }
+    },
+    "plugins/confidence": {
+      "name": "confidence",
+      "displayName": "Spotify Confidence",
+      "description": "Manage Spotify Confidence feature flags, experiments, and rollouts",
+      "shortDescription": "Feature flags, experiments and rollouts",
+      "homepage": "https://confidence.spotify.com",
+      "repository": "https://github.com/spotify/confidence-ai-plugins",
+      "logo": "logo.png",
+      "keywords": [
+        "Development Tools"
+      ],
+      "mcpServers": {
+        "confidence": {
+          "url": "https://mcp.confidence.dev/mcp/flags"
+        }
+      }
+    },
+    "plugins/confidence-docs": {
+      "name": "confidence-docs",
+      "displayName": "Spotify Confidence Docs",
+      "description": "Search Spotify Confidence feature-flag, experimentation, and SDK documentation",
+      "shortDescription": "Feature flag and experiment docs",
+      "homepage": "https://confidence.spotify.com",
+      "repository": "https://github.com/spotify/confidence-ai-plugins",
+      "logo": "logo.png",
+      "keywords": [
+        "Development Tools"
+      ],
+      "mcpServers": {
+        "confidence-docs": {
+          "url": "https://mcp.confidence.dev/mcp/docs"
+        }
+      }
+    },
+    "plugins/contentsquare": {
+      "name": "contentsquare",
+      "displayName": "Contentsquare",
+      "description": "Analyze customer journeys and digital experiences with Contentsquare",
+      "shortDescription": "Digital experience and journey analytics",
+      "homepage": "https://www.contentsquare.com",
+      "logo": "logo.png",
+      "keywords": [
+        "Monitoring & Analytics"
+      ],
+      "mcpServers": {
+        "contentsquare": {
+          "url": "https://api.contentsquare.com/mcp"
+        }
+      }
+    },
+    "plugins/context7": {
+      "name": "context7",
+      "displayName": "Context7",
+      "description": "Find up-to-date documentation for 1,000+ npm packages and frameworks with Context7",
+      "shortDescription": "Up-to-date library docs for coding",
+      "homepage": "https://upstash.com",
+      "repository": "https://github.com/upstash/context7",
+      "logo": "logo.svg",
+      "keywords": [
+        "Development Tools"
+      ],
+      "mcpServers": {
+        "context7": {
+          "url": "https://mcp.context7.com/mcp"
+        }
+      }
+    },
+    "plugins/corridor": {
+      "name": "corridor",
+      "displayName": "Corridor",
+      "description": "Find and fix code vulnerabilities with Corridor security guardrails",
+      "shortDescription": "Code security checks and remediation",
+      "homepage": "https://corridor.dev",
+      "logo": "logo.png",
+      "keywords": [
+        "Development Tools"
+      ],
+      "mcpServers": {
+        "corridor": {
+          "url": "https://app.corridor.dev/api/mcp",
+          "headers": {
+            "Authorization": "${CORRIDOR_AUTHORIZATION}"
+          }
+        }
+      }
+    },
+    "plugins/cortex": {
+      "name": "cortex",
+      "displayName": "Cortex",
+      "description": "Look up Cortex services, review scorecards, and track engineering insights",
+      "shortDescription": "Service catalog, teams and scorecards",
+      "homepage": "https://www.cortex.io",
+      "repository": "https://github.com/cortexapps/cortex-mcp",
+      "logo": "logo.png",
+      "keywords": [
+        "Development Tools"
+      ],
+      "mcpServers": {
+        "cortex": {
+          "command": "docker",
+          "args": [
+            "run",
+            "--rm",
+            "-i",
+            "--env",
+            "CORTEX_API_TOKEN=${CORTEX_API_TOKEN}",
+            "--env",
+            "CORTEX_API_BASE_URL=${CORTEX_API_BASE_URL}",
+            "ghcr.io/cortexapps/cortex-mcp:latest"
+          ]
+        }
+      }
+    },
+    "plugins/craft": {
+      "name": "craft",
+      "displayName": "Craft",
+      "description": "Search, create, and update Craft documents and daily notes",
+      "shortDescription": "Workspace documents and daily notes",
+      "homepage": "https://www.craft.do",
+      "logo": "logo.png",
+      "keywords": [
+        "Productivity"
+      ],
+      "mcpServers": {
+        "craft": {
+          "url": "https://mcp.craft.do/my/mcp"
+        }
+      }
+    },
+    "plugins/crossmint": {
+      "name": "crossmint",
+      "displayName": "Crossmint",
+      "description": "Manage Crossmint organizations, projects, environments, and API keys with secure OAuth sign-in",
+      "shortDescription": "Crossmint projects and API keys",
+      "homepage": "https://docs.crossmint.com/mcp-server/connect",
+      "repository": "https://github.com/Crossmint/crossmint-mcp",
+      "logo": "logo.svg",
+      "keywords": [
+        "Development Tools"
+      ],
+      "mcpServers": {
+        "crossmint": {
+          "url": "https://mcp.crossmint.com/mcp"
+        }
+      }
+    },
+    "plugins/customer-io": {
+      "name": "customer-io",
+      "displayName": "Customer.io",
+      "description": "Build Customer.io campaigns, manage segments, and query customer profiles",
+      "shortDescription": "Campaigns, segments and customer data",
+      "homepage": "https://customer.io",
+      "logo": "logo.png",
+      "keywords": [
+        "Customer & Sales"
+      ],
+      "mcpServers": {
+        "customer-io": {
+          "url": "https://mcp.customer.io/mcp"
+        }
+      }
+    },
+    "plugins/daloopa": {
+      "name": "daloopa",
+      "displayName": "Daloopa",
+      "description": "Retrieve source-linked company fundamentals, KPIs, filings, and prices with Daloopa",
+      "shortDescription": "Company fundamentals, KPIs and filings",
+      "homepage": "https://www.daloopa.com",
+      "logo": "logo.png",
+      "keywords": [
+        "Finance"
+      ],
+      "mcpServers": {
+        "daloopa": {
+          "url": "https://mcp.daloopa.com/server/mcp"
+        }
+      }
+    },
+    "plugins/datadog": {
+      "name": "datadog",
+      "displayName": "Datadog (API key)",
+      "description": "Investigate Datadog logs, metrics, traces, hosts, and incidents, and manage monitors and dashboards",
+      "shortDescription": "Monitoring, metrics, logs and traces",
+      "homepage": "https://www.datadoghq.com/",
+      "logo": "logo.svg",
+      "keywords": [
+        "Featured",
+        "Essentials",
+        "Monitoring & Analytics"
+      ],
+      "mcpServers": {
+        "datadog": {
+          "url": "https://${DATADOG_DD_MCP_DOMAIN:-mcp.datadoghq.com}/api/unstable/mcp-server/mcp?toolsets=core,apm,dbm,software-delivery&omit_tools=apm_search_spans,apm_search_watchdog_stories,apm_get_watchdog_story,semantic_search_change_stories,apm_search_recommendations,apm_get_recommendation,get_datadog_database_recommendations,optimize_datadog_database_query,update_datadog_flaky_test_states,get_datadog_code_coverage_branch_summary,get_datadog_code_coverage_commit_summary,get_datadog_code_coverage_pr_summary,get_datadog_code_coverage_files,get_datadog_test_optimization_settings,get_datadog_flaky_tests_management_policies,search_dora_deployments,aggregate_dora_deployments,search_dora_events,aggregate_dora_events,retry_datadog_ci_job,search_datadog_test_events,aggregate_datadog_test_events,search_pr_insights,get_dora_fields,get_prs_by_head_branch",
+          "urlOptions": [
+            {
+              "label": "US1",
+              "url": "https://mcp.datadoghq.com/api/unstable/mcp-server/mcp?toolsets=core,apm,dbm,software-delivery&omit_tools=apm_search_spans,apm_search_watchdog_stories,apm_get_watchdog_story,semantic_search_change_stories,apm_search_recommendations,apm_get_recommendation,get_datadog_database_recommendations,optimize_datadog_database_query,update_datadog_flaky_test_states,get_datadog_code_coverage_branch_summary,get_datadog_code_coverage_commit_summary,get_datadog_code_coverage_pr_summary,get_datadog_code_coverage_files,get_datadog_test_optimization_settings,get_datadog_flaky_tests_management_policies,search_dora_deployments,aggregate_dora_deployments,search_dora_events,aggregate_dora_events,retry_datadog_ci_job,search_datadog_test_events,aggregate_datadog_test_events,search_pr_insights,get_dora_fields,get_prs_by_head_branch"
+            },
+            {
+              "label": "US3",
+              "url": "https://mcp.us3.datadoghq.com/api/unstable/mcp-server/mcp?toolsets=core,apm,dbm,software-delivery&omit_tools=apm_search_spans,apm_search_watchdog_stories,apm_get_watchdog_story,semantic_search_change_stories,apm_search_recommendations,apm_get_recommendation,get_datadog_database_recommendations,optimize_datadog_database_query,update_datadog_flaky_test_states,get_datadog_code_coverage_branch_summary,get_datadog_code_coverage_commit_summary,get_datadog_code_coverage_pr_summary,get_datadog_code_coverage_files,get_datadog_test_optimization_settings,get_datadog_flaky_tests_management_policies,search_dora_deployments,aggregate_dora_deployments,search_dora_events,aggregate_dora_events,retry_datadog_ci_job,search_datadog_test_events,aggregate_datadog_test_events,search_pr_insights,get_dora_fields,get_prs_by_head_branch"
+            },
+            {
+              "label": "US5",
+              "url": "https://mcp.us5.datadoghq.com/api/unstable/mcp-server/mcp?toolsets=core,apm,dbm,software-delivery&omit_tools=apm_search_spans,apm_search_watchdog_stories,apm_get_watchdog_story,semantic_search_change_stories,apm_search_recommendations,apm_get_recommendation,get_datadog_database_recommendations,optimize_datadog_database_query,update_datadog_flaky_test_states,get_datadog_code_coverage_branch_summary,get_datadog_code_coverage_commit_summary,get_datadog_code_coverage_pr_summary,get_datadog_code_coverage_files,get_datadog_test_optimization_settings,get_datadog_flaky_tests_management_policies,search_dora_deployments,aggregate_dora_deployments,search_dora_events,aggregate_dora_events,retry_datadog_ci_job,search_datadog_test_events,aggregate_datadog_test_events,search_pr_insights,get_dora_fields,get_prs_by_head_branch"
+            },
+            {
+              "label": "EU1",
+              "url": "https://mcp.datadoghq.eu/api/unstable/mcp-server/mcp?toolsets=core,apm,dbm,software-delivery&omit_tools=apm_search_spans,apm_search_watchdog_stories,apm_get_watchdog_story,semantic_search_change_stories,apm_search_recommendations,apm_get_recommendation,get_datadog_database_recommendations,optimize_datadog_database_query,update_datadog_flaky_test_states,get_datadog_code_coverage_branch_summary,get_datadog_code_coverage_commit_summary,get_datadog_code_coverage_pr_summary,get_datadog_code_coverage_files,get_datadog_test_optimization_settings,get_datadog_flaky_tests_management_policies,search_dora_deployments,aggregate_dora_deployments,search_dora_events,aggregate_dora_events,retry_datadog_ci_job,search_datadog_test_events,aggregate_datadog_test_events,search_pr_insights,get_dora_fields,get_prs_by_head_branch"
+            },
+            {
+              "label": "AP1",
+              "url": "https://mcp.ap1.datadoghq.com/api/unstable/mcp-server/mcp?toolsets=core,apm,dbm,software-delivery&omit_tools=apm_search_spans,apm_search_watchdog_stories,apm_get_watchdog_story,semantic_search_change_stories,apm_search_recommendations,apm_get_recommendation,get_datadog_database_recommendations,optimize_datadog_database_query,update_datadog_flaky_test_states,get_datadog_code_coverage_branch_summary,get_datadog_code_coverage_commit_summary,get_datadog_code_coverage_pr_summary,get_datadog_code_coverage_files,get_datadog_test_optimization_settings,get_datadog_flaky_tests_management_policies,search_dora_deployments,aggregate_dora_deployments,search_dora_events,aggregate_dora_events,retry_datadog_ci_job,search_datadog_test_events,aggregate_datadog_test_events,search_pr_insights,get_dora_fields,get_prs_by_head_branch"
+            },
+            {
+              "label": "AP2",
+              "url": "https://mcp.ap2.datadoghq.com/api/unstable/mcp-server/mcp?toolsets=core,apm,dbm,software-delivery&omit_tools=apm_search_spans,apm_search_watchdog_stories,apm_get_watchdog_story,semantic_search_change_stories,apm_search_recommendations,apm_get_recommendation,get_datadog_database_recommendations,optimize_datadog_database_query,update_datadog_flaky_test_states,get_datadog_code_coverage_branch_summary,get_datadog_code_coverage_commit_summary,get_datadog_code_coverage_pr_summary,get_datadog_code_coverage_files,get_datadog_test_optimization_settings,get_datadog_flaky_tests_management_policies,search_dora_deployments,aggregate_dora_deployments,search_dora_events,aggregate_dora_events,retry_datadog_ci_job,search_datadog_test_events,aggregate_datadog_test_events,search_pr_insights,get_dora_fields,get_prs_by_head_branch"
+            },
+            {
+              "label": "UK1",
+              "url": "https://mcp.uk1.datadoghq.com/api/unstable/mcp-server/mcp?toolsets=core,apm,dbm,software-delivery&omit_tools=apm_search_spans,apm_search_watchdog_stories,apm_get_watchdog_story,semantic_search_change_stories,apm_search_recommendations,apm_get_recommendation,get_datadog_database_recommendations,optimize_datadog_database_query,update_datadog_flaky_test_states,get_datadog_code_coverage_branch_summary,get_datadog_code_coverage_commit_summary,get_datadog_code_coverage_pr_summary,get_datadog_code_coverage_files,get_datadog_test_optimization_settings,get_datadog_flaky_tests_management_policies,search_dora_deployments,aggregate_dora_deployments,search_dora_events,aggregate_dora_events,retry_datadog_ci_job,search_datadog_test_events,aggregate_datadog_test_events,search_pr_insights,get_dora_fields,get_prs_by_head_branch"
+            }
+          ],
+          "headers": {
+            "DD-API-KEY": "${DATADOG_DD_API_KEY}",
+            "DD-APPLICATION-KEY": "${DATADOG_DD_APPLICATION_KEY}"
+          }
+        }
+      }
+    },
+    "plugins/datadog-remote": {
+      "name": "datadog-remote",
+      "displayName": "Datadog (OAuth)",
+      "description": "Investigate Datadog logs, metrics, traces, hosts, and incidents, and manage monitors and dashboards",
+      "shortDescription": "Monitoring, logs, metrics and traces",
+      "homepage": "https://www.datadoghq.com/",
+      "logo": "logo.svg",
+      "keywords": [
+        "Essentials",
+        "Monitoring & Analytics"
+      ],
+      "mcpServers": {
+        "datadog-remote": {
+          "url": "https://${DATADOG_DD_MCP_DOMAIN:-mcp.datadoghq.com}/api/unstable/mcp-server/mcp?toolsets=core,apm,dbm,software-delivery&omit_tools=apm_search_spans,apm_search_watchdog_stories,apm_get_watchdog_story,semantic_search_change_stories,apm_search_recommendations,apm_get_recommendation,get_datadog_database_recommendations,optimize_datadog_database_query,update_datadog_flaky_test_states,get_datadog_code_coverage_branch_summary,get_datadog_code_coverage_commit_summary,get_datadog_code_coverage_pr_summary,get_datadog_code_coverage_files,get_datadog_test_optimization_settings,get_datadog_flaky_tests_management_policies,search_dora_deployments,aggregate_dora_deployments,search_dora_events,aggregate_dora_events,retry_datadog_ci_job,search_datadog_test_events,aggregate_datadog_test_events,search_pr_insights,get_dora_fields,get_prs_by_head_branch",
+          "urlOptions": [
+            {
+              "label": "US1",
+              "url": "https://mcp.datadoghq.com/api/unstable/mcp-server/mcp?toolsets=core,apm,dbm,software-delivery&omit_tools=apm_search_spans,apm_search_watchdog_stories,apm_get_watchdog_story,semantic_search_change_stories,apm_search_recommendations,apm_get_recommendation,get_datadog_database_recommendations,optimize_datadog_database_query,update_datadog_flaky_test_states,get_datadog_code_coverage_branch_summary,get_datadog_code_coverage_commit_summary,get_datadog_code_coverage_pr_summary,get_datadog_code_coverage_files,get_datadog_test_optimization_settings,get_datadog_flaky_tests_management_policies,search_dora_deployments,aggregate_dora_deployments,search_dora_events,aggregate_dora_events,retry_datadog_ci_job,search_datadog_test_events,aggregate_datadog_test_events,search_pr_insights,get_dora_fields,get_prs_by_head_branch"
+            },
+            {
+              "label": "US3",
+              "url": "https://mcp.us3.datadoghq.com/api/unstable/mcp-server/mcp?toolsets=core,apm,dbm,software-delivery&omit_tools=apm_search_spans,apm_search_watchdog_stories,apm_get_watchdog_story,semantic_search_change_stories,apm_search_recommendations,apm_get_recommendation,get_datadog_database_recommendations,optimize_datadog_database_query,update_datadog_flaky_test_states,get_datadog_code_coverage_branch_summary,get_datadog_code_coverage_commit_summary,get_datadog_code_coverage_pr_summary,get_datadog_code_coverage_files,get_datadog_test_optimization_settings,get_datadog_flaky_tests_management_policies,search_dora_deployments,aggregate_dora_deployments,search_dora_events,aggregate_dora_events,retry_datadog_ci_job,search_datadog_test_events,aggregate_datadog_test_events,search_pr_insights,get_dora_fields,get_prs_by_head_branch"
+            },
+            {
+              "label": "US5",
+              "url": "https://mcp.us5.datadoghq.com/api/unstable/mcp-server/mcp?toolsets=core,apm,dbm,software-delivery&omit_tools=apm_search_spans,apm_search_watchdog_stories,apm_get_watchdog_story,semantic_search_change_stories,apm_search_recommendations,apm_get_recommendation,get_datadog_database_recommendations,optimize_datadog_database_query,update_datadog_flaky_test_states,get_datadog_code_coverage_branch_summary,get_datadog_code_coverage_commit_summary,get_datadog_code_coverage_pr_summary,get_datadog_code_coverage_files,get_datadog_test_optimization_settings,get_datadog_flaky_tests_management_policies,search_dora_deployments,aggregate_dora_deployments,search_dora_events,aggregate_dora_events,retry_datadog_ci_job,search_datadog_test_events,aggregate_datadog_test_events,search_pr_insights,get_dora_fields,get_prs_by_head_branch"
+            },
+            {
+              "label": "EU1",
+              "url": "https://mcp.datadoghq.eu/api/unstable/mcp-server/mcp?toolsets=core,apm,dbm,software-delivery&omit_tools=apm_search_spans,apm_search_watchdog_stories,apm_get_watchdog_story,semantic_search_change_stories,apm_search_recommendations,apm_get_recommendation,get_datadog_database_recommendations,optimize_datadog_database_query,update_datadog_flaky_test_states,get_datadog_code_coverage_branch_summary,get_datadog_code_coverage_commit_summary,get_datadog_code_coverage_pr_summary,get_datadog_code_coverage_files,get_datadog_test_optimization_settings,get_datadog_flaky_tests_management_policies,search_dora_deployments,aggregate_dora_deployments,search_dora_events,aggregate_dora_events,retry_datadog_ci_job,search_datadog_test_events,aggregate_datadog_test_events,search_pr_insights,get_dora_fields,get_prs_by_head_branch"
+            },
+            {
+              "label": "AP1",
+              "url": "https://mcp.ap1.datadoghq.com/api/unstable/mcp-server/mcp?toolsets=core,apm,dbm,software-delivery&omit_tools=apm_search_spans,apm_search_watchdog_stories,apm_get_watchdog_story,semantic_search_change_stories,apm_search_recommendations,apm_get_recommendation,get_datadog_database_recommendations,optimize_datadog_database_query,update_datadog_flaky_test_states,get_datadog_code_coverage_branch_summary,get_datadog_code_coverage_commit_summary,get_datadog_code_coverage_pr_summary,get_datadog_code_coverage_files,get_datadog_test_optimization_settings,get_datadog_flaky_tests_management_policies,search_dora_deployments,aggregate_dora_deployments,search_dora_events,aggregate_dora_events,retry_datadog_ci_job,search_datadog_test_events,aggregate_datadog_test_events,search_pr_insights,get_dora_fields,get_prs_by_head_branch"
+            },
+            {
+              "label": "AP2",
+              "url": "https://mcp.ap2.datadoghq.com/api/unstable/mcp-server/mcp?toolsets=core,apm,dbm,software-delivery&omit_tools=apm_search_spans,apm_search_watchdog_stories,apm_get_watchdog_story,semantic_search_change_stories,apm_search_recommendations,apm_get_recommendation,get_datadog_database_recommendations,optimize_datadog_database_query,update_datadog_flaky_test_states,get_datadog_code_coverage_branch_summary,get_datadog_code_coverage_commit_summary,get_datadog_code_coverage_pr_summary,get_datadog_code_coverage_files,get_datadog_test_optimization_settings,get_datadog_flaky_tests_management_policies,search_dora_deployments,aggregate_dora_deployments,search_dora_events,aggregate_dora_events,retry_datadog_ci_job,search_datadog_test_events,aggregate_datadog_test_events,search_pr_insights,get_dora_fields,get_prs_by_head_branch"
+            },
+            {
+              "label": "UK1",
+              "url": "https://mcp.uk1.datadoghq.com/api/unstable/mcp-server/mcp?toolsets=core,apm,dbm,software-delivery&omit_tools=apm_search_spans,apm_search_watchdog_stories,apm_get_watchdog_story,semantic_search_change_stories,apm_search_recommendations,apm_get_recommendation,get_datadog_database_recommendations,optimize_datadog_database_query,update_datadog_flaky_test_states,get_datadog_code_coverage_branch_summary,get_datadog_code_coverage_commit_summary,get_datadog_code_coverage_pr_summary,get_datadog_code_coverage_files,get_datadog_test_optimization_settings,get_datadog_flaky_tests_management_policies,search_dora_deployments,aggregate_dora_deployments,search_dora_events,aggregate_dora_events,retry_datadog_ci_job,search_datadog_test_events,aggregate_datadog_test_events,search_pr_insights,get_dora_fields,get_prs_by_head_branch"
+            }
+          ]
+        }
+      }
+    },
+    "plugins/datahub": {
+      "name": "datahub",
+      "displayName": "DataHub",
+      "description": "Find enterprise data assets and their context in the DataHub catalog",
+      "shortDescription": "Enterprise data catalog and context",
+      "homepage": "https://datahub.com",
+      "logo": "logo.png",
+      "keywords": [
+        "Databases"
+      ],
+      "mcpServers": {
+        "datahub": {
+          "url": "https://mcp.datahub.com/mcp"
+        }
+      }
+    },
+    "plugins/dbt": {
+      "name": "dbt",
+      "displayName": "dbt",
+      "description": "Run local dbt projects, or use dbt Platform's Discovery API, Semantic Layer, and Admin API",
+      "shortDescription": "Data discovery and semantic models",
+      "setup": {
+        "notice": "Supports two setup modes. For help, join #tools-dbt-mcp in the dbt Community Slack.",
+        "steps": [
+          "For local CLI access, choose your dbt project directory and dbt executable",
+          "For dbt Platform access, provide your host and token and select the applicable account and environments"
+        ]
+      },
+      "homepage": "https://www.getdbt.com",
+      "repository": "https://github.com/dbt-labs/dbt-mcp",
+      "logo": "logo.svg",
+      "keywords": [
+        "Development Tools",
+        "Monitoring & Analytics"
+      ],
+      "mcpServers": {
+        "dbt": {
+          "command": "uvx",
+          "args": [
+            "dbt-mcp"
+          ],
+          "env": {
+            "DBT_PROJECT_DIR": "${DBT_PROJECT_DIR}",
+            "DBT_PATH": "${DBT_PATH}",
+            "DBT_HOST": "${DBT_HOST}",
+            "MULTICELL_ACCOUNT_PREFIX": "${MULTICELL_ACCOUNT_PREFIX}",
+            "DBT_TOKEN": "${DBT_TOKEN}",
+            "DBT_PROD_ENV_ID": "${DBT_PROD_ENV_ID}",
+            "DBT_DEV_ENV_ID": "${DBT_DEV_ENV_ID}",
+            "DBT_ACCOUNT_ID": "${DBT_ACCOUNT_ID}",
+            "DBT_USER_ID": "${DBT_USER_ID}"
+          }
+        }
+      }
+    },
+    "plugins/deepwiki": {
+      "name": "deepwiki",
+      "displayName": "DeepWiki",
+      "description": "Search GitHub repository documentation with DeepWiki to answer codebase questions",
+      "shortDescription": "GitHub repository docs and code context",
+      "homepage": "https://devin.ai",
+      "logo": "logo.png",
+      "keywords": [
+        "Essentials",
+        "Development Tools"
+      ],
+      "mcpServers": {
+        "deepwiki": {
+          "url": "https://mcp.deepwiki.com/mcp"
+        }
+      }
+    },
+    "plugins/devin-vuln-fixes": {
+      "name": "devin-vuln-fixes",
+      "displayName": "Vulnerability Fixes",
+      "description": "Find and patch vulnerable PHP, Node.js, and self-managed GitLab runtimes, with a read-only inventory, approval before edits, and one PR per repo",
+      "shortDescription": "Fix vulnerable PHP, Node and GitLab",
+      "logo": "logo.svg",
+      "keywords": [
+        "Security",
+        "Remediation"
+      ]
+    },
+    "plugins/dockerhub": {
+      "name": "dockerhub",
+      "displayName": "Docker Hub",
+      "description": "Find Docker Hub repositories, tags, and Hardened Images, and manage repository metadata",
+      "shortDescription": "Container images, repositories and tags",
+      "homepage": "https://hub.docker.com",
+      "logo": "logo.svg",
+      "keywords": [
+        "Development Tools"
+      ],
+      "mcpServers": {
+        "dockerhub": {
+          "command": "docker",
+          "args": [
+            "run",
+            "-i",
+            "--rm",
+            "-e",
+            "HUB_PAT_TOKEN",
+            "mcp/dockerhub",
+            "--transport=stdio",
+            "--username=${DOCKERHUB_USERNAME}"
+          ],
+          "env": {
+            "HUB_PAT_TOKEN": "${HUB_PAT_TOKEN}"
+          }
+        }
+      }
+    },
+    "plugins/dynatrace": {
+      "name": "dynatrace",
+      "displayName": "Dynatrace",
+      "description": "Query logs, metrics, and events with DQL, investigate problems, and review vulnerabilities, guided by Dynatrace's official skills",
+      "shortDescription": "Logs, metrics, events and incidents",
+      "setup": {
+        "notice": "Enter the host of your Dynatrace environment as shown in your browser, e.g. abc12345.apps.dynatrace.com or abc12345.live.dynatrace.com."
+      },
+      "homepage": "https://www.dynatrace.com/",
+      "logo": "logo.svg",
+      "keywords": [
+        "Featured",
+        "Monitoring & Analytics"
+      ],
+      "mcpServers": {
+        "dynatrace": {
+          "url": "https://${DYNATRACE_ENVIRONMENT_HOST}/platform-reserved/mcp-gateway/v0.1/servers/dynatrace-mcp/mcp",
+          "headers": {
+            "Authorization": "Bearer ${DYNATRACE_PLATFORM_TOKEN}",
+            "Dt-External-Source": "dynatrace-for-ai/8.0.1"
+          }
+        }
+      }
+    },
+    "plugins/elastic": {
+      "name": "elastic",
+      "displayName": "Elastic",
+      "description": "Search and analyze Elasticsearch logs, metrics, and traces with Kibana Agent Builder tools",
+      "shortDescription": "Elasticsearch logs, metrics and traces",
+      "setup": {
+        "notice": "Requires the MCP server built into Kibana (Elastic 9.2 or later)."
+      },
+      "homepage": "https://www.elastic.co/",
+      "logo": "logo.svg",
+      "keywords": [
+        "Monitoring & Analytics"
+      ],
+      "mcpServers": {
+        "elastic": {
+          "url": "https://${KIBANA_HOST}/api/agent_builder/mcp",
+          "headers": {
+            "Authorization": "ApiKey ${ELASTIC_API_KEY}"
+          }
+        }
+      }
+    },
+    "plugins/elasticsearch": {
+      "name": "elasticsearch",
+      "displayName": "Elasticsearch",
+      "description": "Inspect Elasticsearch indices, mappings, and shards, and run ES|QL or Query DSL searches",
+      "shortDescription": "Search indexes, mappings and health",
+      "homepage": "https://www.elastic.co",
+      "logo": "logo.svg",
+      "keywords": [
+        "Monitoring & Analytics"
+      ],
+      "mcpServers": {
+        "elasticsearch": {
+          "command": "docker",
+          "args": [
+            "run",
+            "-i",
+            "--rm",
+            "-e",
+            "ES_URL",
+            "-e",
+            "ES_API_KEY",
+            "mcp/elasticsearch",
+            "stdio"
+          ],
+          "env": {
+            "ES_URL": "${ES_URL}",
+            "ES_API_KEY": "${ES_API_KEY}"
+          }
+        }
+      }
+    },
+    "plugins/enterpret": {
+      "name": "enterpret",
+      "displayName": "Enterpret",
+      "description": "Search unified customer feedback in Enterpret for recurring themes and customer needs",
+      "shortDescription": "Customer feedback analysis and insights",
+      "homepage": "https://www.enterpret.com",
+      "logo": "logo.png",
+      "keywords": [
+        "Monitoring & Analytics",
+        "Customer & Sales"
+      ],
+      "mcpServers": {
+        "enterpret": {
+          "url": "https://wisdom-api.enterpret.com/server/mcp"
+        }
+      }
+    },
+    "plugins/eraser": {
+      "name": "eraser",
+      "displayName": "Eraser",
+      "description": "Generate and update technical diagrams and documents in Eraser",
+      "shortDescription": "Diagrams and technical documentation",
+      "homepage": "https://www.eraser.io",
+      "logo": "logo.svg",
+      "keywords": [
+        "Development Tools",
+        "Design & Creative"
+      ],
+      "mcpServers": {
+        "eraser": {
+          "url": "https://app.eraser.io/api/mcp"
+        }
+      }
+    },
+    "plugins/exa": {
+      "name": "exa",
+      "displayName": "Exa",
+      "description": "Search the web with advanced filters and fetch full page content as clean markdown with Exa",
+      "shortDescription": "AI web search and crawling",
+      "homepage": "https://exa.ai",
+      "repository": "https://github.com/exa-labs/exa-mcp-server",
+      "logo": "logo.svg",
+      "keywords": [
+        "AI & Machine Learning",
+        "Productivity"
+      ],
+      "mcpServers": {
+        "exa": {
+          "url": "https://mcp.exa.ai/mcp",
+          "headers": {
+            "x-api-key": "${EXA_X_API_KEY}"
+          }
+        }
+      }
+    },
+    "plugins/excalidraw": {
+      "name": "excalidraw",
+      "displayName": "Excalidraw",
+      "description": "Draw and export hand-drawn-style diagrams from chat with Excalidraw",
+      "shortDescription": "Hand-drawn diagrams and exports",
+      "homepage": "https://excalidraw.com",
+      "logo": "logo.svg",
+      "keywords": [
+        "Design & Creative"
+      ],
+      "mcpServers": {
+        "excalidraw": {
+          "url": "https://mcp.excalidraw.com/mcp"
+        }
+      }
+    },
+    "plugins/fathom": {
+      "name": "fathom",
+      "displayName": "Fathom",
+      "description": "Retrieve Fathom recordings, transcripts, AI summaries, action items, and team activity to review meetings",
+      "shortDescription": "Meeting recordings and transcripts",
+      "homepage": "https://fathom.video",
+      "logo": "logo.png",
+      "keywords": [
+        "Productivity"
+      ],
+      "mcpServers": {
+        "fathom": {
+          "url": "https://api.fathom.ai/mcp"
+        }
+      }
+    },
+    "plugins/figma-remote": {
+      "name": "figma-remote",
+      "displayName": "Figma",
+      "description": "Read Figma files, nodes, and images, manage comments, components, and styles, create webhooks, and inspect library analytics",
+      "shortDescription": "Figma files, components and comments",
+      "homepage": "https://www.figma.com",
+      "logo": "logo.svg",
+      "keywords": [
+        "Essentials",
+        "Design & Creative"
+      ],
+      "mcpServers": {
+        "figma-remote": {
+          "url": "https://mcp.figma.com/mcp"
+        }
+      }
+    },
+    "plugins/firecrawl": {
+      "name": "firecrawl",
+      "displayName": "Firecrawl",
+      "description": "Map sites, scrape one or many URLs, search the web, run deep research, and extract structured data with Firecrawl",
+      "shortDescription": "Website search, scraping and extraction",
+      "homepage": "https://firecrawl.dev",
+      "repository": "https://github.com/mendableai/firecrawl-mcp-server",
+      "logo": "logo.png",
+      "keywords": [
+        "Development Tools"
+      ],
+      "mcpServers": {
+        "firecrawl": {
+          "command": "npx",
+          "args": [
+            "-y",
+            "firecrawl-mcp"
+          ],
+          "env": {
+            "FIRECRAWL_API_KEY": "${FIRECRAWL_API_KEY}"
+          }
+        }
+      }
+    },
+    "plugins/fireflies": {
+      "name": "fireflies",
+      "displayName": "Fireflies",
+      "description": "Search Fireflies meeting transcripts, summaries, and action items",
+      "shortDescription": "Meeting notes, transcripts and summaries",
+      "homepage": "https://fireflies.ai",
+      "logo": "logo.png",
+      "keywords": [
+        "Productivity"
+      ],
+      "mcpServers": {
+        "fireflies": {
+          "url": "https://api.fireflies.ai/mcp"
+        }
+      }
+    },
+    "plugins/fullstory": {
+      "name": "fullstory",
+      "displayName": "Fullstory",
+      "description": "Inspect Fullstory session replays and behavioral analytics to investigate customer friction",
+      "shortDescription": "Session replays and customer insights",
+      "homepage": "https://www.fullstory.com",
+      "repository": "https://github.com/fullstorydev/fullstory-skills",
+      "logo": "logo.jpg",
+      "keywords": [
+        "Monitoring & Analytics"
+      ],
+      "mcpServers": {
+        "fullstory": {
+          "url": "https://api.fullstory.com/mcp/fullstory"
+        }
+      }
+    },
+    "plugins/gamma": {
+      "name": "gamma",
+      "displayName": "Gamma",
+      "description": "Generate Gamma presentations, documents, webpages, and social posts, browse existing gammas, and export to PDF, PPTX, or PNG",
+      "shortDescription": "Presentations, docs and social posts",
+      "homepage": "https://gamma.app",
+      "logo": "logo.jpg",
+      "keywords": [
+        "Design & Creative"
+      ],
+      "mcpServers": {
+        "gamma": {
+          "url": "https://mcp.gamma.app/mcp"
+        }
+      }
+    },
+    "plugins/gc-ai": {
+      "name": "gc-ai",
+      "displayName": "GC AI",
+      "description": "Upload documents to GC AI, run legal review playbooks, and ask questions grounded in your files",
+      "shortDescription": "Legal document review and research",
+      "homepage": "https://gc.ai",
+      "logo": "logo.png",
+      "keywords": [
+        "Productivity"
+      ],
+      "mcpServers": {
+        "gc-ai": {
+          "url": "https://app.gc.ai/api/mcp"
+        }
+      }
+    },
+    "plugins/gitlab": {
+      "name": "gitlab",
+      "displayName": "GitLab",
+      "description": "Review GitLab repositories, merge requests, and CI pipelines",
+      "shortDescription": "Repos, merge requests and CI pipelines",
+      "homepage": "https://gitlab.com",
+      "logo": "logo.svg",
+      "keywords": [
+        "Development Tools"
+      ],
+      "mcpServers": {
+        "gitlab": {
+          "url": "https://gitlab.com/api/v4/mcp"
+        }
+      }
+    },
+    "plugins/godaddy": {
+      "name": "godaddy",
+      "displayName": "GoDaddy",
+      "description": "Brainstorm domain names and check their availability with GoDaddy",
+      "shortDescription": "Domain ideas and availability checks",
+      "homepage": "https://www.godaddy.com",
+      "logo": "logo.svg",
+      "keywords": [
+        "Cloud & Infrastructure"
+      ],
+      "mcpServers": {
+        "godaddy": {
+          "url": "https://api.godaddy.com/v1/domains/mcp"
+        }
+      }
+    },
+    "plugins/google-analytics": {
+      "name": "google-analytics",
+      "displayName": "Google Analytics",
+      "description": "Run Google Analytics 4 reports and query properties and metrics",
+      "shortDescription": "GA4 reports, metrics and properties",
+      "homepage": "https://analytics.google.com",
+      "repository": "https://github.com/googleanalytics/google-analytics-mcp",
+      "logo": "logo.svg",
+      "keywords": [
+        "Monitoring & Analytics",
+        "Productivity"
+      ],
+      "mcpServers": {
+        "google-analytics": {
+          "command": "pipx",
+          "args": [
+            "run",
+            "--spec",
+            "git+https://github.com/googleanalytics/google-analytics-mcp.git",
+            "google-analytics-mcp"
+          ]
+        }
+      }
+    },
+    "plugins/google-calendar": {
+      "name": "google-calendar",
+      "displayName": "Google Calendar",
+      "description": "View, create, update, and manage Google Calendar events",
+      "shortDescription": "Calendar events and meeting scheduling",
+      "setup": {
+        "notice": "Access requires enrollment in the Google Workspace Developer Preview Program. Google does not support automatic client registration; you must provide your own OAuth client credentials.",
+        "steps": [
+          "In the Google Cloud console, enable the Google Calendar API and Calendar MCP API",
+          "Create an OAuth client (web application)",
+          "Add Devin's OAuth callback URL as an authorized redirect URI",
+          "Enter the OAuth client ID and secret when installing this server"
+        ]
+      },
+      "homepage": "https://calendar.google.com",
+      "logo": "logo.svg",
+      "keywords": [
+        "Productivity"
+      ],
+      "mcpServers": {
+        "google-calendar": {
+          "url": "https://calendarmcp.googleapis.com/mcp/v1"
+        }
+      }
+    },
+    "plugins/google-cloud-monitoring": {
+      "name": "google-cloud-monitoring",
+      "displayName": "Google Cloud Monitoring",
+      "description": "Query Google Cloud metrics with PromQL, review alerts and policies, and browse dashboards",
+      "shortDescription": "Cloud alerts, metrics and dashboards",
+      "setup": {
+        "notice": "Google does not support automatic client registration. You must provide your own OAuth client credentials.",
+        "steps": [
+          "In the Google Cloud console, enable the Cloud Monitoring API",
+          "Grant everyone who will connect the MCP Tool User role (roles/mcp.toolUser)",
+          "Create an OAuth client (web application)",
+          "Add Devin's OAuth callback URL as an authorized redirect URI",
+          "Enter the OAuth client ID and secret when installing this server"
+        ]
+      },
+      "homepage": "https://cloud.google.com/monitoring",
+      "logo": "logo.svg",
+      "keywords": [
+        "Monitoring & Analytics"
+      ],
+      "mcpServers": {
+        "google-cloud-monitoring": {
+          "url": "https://monitoring.googleapis.com/mcp"
+        }
+      }
+    },
+    "plugins/google-maps": {
+      "name": "google-maps",
+      "displayName": "Google Maps",
+      "description": "Search places and details, geocode and reverse-geocode addresses, and get directions, distances, and elevation with Google Maps",
+      "shortDescription": "Places, routes and geocoding",
+      "homepage": "https://maps.google.com",
+      "logo": "logo.svg",
+      "keywords": [
+        "Productivity"
+      ],
+      "mcpServers": {
+        "google-maps": {
+          "command": "npx",
+          "args": [
+            "-y",
+            "@modelcontextprotocol/server-google-maps"
+          ],
+          "env": {
+            "GOOGLE_MAPS_API_KEY": "${GOOGLE_MAPS_API_KEY}"
+          }
+        }
+      }
+    },
+    "plugins/google-productivity": {
+      "name": "google-productivity",
+      "displayName": "Gmail & Google Calendar",
+      "description": "Read and manage Gmail, Google Calendar, and Google Contacts through Devin",
+      "shortDescription": "Gmail, Google Calendar and Contacts",
+      "setup": {
+        "notice": "Connects with your own Google account via OAuth. Choose which Gmail, Calendar and Contacts permissions Devin gets when you install."
+      },
+      "homepage": "https://workspace.google.com",
+      "logo": "logo.svg",
+      "keywords": [
+        "Productivity",
+        "Communication"
+      ],
+      "mcpServers": {
+        "google-productivity": {
+          "url": "https://google-mcp.devin.ai/mcp"
+        }
+      }
+    },
+    "plugins/google-workspace": {
+      "name": "google-workspace",
+      "displayName": "Google Drive, Docs, Sheets & Slides",
+      "description": "Search Google Drive and read, create, review and edit Google Docs, Sheets, Slides and Forms through Devin",
+      "shortDescription": "Drive, Docs, Sheets, Slides and Forms",
+      "setup": {
+        "notice": "Connects with your own Google account via OAuth. Choose whether Devin may only read your Drive, also create and edit files, and read Google Forms responses when you install."
+      },
+      "homepage": "https://workspace.google.com",
+      "logo": "logo.svg",
+      "keywords": [
+        "Productivity"
+      ],
+      "mcpServers": {
+        "google-workspace": {
+          "url": "https://google-mcp.devin.ai/drive/mcp"
+        }
+      }
+    },
+    "plugins/grafana": {
+      "name": "grafana",
+      "displayName": "Grafana (stdio)",
+      "description": "Inspect Grafana dashboards and visualizations to investigate service metrics",
+      "shortDescription": "Dashboards, data sources and alerts",
+      "homepage": "https://grafana.com",
+      "repository": "https://github.com/grafana/mcp-grafana",
+      "logo": "logo.svg",
+      "keywords": [
+        "Monitoring & Analytics"
+      ],
+      "mcpServers": {
+        "grafana": {
+          "command": "docker",
+          "args": [
+            "run",
+            "--rm",
+            "-i",
+            "-e",
+            "GRAFANA_URL",
+            "-e",
+            "GRAFANA_API_KEY",
+            "mcp/grafana",
+            "-t",
+            "stdio"
+          ],
+          "env": {
+            "GRAFANA_URL": "${GRAFANA_URL}",
+            "GRAFANA_API_KEY": "${GRAFANA_API_KEY}"
+          }
+        }
+      }
+    },
+    "plugins/grafana-remote": {
+      "name": "grafana-remote",
+      "displayName": "Grafana (OAuth)",
+      "description": "Inspect Grafana Cloud dashboards and data sources, review alerts, and investigate incidents",
+      "shortDescription": "Dashboards, data sources and alerts",
+      "homepage": "https://grafana.com",
+      "logo": "logo.svg",
+      "keywords": [
+        "Monitoring & Analytics"
+      ],
+      "mcpServers": {
+        "grafana-remote": {
+          "url": "https://mcp.grafana.com/mcp"
+        }
+      },
+      "repository": "https://github.com/grafana/mcp-grafana"
+    },
+    "plugins/granola": {
+      "name": "granola",
+      "displayName": "Granola",
+      "description": "Search Granola meeting notes for topics, action items, and answers from past discussions",
+      "shortDescription": "Meeting notes, topics and action items",
+      "homepage": "https://granola.ai",
+      "logo": "logo.png",
+      "keywords": [
+        "Productivity"
+      ],
+      "mcpServers": {
+        "granola": {
+          "url": "https://mcp.granola.ai/mcp"
+        }
+      }
+    },
+    "plugins/graphos-tools": {
+      "name": "graphos-tools",
+      "displayName": "Apollo GraphOS",
+      "description": "Search Apollo GraphOS documentation, specifications, and GraphQL best practices",
+      "shortDescription": "GraphQL schema docs and best practices",
+      "homepage": "https://www.apollographql.com",
+      "logo": "logo.svg",
+      "keywords": [
+        "Development Tools"
+      ],
+      "mcpServers": {
+        "graphos-tools": {
+          "url": "https://mcp.apollographql.com"
+        }
+      }
+    },
+    "plugins/heroku": {
+      "name": "heroku",
+      "displayName": "Heroku",
+      "description": "Deploy and manage Heroku apps, dynos, pipelines, add-ons, teams, spaces, and Postgres databases, and fetch app logs",
+      "shortDescription": "Apps, deployments and platform logs",
+      "homepage": "https://www.heroku.com",
+      "logo": "logo.svg",
+      "keywords": [
+        "Cloud & Infrastructure"
+      ],
+      "mcpServers": {
+        "heroku": {
+          "command": "npx",
+          "args": [
+            "-y",
+            "@heroku/mcp-server"
+          ],
+          "env": {
+            "HEROKU_API_KEY": "${HEROKU_API_KEY}"
+          }
+        }
+      }
+    },
+    "plugins/hex": {
+      "name": "hex",
+      "displayName": "Hex",
+      "description": "Ask the Hex agent questions about your data and analyze the results",
+      "shortDescription": "Data questions and notebook analytics",
+      "homepage": "https://hex.tech",
+      "logo": "logo.png",
+      "keywords": [
+        "Monitoring & Analytics",
+        "Databases"
+      ],
+      "mcpServers": {
+        "hex": {
+          "url": "https://app.hex.tech/mcp"
+        }
+      }
+    },
+    "plugins/higgsfield": {
+      "name": "higgsfield",
+      "displayName": "Higgsfield",
+      "description": "Generate images and videos across 30+ models using your Higgsfield account",
+      "shortDescription": "AI image and video generation",
+      "setup": {
+        "notice": "Requires a Higgsfield account. Generations use your account's credits."
+      },
+      "homepage": "https://higgsfield.ai/mcp",
+      "logo": "logo.png",
+      "keywords": [
+        "Design & Creative"
+      ],
+      "mcpServers": {
+        "higgsfield": {
+          "url": "https://mcp.higgsfield.ai/mcp"
+        }
+      }
+    },
+    "plugins/honeycomb": {
+      "name": "honeycomb",
+      "displayName": "Honeycomb",
+      "description": "Query Honeycomb telemetry and analyze SLOs to investigate service reliability",
+      "shortDescription": "Telemetry queries and SLO analysis",
+      "homepage": "https://www.honeycomb.io",
+      "logo": "logo.png",
+      "keywords": [
+        "Monitoring & Analytics"
+      ],
+      "mcpServers": {
+        "honeycomb": {
+          "url": "https://mcp.honeycomb.io/mcp"
+        }
+      }
+    },
+    "plugins/hubspot": {
+      "name": "hubspot",
+      "displayName": "HubSpot",
+      "description": "Manage HubSpot CRM objects, associations, properties, and schemas, create notes and tasks, and list workflows",
+      "shortDescription": "CRM records, workflows and tasks",
+      "setup": {
+        "notice": "Create a HubSpot private app to obtain the access token before connecting."
+      },
+      "homepage": "https://www.hubspot.com",
+      "logo": "logo.svg",
+      "keywords": [
+        "Customer & Sales"
+      ],
+      "mcpServers": {
+        "hubspot": {
+          "command": "npx",
+          "args": [
+            "-y",
+            "@hubspot/mcp-server"
+          ],
+          "env": {
+            "PRIVATE_APP_ACCESS_TOKEN": "${PRIVATE_APP_ACCESS_TOKEN}"
+          }
+        }
+      }
+    },
+    "plugins/hugging-face": {
+      "name": "hugging-face",
+      "displayName": "Hugging Face",
+      "description": "Search the Hugging Face Hub for models and datasets, and use thousands of Gradio apps",
+      "shortDescription": "Models, datasets and hosted demos",
+      "homepage": "https://huggingface.co",
+      "logo": "logo.svg",
+      "keywords": [
+        "AI & Machine Learning"
+      ],
+      "mcpServers": {
+        "hugging-face": {
+          "url": "https://huggingface.co/mcp"
+        }
+      }
+    },
+    "plugins/hunter": {
+      "name": "hunter",
+      "displayName": "Hunter.io",
+      "description": "Find and verify professional email addresses, search domain contacts, and enrich company data with Hunter",
+      "shortDescription": "Find and verify business emails",
+      "homepage": "https://hunter.io",
+      "logo": "logo.png",
+      "keywords": [
+        "Customer & Sales"
+      ],
+      "mcpServers": {
+        "hunter": {
+          "url": "https://mcp.hunter.io/mcp"
+        }
+      }
+    },
+    "plugins/incident-io": {
+      "name": "incident-io",
+      "displayName": "incident.io",
+      "description": "See and manage incidents and everything else in your incident.io workspace",
+      "shortDescription": "Incident response and on-call",
+      "homepage": "https://incident.io",
+      "logo": "logo.png",
+      "keywords": [
+        "Monitoring & Analytics"
+      ],
+      "mcpServers": {
+        "incident-io": {
+          "url": "https://mcp.incident.io/mcp"
+        }
+      }
+    },
+    "plugins/interactive-brokers": {
+      "name": "interactive-brokers",
+      "displayName": "Interactive Brokers",
+      "description": "Review Interactive Brokers positions, balances, and profit and loss, and draft trade instructions",
+      "shortDescription": "Positions, balances and trade drafts",
+      "homepage": "https://www.interactivebrokers.com",
+      "logo": "logo.png",
+      "keywords": [
+        "Finance"
+      ],
+      "mcpServers": {
+        "interactive-brokers": {
+          "url": "https://api.ibkr.com/v1/api/mcp-public"
+        }
+      }
+    },
+    "plugins/intercom": {
+      "name": "intercom",
+      "displayName": "Intercom",
+      "description": "Search Intercom conversations, read message threads, and look up contacts and companies",
+      "shortDescription": "Customer support and messaging",
+      "homepage": "https://www.intercom.com",
+      "logo": "logo.svg",
+      "keywords": [
+        "Customer & Sales"
+      ],
+      "mcpServers": {
+        "intercom": {
+          "url": "https://mcp.intercom.com/mcp",
+          "headers": {
+            "Authorization": "${INTERCOM_AUTHORIZATION}"
+          }
+        }
+      }
+    },
+    "plugins/jam": {
+      "name": "jam",
+      "displayName": "Jam",
+      "description": "Load Jam video, user events, console logs, errors, and network requests to debug reported bugs faster",
+      "shortDescription": "Bug recordings, logs and network events",
+      "homepage": "https://jam.dev",
+      "logo": "logo.png",
+      "keywords": [
+        "Essentials",
+        "Development Tools",
+        "Monitoring & Analytics"
+      ],
+      "mcpServers": {
+        "jam": {
+          "url": "https://mcp.jam.dev/mcp"
+        }
+      }
+    },
+    "plugins/jotform": {
+      "name": "jotform",
+      "displayName": "Jotform",
+      "description": "Create Jotform forms and analyze submissions",
+      "shortDescription": "Forms and submission analytics",
+      "homepage": "https://www.jotform.com",
+      "logo": "logo.png",
+      "keywords": [
+        "Productivity"
+      ],
+      "mcpServers": {
+        "jotform": {
+          "url": "https://mcp.jotform.com/mcp-app"
+        }
+      }
+    },
+    "plugins/juicebox": {
+      "name": "juicebox",
+      "displayName": "Juicebox",
+      "description": "Query Juicebox recruiting analytics, candidate shortlists, and sourcing agents",
+      "shortDescription": "Recruiting analytics and sourcing",
+      "homepage": "https://juicebox.ai",
+      "logo": "logo.png",
+      "keywords": [
+        "Productivity"
+      ],
+      "mcpServers": {
+        "juicebox": {
+          "url": "https://mcp.juicebox.ai/v1"
+        }
+      }
+    },
+    "plugins/klaviyo": {
+      "name": "klaviyo",
+      "displayName": "Klaviyo",
+      "description": "Manage Klaviyo email and SMS campaigns, flows, and audiences",
+      "shortDescription": "Email, SMS campaigns and audiences",
+      "homepage": "https://www.klaviyo.com",
+      "logo": "logo.png",
+      "keywords": [
+        "Customer & Sales"
+      ],
+      "mcpServers": {
+        "klaviyo": {
+          "url": "https://mcp.klaviyo.com/mcp"
+        }
+      }
+    },
+    "plugins/kpler": {
+      "name": "kpler",
+      "displayName": "Kpler",
+      "description": "Research maritime activity and commodity markets with Kpler",
+      "shortDescription": "Maritime and commodity market data",
+      "homepage": "https://www.kpler.com",
+      "logo": "logo.png",
+      "keywords": [
+        "Monitoring & Analytics"
+      ],
+      "mcpServers": {
+        "kpler": {
+          "url": "https://claude.mcp.kpler.com/v1/mcp/"
+        }
+      }
+    },
+    "plugins/launchdarkly": {
+      "name": "launchdarkly",
+      "displayName": "LaunchDarkly",
+      "description": "Create, update, and delete LaunchDarkly flags, check status across environments, manage AI Configs, and inspect code references and audit logs",
+      "shortDescription": "Feature flags, rollouts and code refs",
+      "homepage": "https://launchdarkly.com",
+      "repository": "https://github.com/launchdarkly/mcp-server",
+      "logo": "logo.svg",
+      "keywords": [
+        "Development Tools"
+      ],
+      "mcpServers": {
+        "launchdarkly": {
+          "url": "https://mcp.launchdarkly.com/mcp/launchdarkly"
+        }
+      }
+    },
+    "plugins/linear": {
+      "name": "linear",
+      "displayName": "Linear",
+      "description": "Find and manage Linear issues, projects, initiatives, cycles, and comments",
+      "shortDescription": "Track issues and plan projects",
+      "homepage": "https://linear.app",
+      "logo": "logo.svg",
+      "keywords": [
+        "Essentials",
+        "Productivity"
+      ],
+      "mcpServers": {
+        "linear": {
+          "url": "https://mcp.linear.app/mcp"
+        }
+      }
+    },
+    "plugins/logrocket": {
+      "name": "logrocket",
+      "displayName": "LogRocket",
+      "description": "Inspect LogRocket session replays, metrics, issues, and user behavior to investigate bugs",
+      "shortDescription": "Session replays, metrics and actions",
+      "homepage": "https://logrocket.com",
+      "logo": "logo.png",
+      "keywords": [
+        "Monitoring & Analytics"
+      ],
+      "mcpServers": {
+        "logrocket": {
+          "url": "https://mcp.logrocket.com/mcp?toolsets=all"
+        }
+      }
+    },
+    "plugins/lovable": {
+      "name": "lovable",
+      "displayName": "Lovable",
+      "description": "Build, edit, and deploy Lovable apps and manage their databases",
+      "shortDescription": "Build and deploy web apps",
+      "homepage": "https://lovable.dev",
+      "repository": "https://github.com/lovablelabs/mcp",
+      "logo": "logo.png",
+      "keywords": [
+        "Development Tools"
+      ],
+      "mcpServers": {
+        "lovable": {
+          "url": "https://mcp.lovable.dev"
+        }
+      }
+    },
+    "plugins/lunarcrush": {
+      "name": "lunarcrush",
+      "displayName": "LunarCrush",
+      "description": "Search real-time social media data with LunarCrush",
+      "shortDescription": "Social media trends and audience data",
+      "homepage": "https://lunarcrush.com",
+      "logo": "logo.png",
+      "keywords": [
+        "Monitoring & Analytics"
+      ],
+      "mcpServers": {
+        "lunarcrush": {
+          "url": "https://lunarcrush.ai/mcp"
+        }
+      }
+    },
+    "plugins/mailerlite": {
+      "name": "mailerlite",
+      "displayName": "MailerLite",
+      "description": "Manage MailerLite subscribers, groups, campaigns, and automations",
+      "shortDescription": "Email campaigns and subscriber lists",
+      "homepage": "https://www.mailerlite.com",
+      "logo": "logo.png",
+      "keywords": [
+        "Customer & Sales"
+      ],
+      "mcpServers": {
+        "mailerlite": {
+          "url": "https://mcp.mailerlite.com/mcp"
+        }
+      }
+    },
+    "plugins/mapbox": {
+      "name": "mapbox",
+      "displayName": "Mapbox",
+      "description": "Geocode locations, find places, and calculate routes and travel areas with Mapbox",
+      "shortDescription": "Geocoding, directions and place search",
+      "homepage": "https://www.mapbox.com",
+      "repository": "https://github.com/mapbox/mapbox-agent-skills",
+      "logo": "logo.svg",
+      "keywords": [
+        "Development Tools"
+      ],
+      "mcpServers": {
+        "mapbox": {
+          "url": "https://mcp.mapbox.com/mcp"
+        }
+      }
+    },
+    "plugins/mapbox-devkit": {
+      "name": "mapbox-devkit",
+      "displayName": "Mapbox DevKit",
+      "description": "Manage Mapbox styles, tilesets, fonts, datasets, and tokens",
+      "shortDescription": "Styles, tilesets and map data",
+      "homepage": "https://www.mapbox.com",
+      "repository": "https://github.com/mapbox/mapbox-agent-skills",
+      "logo": "logo.svg",
+      "keywords": [
+        "Development Tools"
+      ],
+      "mcpServers": {
+        "mapbox-devkit": {
+          "url": "https://mcp-devkit.mapbox.com/mcp"
+        }
+      }
+    },
+    "plugins/mapbox-docs": {
+      "name": "mapbox-docs",
+      "displayName": "Mapbox Docs",
+      "description": "Search Mapbox API, SDK, and style documentation",
+      "shortDescription": "Map APIs, SDKs and style docs",
+      "homepage": "https://www.mapbox.com",
+      "repository": "https://github.com/mapbox/mapbox-agent-skills",
+      "logo": "logo.svg",
+      "keywords": [
+        "Development Tools"
+      ],
+      "mcpServers": {
+        "mapbox-docs": {
+          "url": "https://mcp-docs.mapbox.com/mcp"
+        }
+      }
+    },
+    "plugins/meltwater": {
+      "name": "meltwater",
+      "displayName": "Meltwater",
+      "description": "Search media and social mentions in Meltwater and analyze coverage",
+      "shortDescription": "Media mentions and social analytics",
+      "homepage": "https://www.meltwater.com",
+      "logo": "logo.png",
+      "keywords": [
+        "Monitoring & Analytics"
+      ],
+      "mcpServers": {
+        "meltwater": {
+          "url": "https://api.meltwater.com/v2/mcp"
+        }
+      }
+    },
+    "plugins/mem": {
+      "name": "mem",
+      "displayName": "Mem",
+      "description": "Capture, search, and organize Mem notes and collections",
+      "shortDescription": "Workspace notes and collections",
+      "homepage": "https://get.mem.ai",
+      "logo": "logo.png",
+      "keywords": [
+        "Productivity"
+      ],
+      "mcpServers": {
+        "mem": {
+          "url": "https://mcp.mem.ai/mcp"
+        }
+      }
+    },
+    "plugins/mercury": {
+      "name": "mercury",
+      "displayName": "Mercury",
+      "description": "Review Mercury balances, transactions, and cash flow",
+      "shortDescription": "Bank balances and cash flow",
+      "homepage": "https://mercury.com",
+      "logo": "logo.png",
+      "keywords": [
+        "Finance"
+      ],
+      "mcpServers": {
+        "mercury": {
+          "url": "https://mcp.mercury.com/mcp"
+        }
+      }
+    },
+    "plugins/metabase": {
+      "name": "metabase",
+      "displayName": "Metabase",
+      "description": "Query Metabase data and inspect BI dashboards",
+      "shortDescription": "BI dashboards and SQL queries",
+      "homepage": "https://www.metabase.com",
+      "repository": "https://github.com/usacognition/metabase-mcp-server",
+      "logo": "logo.svg",
+      "keywords": [
+        "Monitoring & Analytics"
+      ],
+      "mcpServers": {
+        "metabase": {
+          "command": "npx",
+          "args": [
+            "-y",
+            "@cognitionai/metabase-mcp-server"
+          ],
+          "env": {
+            "METABASE_URL": "${METABASE_URL}",
+            "METABASE_API_KEY": "${METABASE_API_KEY}",
+            "METABASE_USERNAME": "${METABASE_USERNAME}",
+            "METABASE_PASSWORD": "${METABASE_PASSWORD}"
+          }
+        }
+      }
+    },
+    "plugins/meticulous": {
+      "name": "meticulous",
+      "displayName": "Meticulous",
+      "description": "Inspect Meticulous test runs, replay differences, and coverage for frontend changes",
+      "shortDescription": "Test runs, replays and coverage",
+      "homepage": "https://meticulous.ai",
+      "logo": "logo.png",
+      "keywords": [
+        "Development Tools"
+      ],
+      "mcpServers": {
+        "meticulous": {
+          "url": "https://app.meticulous.ai/api/mcp"
+        }
+      }
+    },
+    "plugins/microsoft-365-calendar": {
+      "name": "microsoft-365-calendar",
+      "displayName": "Microsoft 365 Calendar",
+      "description": "Read and manage Microsoft 365 calendar events and meetings",
+      "shortDescription": "Outlook events, meetings and scheduling",
+      "homepage": "https://www.microsoft.com/microsoft-365",
+      "logo": "logo.svg",
+      "keywords": [
+        "Productivity",
+        "Communication"
+      ],
+      "mcpServers": {
+        "microsoft-365-calendar": {
+          "url": "https://microsoft-365-mcp.devin.ai/calendar/mcp"
+        }
+      }
+    },
+    "plugins/microsoft-365-directory": {
+      "name": "microsoft-365-directory",
+      "displayName": "Microsoft 365 Directory (Entra ID)",
+      "description": "Find Microsoft Entra users, managers, and profile details",
+      "shortDescription": "Entra directory users and managers",
+      "homepage": "https://www.microsoft.com/microsoft-365",
+      "logo": "logo.svg",
+      "keywords": [
+        "Productivity",
+        "Communication"
+      ],
+      "mcpServers": {
+        "microsoft-365-directory": {
+          "url": "https://microsoft-365-mcp.devin.ai/directory/mcp"
+        }
+      }
+    },
+    "plugins/microsoft-365-files": {
+      "name": "microsoft-365-files",
+      "displayName": "Microsoft 365 OneDrive & SharePoint",
+      "description": "Browse, read, upload, and delete OneDrive and SharePoint files",
+      "shortDescription": "OneDrive and SharePoint document search",
+      "homepage": "https://www.microsoft.com/microsoft-365",
+      "logo": "logo.svg",
+      "keywords": [
+        "Productivity",
+        "Communication"
+      ],
+      "mcpServers": {
+        "microsoft-365-files": {
+          "url": "https://microsoft-365-mcp.devin.ai/files/mcp"
+        }
+      }
+    },
+    "plugins/microsoft-365-mail": {
+      "name": "microsoft-365-mail",
+      "displayName": "Microsoft 365 Mail & Contacts",
+      "description": "Read, organize, and send Outlook email and manage personal contacts",
+      "shortDescription": "Outlook mail and personal contacts",
+      "homepage": "https://www.microsoft.com/microsoft-365",
+      "logo": "logo.svg",
+      "keywords": [
+        "Productivity",
+        "Communication"
+      ],
+      "mcpServers": {
+        "microsoft-365-mail": {
+          "url": "https://microsoft-365-mcp.devin.ai/mail/mcp"
+        }
+      }
+    },
+    "plugins/microsoft-365-teams": {
+      "name": "microsoft-365-teams",
+      "displayName": "Microsoft 365 Teams",
+      "description": "Find Microsoft Teams teams, channels, and chats, and send messages",
+      "shortDescription": "Teams channels, chats and messages",
+      "homepage": "https://www.microsoft.com/microsoft-365",
+      "logo": "logo.svg",
+      "keywords": [
+        "Productivity",
+        "Communication"
+      ],
+      "mcpServers": {
+        "microsoft-365-teams": {
+          "url": "https://microsoft-365-mcp.devin.ai/collaboration/mcp"
+        }
+      }
+    },
+    "plugins/microsoft-365-todo": {
+      "name": "microsoft-365-todo",
+      "displayName": "Microsoft 365 To Do",
+      "description": "Create, organize, update, and complete Microsoft To Do tasks",
+      "shortDescription": "Microsoft To Do tasks and reminders",
+      "homepage": "https://www.microsoft.com/microsoft-365",
+      "logo": "logo.svg",
+      "keywords": [
+        "Productivity",
+        "Communication"
+      ],
+      "mcpServers": {
+        "microsoft-365-todo": {
+          "url": "https://microsoft-365-mcp.devin.ai/todo/mcp"
+        }
+      }
+    },
+    "plugins/microsoft-learn": {
+      "name": "microsoft-learn",
+      "displayName": "Microsoft Learn",
+      "description": "Search Microsoft Learn documentation for Microsoft product guidance",
+      "shortDescription": "Microsoft docs and API guides",
+      "homepage": "https://learn.microsoft.com",
+      "logo": "logo.svg",
+      "keywords": [
+        "Development Tools"
+      ],
+      "mcpServers": {
+        "microsoft-learn": {
+          "url": "https://learn.microsoft.com/api/mcp"
+        }
+      }
+    },
+    "plugins/mintlify": {
+      "name": "mintlify",
+      "displayName": "Mintlify",
+      "description": "Search, read, and edit your Mintlify documentation",
+      "shortDescription": "Search and edit documentation",
+      "homepage": "https://mintlify.com",
+      "logo": "logo.png",
+      "keywords": [
+        "Development Tools"
+      ],
+      "mcpServers": {
+        "mintlify": {
+          "url": "https://mcp.mintlify.com"
+        }
+      }
+    },
+    "plugins/mintlify-index": {
+      "name": "mintlify-index",
+      "displayName": "Mintlify Index",
+      "description": "Search publisher-maintained documentation across Mintlify sites",
+      "shortDescription": "Search docs across Mintlify sites",
+      "homepage": "https://www.mintlify.com/search-index",
+      "logo": "logo.svg",
+      "keywords": [
+        "Development Tools"
+      ],
+      "mcpServers": {
+        "mintlify-index": {
+          "url": "https://index.mintlify.com"
+        }
+      }
+    },
+    "plugins/miro": {
+      "name": "miro",
+      "displayName": "Miro",
+      "description": "Build Miro boards, visualize ideas, and act on feedback",
+      "shortDescription": "Boards, diagrams and visual work",
+      "homepage": "https://miro.com",
+      "logo": "logo.svg",
+      "keywords": [
+        "Productivity",
+        "Design & Creative"
+      ],
+      "mcpServers": {
+        "miro": {
+          "url": "https://mcp.miro.com/"
+        }
+      }
+    },
+    "plugins/mixpanel": {
+      "name": "mixpanel",
+      "displayName": "Mixpanel",
+      "description": "Query, analyze, and manage your Mixpanel product analytics data",
+      "shortDescription": "Product analytics and event data",
+      "homepage": "https://mixpanel.com",
+      "logo": "logo.svg",
+      "keywords": [
+        "Monitoring & Analytics"
+      ],
+      "mcpServers": {
+        "mixpanel": {
+          "url": "https://mcp.mixpanel.com/mcp"
+        }
+      }
+    },
+    "plugins/moderne": {
+      "name": "moderne",
+      "displayName": "Moderne",
+      "description": "Find and run OpenRewrite recipes and search code across your Moderne organizations, with guidance for writing recipes and reading Prethink context",
+      "shortDescription": "OpenRewrite recipes and code search",
+      "setup": {
+        "notice": "Requires a Moderne account and works only on repositories already ingested into your Moderne tenant. The server is in beta, and its tools do not commit code or open pull requests.",
+        "steps": [
+          "In the Moderne Platform, open Account settings, select Access Tokens, and generate a personal access token."
+        ]
+      },
+      "homepage": "https://www.moderne.ai/",
+      "logo": "logo.svg",
+      "keywords": [
+        "Development Tools"
+      ],
+      "mcpServers": {
+        "moderne": {
+          "url": "https://${MODERNE_API_HOST:-api.app.moderne.io}/mcp",
+          "headers": {
+            "Authorization": "Bearer ${MODERNE_TOKEN}",
+            "X-Moderne-Platform-Version": "v2"
+          }
+        }
+      }
+    },
+    "plugins/monday": {
+      "name": "monday",
+      "displayName": "monday.com",
+      "description": "Manage monday.com boards, items, and team workflows",
+      "shortDescription": "Boards, items and work management",
+      "homepage": "https://monday.com",
+      "logo": "logo.svg",
+      "keywords": [
+        "Productivity"
+      ],
+      "mcpServers": {
+        "monday": {
+          "url": "https://mcp.monday.com/mcp"
+        }
+      }
+    },
+    "plugins/mongodb": {
+      "name": "mongodb",
+      "displayName": "MongoDB",
+      "description": "Query MongoDB documents and databases and manage Atlas resources",
+      "shortDescription": "NoSQL documents, collections and queries",
+      "homepage": "https://www.mongodb.com",
+      "repository": "https://github.com/mongodb-js/mongodb-mcp-server",
+      "logo": "logo.svg",
+      "keywords": [
+        "Databases"
+      ],
+      "mcpServers": {
+        "mongodb": {
+          "command": "npx",
+          "args": [
+            "-y",
+            "mongodb-mcp-server"
+          ],
+          "env": {
+            "MDB_MCP_CONNECTION_STRING": "${MDB_MCP_CONNECTION_STRING}",
+            "MDB_MCP_API_CLIENT_ID": "${MDB_MCP_API_CLIENT_ID}",
+            "MDB_MCP_API_CLIENT_SECRET": "${MDB_MCP_API_CLIENT_SECRET}"
+          }
+        }
+      }
+    },
+    "plugins/mongodb-atlas": {
+      "name": "mongodb-atlas",
+      "displayName": "MongoDB Atlas",
+      "description": "Query MongoDB Atlas data, manage resources, and generate code guided by best practices",
+      "shortDescription": "Atlas clusters, resources and queries",
+      "homepage": "https://www.mongodb.com",
+      "repository": "https://github.com/mongodb/agent-skills",
+      "logo": "logo.svg",
+      "keywords": [
+        "Databases"
+      ],
+      "mcpServers": {
+        "mongodb-atlas": {
+          "url": "https://mcp.mongodb.com"
+        }
+      }
+    },
+    "plugins/monte-carlo": {
+      "name": "monte-carlo",
+      "displayName": "Monte Carlo",
+      "description": "Investigate data quality and AI observability with Monte Carlo",
+      "shortDescription": "Data quality and AI observability",
+      "homepage": "https://www.montecarlodata.com",
+      "logo": "logo.png",
+      "keywords": [
+        "Monitoring & Analytics"
+      ],
+      "mcpServers": {
+        "monte-carlo": {
+          "url": "https://integrations.getmontecarlo.com/mcp"
+        }
+      }
+    },
+    "plugins/motherduck": {
+      "name": "motherduck",
+      "displayName": "MotherDuck",
+      "description": "Get answers from your data with DuckDB in MotherDuck",
+      "shortDescription": "DuckDB queries and data analysis",
+      "homepage": "https://motherduck.com",
+      "logo": "logo.jpg",
+      "keywords": [
+        "Databases"
+      ],
+      "mcpServers": {
+        "motherduck": {
+          "url": "https://api.motherduck.com/mcp"
+        }
+      }
+    },
+    "plugins/motion": {
+      "name": "motion",
+      "displayName": "Motion Creative Analytics",
+      "description": "Analyze ad creative and competitor ad libraries in Motion",
+      "shortDescription": "Ad creative and competitor analysis",
+      "homepage": "https://motionapp.com",
+      "logo": "logo.png",
+      "keywords": [
+        "Monitoring & Analytics"
+      ],
+      "mcpServers": {
+        "motion": {
+          "url": "https://projects.motionapp.com/mcp"
+        }
+      }
+    },
+    "plugins/navan": {
+      "name": "navan",
+      "displayName": "Navan",
+      "description": "Review Navan expenses, travel bookings, policies, and corporate cards",
+      "shortDescription": "Travel bookings and expense management",
+      "homepage": "https://navan.com",
+      "logo": "logo.png",
+      "keywords": [
+        "Finance"
+      ],
+      "mcpServers": {
+        "navan": {
+          "url": "https://mcp.navan.com/mcp"
+        }
+      }
+    },
+    "plugins/neon": {
+      "name": "neon",
+      "displayName": "Neon",
+      "description": "Manage Neon Postgres projects and branches, run SQL and safe schema migrations, manage compute endpoints, and provision Neon Auth",
+      "shortDescription": "PostgreSQL branches and queries",
+      "homepage": "https://neon.tech",
+      "repository": "https://github.com/neondatabase-labs/mcp-server-neon",
+      "logo": "logo.svg",
+      "keywords": [
+        "Databases"
+      ],
+      "mcpServers": {
+        "neon": {
+          "url": "https://mcp.neon.tech/mcp"
+        }
+      }
+    },
+    "plugins/netlify": {
+      "name": "netlify",
+      "displayName": "Netlify",
+      "description": "Create and deploy Netlify projects, manage access controls, extensions, and form submissions, and set env variables and secrets",
+      "shortDescription": "Web projects, deployments and settings",
+      "homepage": "https://www.netlify.com",
+      "repository": "https://github.com/netlify/mcp-server",
+      "logo": "logo.svg",
+      "keywords": [
+        "Cloud & Infrastructure"
+      ],
+      "mcpServers": {
+        "netlify": {
+          "command": "npx",
+          "args": [
+            "-y",
+            "@netlify/mcp"
+          ],
+          "env": {
+            "NETLIFY_PERSONAL_ACCESS_TOKEN": "${NETLIFY_PERSONAL_ACCESS_TOKEN}"
+          }
+        }
+      }
+    },
+    "plugins/newrelic": {
+      "name": "newrelic",
+      "displayName": "New Relic (API key)",
+      "description": "Query New Relic with NRQL and investigate entities, APM services, logs, alerts, incidents, deployments, and dashboards",
+      "shortDescription": "NRQL telemetry queries and alerts",
+      "homepage": "https://newrelic.com/",
+      "logo": "logo.svg",
+      "keywords": [
+        "Monitoring & Analytics"
+      ],
+      "mcpServers": {
+        "newrelic": {
+          "url": "https://${NEWRELIC_MCP_DOMAIN:-mcp.newrelic.com}/mcp/",
+          "headers": {
+            "Api-Key": "${NEWRELIC_API_KEY}"
+          }
+        }
+      }
+    },
+    "plugins/newrelic-remote": {
+      "name": "newrelic-remote",
+      "displayName": "New Relic (OAuth)",
+      "description": "Query New Relic with NRQL and investigate entities, APM services, logs, alerts, incidents, deployments, and dashboards",
+      "shortDescription": "NRQL telemetry queries and alerts",
+      "homepage": "https://newrelic.com/",
+      "logo": "logo.svg",
+      "keywords": [
+        "Monitoring & Analytics"
+      ],
+      "mcpServers": {
+        "newrelic-remote": {
+          "url": "https://${NEWRELIC_MCP_DOMAIN:-mcp.newrelic.com}/mcp/"
+        }
+      }
+    },
+    "plugins/notion": {
+      "name": "notion",
+      "displayName": "Notion",
+      "description": "Search your Notion workspace, manage comments, and create, update, move, and duplicate pages and databases",
+      "shortDescription": "Pages, databases and workspace search",
+      "homepage": "https://www.notion.so",
+      "logo": "logo.svg",
+      "keywords": [
+        "Essentials",
+        "Productivity",
+        "Communication"
+      ],
+      "mcpServers": {
+        "notion": {
+          "url": "https://mcp.notion.com/mcp"
+        }
+      }
+    },
+    "plugins/omni-analytics": {
+      "name": "omni-analytics",
+      "displayName": "Omni Analytics",
+      "description": "Query Omni data to answer business questions",
+      "shortDescription": "Natural-language BI queries",
+      "homepage": "https://omni.co",
+      "logo": "logo.png",
+      "keywords": [
+        "Monitoring & Analytics"
+      ],
+      "mcpServers": {
+        "omni-analytics": {
+          "url": "https://callbacks.omniapp.co/callback/mcp"
+        }
+      }
+    },
+    "plugins/orion": {
+      "name": "orion",
+      "displayName": "Orion by Gravity",
+      "description": "Get insights from Orion by Gravity, an autonomous AI analyst for your data",
+      "shortDescription": "Autonomous data analysis and insights",
+      "homepage": "https://runorion.com",
+      "logo": "logo.png",
+      "keywords": [
+        "Monitoring & Analytics"
+      ],
+      "mcpServers": {
+        "orion": {
+          "url": "https://g.runorion.com/mcp"
+        }
+      }
+    },
+    "plugins/otter": {
+      "name": "otter",
+      "displayName": "Otter.ai",
+      "description": "Search Otter meeting history and retrieve transcripts and summaries",
+      "shortDescription": "Meeting transcripts and summaries",
+      "homepage": "https://otter.ai",
+      "logo": "logo.png",
+      "keywords": [
+        "Productivity"
+      ],
+      "mcpServers": {
+        "otter": {
+          "url": "https://mcp.otter.ai/mcp"
+        }
+      }
+    },
+    "plugins/paper": {
+      "name": "paper",
+      "displayName": "Paper",
+      "description": "Read and edit your Paper design files, generate layouts with real content, and turn designs into code",
+      "shortDescription": "Design files, layouts and design-to-code",
+      "homepage": "https://paper.design",
+      "logo": "logo.png",
+      "keywords": [
+        "Design & Creative"
+      ],
+      "mcpServers": {
+        "paper": {
+          "url": "https://mcp.paper.design"
+        }
+      }
+    },
+    "plugins/parallel": {
+      "name": "parallel",
+      "displayName": "Parallel",
+      "description": "Search the web and research topics with Parallel",
+      "shortDescription": "Web search and research reports",
+      "homepage": "https://parallel.ai",
+      "logo": "logo.png",
+      "keywords": [
+        "AI & Machine Learning",
+        "Productivity"
+      ],
+      "mcpServers": {
+        "parallel": {
+          "url": "https://mcp.parallel.ai/mcp",
+          "headers": {
+            "x-api-key": "${PARALLEL_X_API_KEY}"
+          }
+        }
+      }
+    },
+    "plugins/paypal": {
+      "name": "paypal",
+      "displayName": "PayPal",
+      "description": "Create PayPal orders, captures, and refunds, send invoices, handle disputes, list transactions, track shipments, and manage subscriptions",
+      "shortDescription": "Orders, refunds and subscriptions",
+      "homepage": "https://www.paypal.com",
+      "logo": "logo.svg",
+      "keywords": [
+        "Finance"
+      ],
+      "mcpServers": {
+        "paypal": {
+          "url": "https://mcp.paypal.com/mcp"
+        }
+      }
+    },
+    "plugins/peec-ai": {
+      "name": "peec-ai",
+      "displayName": "Peec AI",
+      "description": "Analyze your brand's visibility across LLMs with Peec AI",
+      "shortDescription": "LLM visibility and brand mentions",
+      "homepage": "https://peec.ai",
+      "logo": "logo.png",
+      "keywords": [
+        "Monitoring & Analytics"
+      ],
+      "mcpServers": {
+        "peec-ai": {
+          "url": "https://api.peec.ai/mcp"
+        }
+      }
+    },
+    "plugins/pendo": {
+      "name": "pendo",
+      "displayName": "Pendo",
+      "description": "Analyze product usage and user behavior with Pendo",
+      "shortDescription": "Product usage and user insights",
+      "homepage": "https://www.pendo.io",
+      "logo": "logo.png",
+      "keywords": [
+        "Monitoring & Analytics"
+      ],
+      "mcpServers": {
+        "pendo": {
+          "url": "https://app.pendo.io/mcp/v0/shttp"
+        }
+      }
+    },
+    "plugins/perplexity": {
+      "name": "perplexity",
+      "displayName": "Perplexity",
+      "description": "Search the web, run deep research, and reason over live sources with Perplexity",
+      "shortDescription": "Web search and cited research",
+      "homepage": "https://www.perplexity.ai",
+      "logo": "logo.svg",
+      "keywords": [
+        "AI & Machine Learning",
+        "Productivity"
+      ],
+      "mcpServers": {
+        "perplexity": {
+          "url": "https://api.perplexity.ai/mcp",
+          "headers": {
+            "Authorization": "${PERPLEXITY_AUTHORIZATION}"
+          }
+        }
+      }
+    },
+    "plugins/pg-aiguide": {
+      "name": "pg-aiguide",
+      "displayName": "pg-aiguide",
+      "description": "Search Postgres and Tiger documentation and learn database skills with pg-aiguide",
+      "shortDescription": "PostgreSQL docs and database skills",
+      "homepage": "https://www.tigerdata.com",
+      "repository": "https://github.com/timescale/pg-aiguide",
+      "logo": "logo.png",
+      "keywords": [
+        "Databases",
+        "Development Tools"
+      ],
+      "mcpServers": {
+        "pg-aiguide": {
+          "url": "https://mcp.tigerdata.com/docs"
+        }
+      }
+    },
+    "plugins/phoenix": {
+      "name": "phoenix",
+      "displayName": "Phoenix by HG Insights",
+      "description": "Research B2B companies and analyze company data with Phoenix by HG Insights",
+      "shortDescription": "B2B company data and analytics",
+      "homepage": "https://hginsights.com",
+      "logo": "logo.png",
+      "keywords": [
+        "Monitoring & Analytics",
+        "Customer & Sales"
+      ],
+      "mcpServers": {
+        "phoenix": {
+          "url": "https://phoenix.hginsights.com/api/ai/mcp"
+        }
+      }
+    },
+    "plugins/pinecone": {
+      "name": "pinecone",
+      "displayName": "Pinecone",
+      "description": "Search Pinecone vector data for semantically relevant results",
+      "shortDescription": "Vector search and embeddings",
+      "homepage": "https://www.pinecone.io",
+      "logo": "logo.svg",
+      "keywords": [
+        "Databases",
+        "AI & Machine Learning"
+      ],
+      "mcpServers": {
+        "pinecone": {
+          "command": "npx",
+          "args": [
+            "-y",
+            "@pinecone-database/mcp"
+          ],
+          "env": {
+            "PINECONE_API_KEY": "${PINECONE_API_KEY}"
+          }
+        }
+      }
+    },
+    "plugins/plaid": {
+      "name": "plaid",
+      "displayName": "Plaid",
+      "description": "Review Plaid financial accounts and analyze transactions",
+      "shortDescription": "Financial accounts and transactions",
+      "homepage": "https://plaid.com/",
+      "logo": "logo.png",
+      "keywords": [
+        "Finance"
+      ],
+      "mcpServers": {
+        "plaid": {
+          "url": "https://api.dashboard.plaid.com/mcp",
+          "headers": {
+            "Authorization": "${PLAID_AUTHORIZATION}"
+          }
+        }
+      }
+    },
+    "plugins/planetscale": {
+      "name": "planetscale",
+      "displayName": "PlanetScale",
+      "description": "Query PlanetScale Postgres and MySQL databases",
+      "shortDescription": "PostgreSQL and MySQL databases",
+      "homepage": "https://planetscale.com",
+      "logo": "logo.svg",
+      "keywords": [
+        "Databases"
+      ],
+      "mcpServers": {
+        "planetscale": {
+          "url": "https://mcp.pscale.dev/mcp/planetscale"
+        }
+      }
+    },
+    "plugins/playwright": {
+      "name": "playwright",
+      "displayName": "Playwright",
+      "description": "Automate browsers with Playwright: navigate pages, handle dialogs, upload files, intercept network requests, take snapshots, and run JavaScript",
+      "shortDescription": "Browser actions, testing and automation",
+      "homepage": "https://playwright.dev",
+      "logo": "logo.svg",
+      "keywords": [
+        "Development Tools"
+      ],
+      "mcpServers": {
+        "playwright": {
+          "command": "docker",
+          "args": [
+            "run",
+            "--rm",
+            "-i",
+            "mcp/playwright"
+          ]
+        }
+      }
+    },
+    "plugins/posthog": {
+      "name": "posthog",
+      "displayName": "PostHog",
+      "description": "Query PostHog insights, dashboards, events, and errors, and inspect flags and experiments",
+      "shortDescription": "Product analytics, flags and experiments",
+      "homepage": "https://posthog.com",
+      "repository": "https://github.com/PostHog/mcp",
+      "logo": "logo.svg",
+      "keywords": [
+        "Monitoring & Analytics"
+      ],
+      "mcpServers": {
+        "posthog": {
+          "url": "https://mcp.posthog.com/mcp"
+        }
+      }
+    },
+    "plugins/postman": {
+      "name": "postman",
+      "displayName": "Postman",
+      "description": "Look up Postman API documentation and request context",
+      "shortDescription": "API documentation and request context",
+      "homepage": "https://www.postman.com",
+      "repository": "https://github.com/postmanlabs/postman-mcp-server",
+      "logo": "logo.svg",
+      "keywords": [
+        "Development Tools"
+      ],
+      "mcpServers": {
+        "postman": {
+          "url": "https://mcp.postman.com/minimal"
+        }
+      }
+    },
+    "plugins/prisma": {
+      "name": "prisma",
+      "displayName": "Prisma",
+      "description": "Manage Prisma Postgres databases and backups, run SQL, inspect schemas, and control connection strings",
+      "shortDescription": "PostgreSQL queries and schemas",
+      "homepage": "https://www.prisma.io",
+      "logo": "logo.svg",
+      "keywords": [
+        "Databases"
+      ],
+      "mcpServers": {
+        "prisma": {
+          "url": "https://mcp.prisma.io/mcp"
+        }
+      }
+    },
+    "plugins/profound": {
+      "name": "profound",
+      "displayName": "Profound",
+      "description": "Track brand visibility, sentiment, and citations across AI answer engines with Profound",
+      "shortDescription": "AI search visibility and citations",
+      "homepage": "https://www.tryprofound.com",
+      "logo": "logo.png",
+      "keywords": [
+        "Monitoring & Analytics"
+      ],
+      "mcpServers": {
+        "profound": {
+          "url": "https://mcp.tryprofound.com/mcp"
+        }
+      }
+    },
+    "plugins/pulumi": {
+      "name": "pulumi",
+      "displayName": "Pulumi",
+      "description": "Preview and update Pulumi stacks and manage cloud configurations",
+      "shortDescription": "Cloud stacks and infrastructure updates",
+      "homepage": "https://www.pulumi.com",
+      "logo": "logo.svg",
+      "keywords": [
+        "Cloud & Infrastructure"
+      ],
+      "mcpServers": {
+        "pulumi": {
+          "command": "npx",
+          "args": [
+            "-y",
+            "@pulumi/mcp-server",
+            "stdio"
+          ],
+          "env": {
+            "PULUMI_ACCESS_TOKEN": "${PULUMI_ACCESS_TOKEN}",
+            "AWS_ACCESS_KEY_ID": "${AWS_ACCESS_KEY_ID}",
+            "AWS_SECRET_ACCESS_KEY": "${AWS_SECRET_ACCESS_KEY}",
+            "AWS_SESSION_TOKEN": "${AWS_SESSION_TOKEN}"
+          }
+        }
+      }
+    },
+    "plugins/pylon": {
+      "name": "pylon",
+      "displayName": "Pylon",
+      "description": "Find and update Pylon issues, accounts, and contacts to investigate customer problems",
+      "shortDescription": "Support issues, accounts and contacts",
+      "homepage": "https://usepylon.com",
+      "logo": "logo.svg",
+      "keywords": [
+        "Customer & Sales"
+      ],
+      "mcpServers": {
+        "pylon": {
+          "url": "https://mcp.usepylon.com"
+        }
+      }
+    },
+    "plugins/qt-docs": {
+      "name": "qt-docs",
+      "displayName": "Qt Docs",
+      "description": "Search Qt C++ and QML documentation for API guidance and implementation details",
+      "shortDescription": "Qt C++ and QML documentation",
+      "homepage": "https://www.qt.io",
+      "repository": "https://github.com/TheQtCompanyRnD/agent-skills",
+      "logo": "logo.svg",
+      "keywords": [
+        "Development Tools"
+      ],
+      "mcpServers": {
+        "qt-docs": {
+          "url": "https://qt-docs-mcp.qt.io/mcp"
+        }
+      }
+    },
+    "plugins/quicknode": {
+      "name": "quicknode",
+      "displayName": "QuickNode",
+      "description": "Manage QuickNode blockchain nodes and infrastructure",
+      "shortDescription": "Blockchain nodes and infrastructure",
+      "homepage": "https://www.quicknode.com",
+      "logo": "logo.png",
+      "keywords": [
+        "Cloud & Infrastructure",
+        "Development Tools"
+      ],
+      "mcpServers": {
+        "quicknode": {
+          "url": "https://mcp.quicknode.com/mcp"
+        }
+      }
+    },
+    "plugins/raindrop-ai": {
+      "name": "raindrop-ai",
+      "displayName": "Raindrop",
+      "description": "Investigate Raindrop AI agent issues, search events, and inspect traces and signals",
+      "shortDescription": "AI agent traces, events and issues",
+      "homepage": "https://raindrop.ai",
+      "logo": "logo.svg",
+      "keywords": [
+        "Monitoring & Analytics"
+      ],
+      "mcpServers": {
+        "raindrop-ai": {
+          "url": "https://mcp.raindrop.ai/mcp"
+        }
+      }
+    },
+    "plugins/ramp": {
+      "name": "ramp",
+      "displayName": "Ramp",
+      "description": "Review Ramp corporate cards, transactions, and spending",
+      "shortDescription": "Corporate cards, transactions and spend",
+      "homepage": "https://ramp.com",
+      "logo": "logo.png",
+      "keywords": [
+        "Finance"
+      ],
+      "mcpServers": {
+        "ramp": {
+          "url": "https://mcp.ramp.com/mcp"
+        }
+      }
+    },
+    "plugins/readwise": {
+      "name": "readwise",
+      "displayName": "Readwise",
+      "description": "Search Readwise highlights and Reader documents, and save articles to Reader",
+      "shortDescription": "Reading highlights and saved articles",
+      "homepage": "https://readwise.io",
+      "logo": "logo.png",
+      "keywords": [
+        "Productivity"
+      ],
+      "mcpServers": {
+        "readwise": {
+          "url": "https://mcp2.readwise.io/mcp"
+        }
+      }
+    },
+    "plugins/redis": {
+      "name": "redis",
+      "displayName": "Redis",
+      "description": "Read and write Redis keys, strings, hashes, lists, sets, streams, and JSON, use pub/sub, and inspect server stats",
+      "shortDescription": "Redis keys, data structures and stats",
+      "homepage": "https://redis.io",
+      "logo": "logo.svg",
+      "keywords": [
+        "Databases"
+      ],
+      "mcpServers": {
+        "redis": {
+          "command": "docker",
+          "args": [
+            "run",
+            "--rm",
+            "--name",
+            "redis-mcp-server",
+            "-i",
+            "-e",
+            "REDIS_HOST=${REDIS_HOST}",
+            "-e",
+            "REDIS_PORT=${REDIS_PORT}",
+            "-e",
+            "REDIS_USERNAME=${REDIS_USERNAME}",
+            "-e",
+            "REDIS_PWD=${REDIS_PWD}",
+            "mcp/redis"
+          ]
+        }
+      }
+    },
+    "plugins/ref-tools": {
+      "name": "ref-tools",
+      "displayName": "Ref.tools",
+      "description": "Search documentation with Ref, filtering to the context you need with minimal token usage",
+      "shortDescription": "Search docs with focused context",
+      "homepage": "https://ref.tools",
+      "repository": "https://github.com/ref-tools/ref-tools-mcp",
+      "logo": "logo.svg",
+      "keywords": [
+        "Productivity",
+        "Development Tools"
+      ],
+      "mcpServers": {
+        "ref-tools": {
+          "command": "npx",
+          "args": [
+            "ref-tools-mcp@latest"
+          ],
+          "env": {
+            "REF_API_KEY": "${REF_API_KEY}"
+          }
+        }
+      }
+    },
+    "plugins/replicate": {
+      "name": "replicate",
+      "displayName": "Replicate",
+      "description": "Run and deploy thousands of community AI models on Replicate",
+      "shortDescription": "Run and deploy AI models",
+      "homepage": "https://replicate.com",
+      "repository": "https://github.com/replicate/mcp",
+      "logo": "logo.svg",
+      "keywords": [
+        "AI & Machine Learning"
+      ],
+      "mcpServers": {
+        "replicate": {
+          "command": "npx",
+          "args": [
+            "-y",
+            "replicate-mcp"
+          ],
+          "env": {
+            "REPLICATE_API_TOKEN": "${REPLICATE_API_TOKEN}"
+          }
+        }
+      }
+    },
+    "plugins/resend": {
+      "name": "resend",
+      "displayName": "Resend",
+      "description": "Send Resend emails, manage domains, API keys, audiences, contacts, and broadcasts, and inspect delivery events",
+      "shortDescription": "Email delivery, domains and contacts",
+      "homepage": "https://resend.com",
+      "repository": "https://github.com/resend/resend-skills",
+      "logo": "logo.svg",
+      "keywords": [
+        "Communication"
+      ],
+      "mcpServers": {
+        "resend": {
+          "url": "https://mcp.resend.com/mcp"
+        }
+      }
+    },
+    "plugins/rootly": {
+      "name": "rootly",
+      "displayName": "Rootly",
+      "description": "Investigate and manage Rootly incidents, alerts, on-call schedules, and retrospectives",
+      "shortDescription": "Incidents, alerts and on-call schedules",
+      "homepage": "https://rootly.com",
+      "repository": "https://github.com/rootlyhq/rootly-mcp-server",
+      "logo": "logo.png",
+      "keywords": [
+        "Monitoring & Analytics"
+      ],
+      "mcpServers": {
+        "rootly": {
+          "url": "https://mcp.rootly.com/mcp"
+        }
+      }
+    },
+    "plugins/sanity": {
+      "name": "sanity",
+      "displayName": "Sanity",
+      "description": "Create, query, and update structured content in Sanity",
+      "shortDescription": "Structured content and queries",
+      "homepage": "https://www.sanity.io",
+      "logo": "logo.svg",
+      "keywords": [
+        "Development Tools"
+      ],
+      "mcpServers": {
+        "sanity": {
+          "url": "https://mcp.sanity.io"
+        }
+      }
+    },
+    "plugins/sazabi": {
+      "name": "sazabi",
+      "displayName": "Sazabi",
+      "description": "Ask questions about production logs, read Sazabi's root-cause analysis of an issue, and check whether a fix worked",
+      "shortDescription": "Production logs and issue analysis",
+      "homepage": "https://www.sazabi.com",
+      "logo": "logo.svg",
+      "keywords": [
+        "Monitoring & Analytics"
+      ],
+      "mcpServers": {
+        "sazabi": {
+          "url": "https://mcp.sazabi.com/mcp"
+        }
+      }
+    },
+    "plugins/sentry": {
+      "name": "sentry",
+      "displayName": "Sentry",
+      "description": "Inspect Sentry issues and stack traces, filter errors, and update status, assignments, and alerts",
+      "shortDescription": "Issues, stack traces and alerts",
+      "homepage": "https://sentry.io",
+      "logo": "logo.svg",
+      "keywords": [
+        "Featured",
+        "Essentials",
+        "Monitoring & Analytics"
+      ],
+      "mcpServers": {
+        "sentry": {
+          "url": "https://mcp.sentry.dev/mcp"
+        }
+      }
+    },
+    "plugins/shopify-dev": {
+      "name": "shopify-dev",
+      "displayName": "Shopify",
+      "description": "Create or connect a Shopify store, edit products and collections, and configure settings",
+      "shortDescription": "Store products, collections and settings",
+      "homepage": "https://www.shopify.com",
+      "logo": "logo.svg",
+      "keywords": [
+        "Customer & Sales"
+      ],
+      "mcpServers": {
+        "shopify-dev": {
+          "url": "https://setup.shopify.com/mcp"
+        }
+      }
+    },
+    "plugins/similarweb": {
+      "name": "similarweb",
+      "displayName": "Similarweb",
+      "description": "Research real-time web traffic, mobile app, and market data with Similarweb",
+      "shortDescription": "Web, app and market analytics",
+      "homepage": "https://www.similarweb.com",
+      "logo": "logo.svg",
+      "keywords": [
+        "Monitoring & Analytics"
+      ],
+      "mcpServers": {
+        "similarweb": {
+          "url": "https://mcp.similarweb.com"
+        }
+      }
+    },
+    "plugins/slack": {
+      "name": "slack",
+      "displayName": "Slack (STDIO)",
+      "description": "Find Slack channels and users, read history, and post messages, thread replies, and reactions",
+      "shortDescription": "Team chat, channels and threads",
+      "homepage": "https://slack.com",
+      "logo": "logo.svg",
+      "keywords": [
+        "Communication"
+      ],
+      "mcpServers": {
+        "slack": {
+          "command": "npx",
+          "args": [
+            "-y",
+            "@modelcontextprotocol/server-slack"
+          ],
+          "env": {
+            "SLACK_BOT_TOKEN": "${SLACK_BOT_TOKEN}",
+            "SLACK_TEAM_ID": "${SLACK_TEAM_ID}",
+            "SLACK_CHANNEL_IDS": "${SLACK_CHANNEL_IDS}"
+          }
+        }
+      }
+    },
+    "plugins/slack-remote": {
+      "name": "slack-remote",
+      "displayName": "Slack",
+      "description": "Search Slack channels and messages, read and send messages, manage canvases, and look up user profiles",
+      "shortDescription": "Team chat, channels and threads",
+      "setup": {
+        "notice": "User-level OAuth shares one user identity across all organization members when connected with organization-wide access. Personal access is recommended."
+      },
+      "homepage": "https://slack.com",
+      "logo": "logo.svg",
+      "keywords": [
+        "Essentials",
+        "Communication"
+      ],
+      "mcpServers": {
+        "slack-remote": {
+          "url": "https://mcp.slack.com/mcp"
+        }
+      }
+    },
+    "plugins/splunk": {
+      "name": "splunk",
+      "displayName": "Splunk",
+      "description": "Run SPL searches and inspect Splunk indexes, metadata, and saved searches",
+      "shortDescription": "SPL searches and log indexes",
+      "setup": {
+        "notice": "Install the Splunk MCP Server app on your Splunk deployment before connecting."
+      },
+      "homepage": "https://www.splunk.com/",
+      "logo": "logo.png",
+      "keywords": [
+        "Monitoring & Analytics"
+      ],
+      "mcpServers": {
+        "splunk": {
+          "url": "https://${SPLUNK_HOST}:${SPLUNK_PORT:-8089}/services/mcp",
+          "headers": {
+            "Authorization": "Bearer ${SPLUNK_MCP_TOKEN}"
+          }
+        }
+      }
+    },
+    "plugins/sqlite": {
+      "name": "sqlite",
+      "displayName": "SQLite",
+      "description": "Query and inspect SQLite databases with SQL",
+      "shortDescription": "SQLite queries and database inspection",
+      "homepage": "https://www.sqlite.org",
+      "logo": "logo.svg",
+      "keywords": [
+        "Databases"
+      ],
+      "mcpServers": {
+        "sqlite": {
+          "command": "docker",
+          "args": [
+            "run",
+            "--rm",
+            "-i",
+            "-v",
+            "${DATABASE_DB_PATH}:/data/database.db",
+            "mcp/sqlite"
+          ]
+        }
+      }
+    },
+    "plugins/square": {
+      "name": "square",
+      "displayName": "Square",
+      "description": "Manage Square payments, orders, inventory, customers, invoices, subscriptions, and loyalty programs",
+      "shortDescription": "Payments, orders and customer records",
+      "homepage": "https://squareup.com",
+      "logo": "logo.svg",
+      "keywords": [
+        "Finance"
+      ],
+      "mcpServers": {
+        "square": {
+          "url": "https://mcp.squareup.com/mcp",
+          "headers": {
+            "Authorization": "${SQUARE_AUTHORIZATION}"
+          }
+        }
+      }
+    },
+    "plugins/statsig": {
+      "name": "statsig",
+      "displayName": "Statsig",
+      "description": "Manage Statsig feature gates, experiments, dynamic configurations, and metrics",
+      "shortDescription": "Feature gates, experiments and metrics",
+      "homepage": "https://www.statsig.com",
+      "logo": "logo.png",
+      "keywords": [
+        "Development Tools"
+      ],
+      "mcpServers": {
+        "statsig": {
+          "url": "https://api.statsig.com/v1/mcp"
+        }
+      }
+    },
+    "plugins/stripe": {
+      "name": "stripe",
+      "displayName": "Stripe",
+      "description": "Manage Stripe customers, products, prices, subscriptions, invoices, coupons, payment links, payouts, and refunds, and read balances and disputes",
+      "shortDescription": "Payments, customers and subscriptions",
+      "homepage": "https://stripe.com",
+      "logo": "logo.svg",
+      "keywords": [
+        "Finance"
+      ],
+      "mcpServers": {
+        "stripe": {
+          "url": "https://mcp.stripe.com"
+        }
+      }
+    },
+    "plugins/strix": {
+      "name": "strix",
+      "displayName": "Strix",
+      "description": "Run Strix AI penetration tests and PR security reviews, triage findings by severity, fix and retest them, and export to Jira or Linear",
+      "shortDescription": "Web app security testing and findings",
+      "setup": {
+        "notice": "Scans require verified assets, spend credits, and send traffic to your targets."
+      },
+      "homepage": "https://strix.ai",
+      "repository": "https://github.com/usestrix/strix",
+      "logo": "logo.png",
+      "keywords": [
+        "Development Tools"
+      ],
+      "mcpServers": {
+        "strix": {
+          "url": "https://app.strix.ai/mcp"
+        }
+      }
+    },
+    "plugins/stytch": {
+      "name": "stytch",
+      "displayName": "Stytch",
+      "description": "Manage Stytch identity, sign-in, and project settings",
+      "shortDescription": "Identity, sign-in and project settings",
+      "homepage": "https://stytch.com",
+      "logo": "logo.png",
+      "keywords": [
+        "Development Tools"
+      ],
+      "mcpServers": {
+        "stytch": {
+          "url": "https://mcp.stytch.dev/mcp"
+        }
+      }
+    },
+    "plugins/supabase": {
+      "name": "supabase",
+      "displayName": "Supabase (STDIO)",
+      "description": "Query Supabase SQL data and inspect projects and database resources with read-only access",
+      "shortDescription": "Projects, SQL and Edge Functions",
+      "homepage": "https://supabase.com",
+      "repository": "https://github.com/supabase-community/supabase-mcp",
+      "logo": "logo.svg",
+      "keywords": [
+        "Databases"
+      ],
+      "mcpServers": {
+        "supabase": {
+          "command": "npx",
+          "args": [
+            "-y",
+            "@supabase/mcp-server-supabase@latest",
+            "--read-only"
+          ],
+          "env": {
+            "SUPABASE_ACCESS_TOKEN": "${SUPABASE_ACCESS_TOKEN}"
+          }
+        }
+      }
+    },
+    "plugins/supabase-remote": {
+      "name": "supabase-remote",
+      "displayName": "Supabase",
+      "description": "Query Supabase SQL data and inspect projects and database resources, read-only by default",
+      "shortDescription": "Projects, SQL and Edge Functions",
+      "setup": {
+        "notice": "Each user connects their own Supabase account with OAuth."
+      },
+      "homepage": "https://supabase.com",
+      "repository": "https://github.com/supabase/mcp",
+      "logo": "logo.svg",
+      "keywords": [
+        "Databases"
+      ],
+      "mcpServers": {
+        "supabase-remote": {
+          "url": "https://mcp.supabase.com/mcp?read_only=true",
+          "urlOptions": [
+            {
+              "label": "Read-only (recommended)",
+              "url": "https://mcp.supabase.com/mcp?read_only=true"
+            },
+            {
+              "label": "Full access",
+              "url": "https://mcp.supabase.com/mcp"
+            }
+          ]
+        }
+      }
+    },
+    "plugins/supermetrics": {
+      "name": "supermetrics",
+      "displayName": "Supermetrics",
+      "description": "Query 200+ marketing data sources with Supermetrics",
+      "shortDescription": "Marketing reports from connected sources",
+      "homepage": "https://supermetrics.com",
+      "logo": "logo.png",
+      "keywords": [
+        "Monitoring & Analytics"
+      ],
+      "mcpServers": {
+        "supermetrics": {
+          "url": "https://mcp.supermetrics.com/mcp"
+        }
+      }
+    },
+    "plugins/swagger": {
+      "name": "swagger",
+      "displayName": "Swagger",
+      "description": "Build, govern, and document APIs with Swagger",
+      "shortDescription": "API design, governance and docs",
+      "homepage": "https://swagger.io",
+      "logo": "logo.svg",
+      "keywords": [
+        "Development Tools"
+      ],
+      "mcpServers": {
+        "swagger": {
+          "url": "https://swagger.mcp.smartbear.com/mcp"
+        }
+      }
+    },
+    "plugins/synthflow-docs": {
+      "name": "synthflow-docs",
+      "displayName": "Synthflow Docs",
+      "description": "Search Synthflow documentation for AI voice-agent guidance",
+      "shortDescription": "Voice agent API and platform docs",
+      "homepage": "https://synthflow.ai",
+      "logo": "logo.png",
+      "keywords": [
+        "AI & Machine Learning"
+      ],
+      "mcpServers": {
+        "synthflow-docs": {
+          "url": "https://docs.synthflow.ai/_mcp/server"
+        }
+      }
+    },
+    "plugins/tavily": {
+      "name": "tavily",
+      "displayName": "Tavily",
+      "description": "Search the web and extract current page content with Tavily",
+      "shortDescription": "Web search and content extraction",
+      "homepage": "https://tavily.com",
+      "repository": "https://github.com/tavily-ai/tavily-mcp",
+      "logo": "logo.svg",
+      "keywords": [
+        "AI & Machine Learning",
+        "Productivity"
+      ],
+      "mcpServers": {
+        "tavily": {
+          "url": "https://mcp.tavily.com/mcp"
+        }
+      }
+    },
+    "plugins/todoist": {
+      "name": "todoist",
+      "displayName": "Todoist",
+      "description": "Find, create, update, and complete Todoist tasks and projects",
+      "shortDescription": "Tasks, projects and due dates",
+      "homepage": "https://todoist.com",
+      "logo": "logo.svg",
+      "keywords": [
+        "Productivity"
+      ],
+      "mcpServers": {
+        "todoist": {
+          "url": "https://ai.todoist.net/mcp"
+        }
+      }
+    },
+    "plugins/trellis": {
+      "name": "trellis",
+      "displayName": "Trellis",
+      "description": "Research trial court cases and litigation with Trellis",
+      "shortDescription": "Trial court research and litigation",
+      "homepage": "https://trellis.law",
+      "logo": "logo.png",
+      "keywords": [
+        "Productivity"
+      ],
+      "mcpServers": {
+        "trellis": {
+          "url": "https://mcp.trellis.law/anthropic"
+        }
+      }
+    },
+    "plugins/twilio-docs": {
+      "name": "twilio-docs",
+      "displayName": "Twilio Docs",
+      "description": "Search Twilio documentation for SMS, Voice, WhatsApp, Verify, and SendGrid",
+      "shortDescription": "SMS, voice and messaging API docs",
+      "homepage": "https://www.twilio.com",
+      "repository": "https://github.com/twilio/ai",
+      "logo": "logo.png",
+      "keywords": [
+        "Communication"
+      ],
+      "mcpServers": {
+        "twilio-docs": {
+          "url": "https://mcp.twilio.com/docs"
+        }
+      }
+    },
+    "plugins/unleash": {
+      "name": "unleash",
+      "displayName": "Unleash",
+      "description": "Create Unleash flags with best-practice validation, configure rollouts, toggle environments, and wrap code in flag checks",
+      "shortDescription": "Feature flags and rollout controls",
+      "homepage": "https://www.getunleash.io",
+      "repository": "https://github.com/Unleash/unleash-mcp",
+      "logo": "logo.png",
+      "keywords": [
+        "Development Tools"
+      ],
+      "mcpServers": {
+        "unleash": {
+          "command": "npx",
+          "args": [
+            "-y",
+            "@unleash/mcp@latest",
+            "--log-level",
+            "error"
+          ],
+          "env": {
+            "UNLEASH_BASE_URL": "${UNLEASH_BASE_URL}",
+            "UNLEASH_PAT": "${UNLEASH_PAT}",
+            "UNLEASH_DEFAULT_PROJECT": "${UNLEASH_DEFAULT_PROJECT}"
+          }
+        }
+      }
+    },
+    "plugins/val-town": {
+      "name": "val-town",
+      "displayName": "Val Town",
+      "description": "Create, edit, and run Val Town HTTP handlers, scheduled jobs, SQLite queries, and email workflows",
+      "shortDescription": "HTTP handlers, cron jobs and SQLite",
+      "homepage": "https://www.val.town",
+      "repository": "https://github.com/val-town/plugins",
+      "logo": "logo.png",
+      "keywords": [
+        "Cloud & Infrastructure"
+      ],
+      "mcpServers": {
+        "val-town": {
+          "url": "https://api.val.town/v3/mcp"
+        }
+      }
+    },
+    "plugins/vanta": {
+      "name": "vanta",
+      "displayName": "Vanta",
+      "description": "Review Vanta tests, controls, frameworks, vendors, and evidence, and find remediation guidance",
+      "shortDescription": "Security controls and audit evidence",
+      "homepage": "https://www.vanta.com",
+      "repository": "https://github.com/VantaInc/vanta-mcp-plugin",
+      "logo": "logo.png",
+      "keywords": [
+        "Development Tools"
+      ],
+      "mcpServers": {
+        "vanta": {
+          "url": "https://mcp.vanta.com/mcp"
+        }
+      }
+    },
+    "plugins/vanta-aus": {
+      "name": "vanta-aus",
+      "displayName": "Vanta (AUS)",
+      "description": "Review Vanta tests, controls, frameworks, vendors, and evidence, and find remediation guidance",
+      "shortDescription": "Security controls and audit evidence",
+      "setup": {
+        "notice": "Connect an account in Vanta's Australia data region."
+      },
+      "homepage": "https://www.vanta.com",
+      "repository": "https://github.com/VantaInc/vanta-mcp-plugin",
+      "logo": "logo.png",
+      "keywords": [
+        "Development Tools"
+      ],
+      "mcpServers": {
+        "vanta-aus": {
+          "url": "https://mcp.aus.vanta.com/mcp"
+        }
+      }
+    },
+    "plugins/vanta-eu": {
+      "name": "vanta-eu",
+      "displayName": "Vanta (EU)",
+      "description": "Review Vanta tests, controls, frameworks, vendors, and evidence, and find remediation guidance",
+      "shortDescription": "Security controls and audit evidence",
+      "setup": {
+        "notice": "Connect an account in Vanta's EU data region."
+      },
+      "homepage": "https://www.vanta.com",
+      "repository": "https://github.com/VantaInc/vanta-mcp-plugin",
+      "logo": "logo.png",
+      "keywords": [
+        "Development Tools"
+      ],
+      "mcpServers": {
+        "vanta-eu": {
+          "url": "https://mcp.eu.vanta.com/mcp"
+        }
+      }
+    },
+    "plugins/vercel": {
+      "name": "vercel",
+      "displayName": "Vercel",
+      "description": "Manage Vercel projects and deployments, inspect logs, and search documentation",
+      "shortDescription": "Projects, deployments and build logs",
+      "homepage": "https://vercel.com",
+      "logo": "logo.svg",
+      "keywords": [
+        "Cloud & Infrastructure",
+        "Essentials"
+      ],
+      "mcpServers": {
+        "vercel": {
+          "url": "https://mcp.vercel.com"
+        }
+      }
+    },
+    "plugins/webull": {
+      "name": "webull",
+      "displayName": "Webull",
+      "description": "Review Webull accounts, positions, orders, watchlists, and market data",
+      "shortDescription": "Accounts, positions and market data",
+      "homepage": "https://www.webull.com",
+      "logo": "logo.png",
+      "keywords": [
+        "Finance"
+      ],
+      "mcpServers": {
+        "webull": {
+          "url": "https://api.webull.com/mcp"
+        }
+      }
+    },
+    "plugins/windsor-ai": {
+      "name": "windsor-ai",
+      "displayName": "Windsor.ai",
+      "description": "Query 320+ marketing data sources with Windsor.ai",
+      "shortDescription": "Cross-channel marketing analytics data",
+      "homepage": "https://windsor.ai",
+      "logo": "logo.png",
+      "keywords": [
+        "Monitoring & Analytics"
+      ],
+      "mcpServers": {
+        "windsor-ai": {
+          "url": "https://mcp.windsor.ai/"
+        }
+      }
+    },
+    "plugins/wingspan": {
+      "name": "wingspan",
+      "displayName": "Wingspan",
+      "description": "Review Wingspan contractors, amounts owed, and payment blockers, and draft onboarding and payments for review",
+      "shortDescription": "Contractor payments and onboarding",
+      "homepage": "https://www.wingspan.app",
+      "logo": "logo.jpg",
+      "keywords": [
+        "Finance"
+      ],
+      "mcpServers": {
+        "wingspan": {
+          "url": "https://api.wingspan.app/v3/mcp"
+        }
+      }
+    },
+    "plugins/wispr-flow": {
+      "name": "wispr-flow",
+      "displayName": "Wispr Flow",
+      "description": "Read Wispr Flow Notetaker meeting summaries, notes, transcripts, tasks, Scratchpad notes, and calendar events",
+      "shortDescription": "Meeting notes, transcripts and tasks",
+      "homepage": "https://wisprflow.ai",
+      "logo": "logo.png",
+      "keywords": [
+        "Productivity"
+      ],
+      "mcpServers": {
+        "wispr-flow": {
+          "url": "https://api.wisprflow.ai/connect/mcp"
+        }
+      }
+    },
+    "plugins/wix": {
+      "name": "wix",
+      "displayName": "Wix",
+      "description": "Manage Wix sites, content, and business data, and build apps with the Wix CLI",
+      "shortDescription": "Site content, business data and apps",
+      "homepage": "https://www.wix.com",
+      "repository": "https://github.com/wix/skills",
+      "logo": "logo.svg",
+      "keywords": [
+        "Development Tools"
+      ],
+      "mcpServers": {
+        "wix": {
+          "url": "https://mcp.wix.com/mcp"
+        }
+      }
+    },
+    "plugins/wolfram": {
+      "name": "wolfram",
+      "displayName": "Wolfram",
+      "description": "Compute precise answers and retrieve current factual knowledge with Wolfram",
+      "shortDescription": "Scientific computing and reference data",
+      "homepage": "https://www.wolfram.com",
+      "logo": "logo.svg",
+      "keywords": [
+        "AI & Machine Learning"
+      ],
+      "mcpServers": {
+        "wolfram": {
+          "url": "https://agenttools.wolfram.com/mcp"
+        }
+      }
+    },
+    "plugins/wordpress-com": {
+      "name": "wordpress-com",
+      "displayName": "WordPress.com",
+      "description": "Manage WordPress.com posts, pages, media, plugins, users, and settings, view stats, and search domains",
+      "shortDescription": "Sites, posts, pages and media",
+      "homepage": "https://wordpress.com",
+      "logo": "logo.png",
+      "keywords": [
+        "Productivity",
+        "Design & Creative"
+      ],
+      "mcpServers": {
+        "wordpress-com": {
+          "url": "https://public-api.wordpress.com/wpcom/v2/mcp/v1"
+        }
+      }
+    },
+    "plugins/workable": {
+      "name": "workable",
+      "displayName": "Workable",
+      "description": "Find Workable candidates, move them through hiring pipelines, and manage HR records",
+      "shortDescription": "Hiring pipelines and candidate records",
+      "homepage": "https://www.workable.com",
+      "logo": "logo.png",
+      "keywords": [
+        "Productivity"
+      ],
+      "mcpServers": {
+        "workable": {
+          "url": "https://mcp.workable.com/mcp"
+        }
+      }
+    },
+    "plugins/workos": {
+      "name": "workos",
+      "displayName": "WorkOS",
+      "description": "Manage WorkOS AuthKit, SSO, Directory Sync, organizations, and users",
+      "shortDescription": "SSO, directory sync and user management",
+      "homepage": "https://workos.com",
+      "repository": "https://github.com/workos/skills",
+      "logo": "logo.png",
+      "keywords": [
+        "Development Tools"
+      ],
+      "mcpServers": {
+        "workos": {
+          "url": "https://mcp.workos.com/mcp"
+        }
+      }
+    },
+    "plugins/you-com": {
+      "name": "you-com",
+      "displayName": "You.com",
+      "description": "Search the web, research with citations, and extract page content with You.com",
+      "shortDescription": "Web answers and cited sources",
+      "homepage": "https://you.com",
+      "repository": "https://github.com/youdotcom-oss/agent-skills",
+      "logo": "logo.jpg",
+      "keywords": [
+        "AI & Machine Learning"
+      ],
+      "mcpServers": {
+        "you-com": {
+          "url": "https://api.you.com/mcp"
+        }
+      }
+    },
+    "plugins/you-com-finance": {
+      "name": "you-com-finance",
+      "displayName": "You.com Finance",
+      "description": "Search financial markets and retrieve financial data with You.com",
+      "shortDescription": "Market research and financial data",
+      "homepage": "https://you.com",
+      "repository": "https://github.com/youdotcom-oss/agent-skills",
+      "logo": "logo.jpg",
+      "keywords": [
+        "Finance"
+      ],
+      "mcpServers": {
+        "you-com-finance": {
+          "url": "https://api.you.com/mcp/finance"
+        }
+      }
+    },
+    "plugins/you-com-research": {
+      "name": "you-com-research",
+      "displayName": "You.com Research",
+      "description": "Run multi-step deep research with You.com and get reports with citations",
+      "shortDescription": "Multi-step research with citations",
+      "homepage": "https://you.com",
+      "repository": "https://github.com/youdotcom-oss/agent-skills",
+      "logo": "logo.jpg",
+      "keywords": [
+        "AI & Machine Learning"
+      ],
+      "mcpServers": {
+        "you-com-research": {
+          "url": "https://api.you.com/mcp/research"
+        }
+      }
+    },
+    "plugins/zapier": {
+      "name": "zapier",
+      "displayName": "Zapier",
+      "description": "Trigger actions across 8,000+ apps with Zapier, like sending Slack messages, updating Sheets, and creating calendar events and tasks",
+      "shortDescription": "Automate actions across connected apps",
+      "homepage": "https://zapier.com",
+      "logo": "logo.svg",
+      "keywords": [
+        "Essentials",
+        "Productivity"
+      ],
+      "mcpServers": {
+        "zapier": {
+          "url": "https://mcp.zapier.com/api/mcp/mcp",
+          "headers": {
+            "Authorization": "${ZAPIER_AUTHORIZATION}"
+          }
+        }
+      }
+    }
+  }
+}

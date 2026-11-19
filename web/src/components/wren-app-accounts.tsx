@@ -4,19 +4,22 @@ import {useState} from "react";
 import {usePathname,useSearchParams} from "next/navigation";
 import {canterFetch,CanterAPIError} from "@/lib/canter-api";
 import {useWrenResource,workBase} from "@/lib/wren-work";
-import type {KnowledgeTarget} from "@/lib/wren-knowledge";
+import type {ExtensionTarget} from "@/lib/wren-knowledge";
+import {appsPageHref} from "@/lib/wren-apps";
+import Link from "next/link";
 import type {ExtensionInstallation,WrenAppAccount} from "@/lib/wren-extensions";
 import {WrenMCPConnection,type MCPDiscovery} from "./wren-mcp-connection";
 import {ProviderIcon} from "./provider-icon";
 import styles from "./wren-apps.module.css";
 
 const keepAccountsCurrent=()=>true;
-export function WrenAppAccounts({workspaceId,target,onInstalled,bare}:{bare?:boolean;workspaceId:string;target:KnowledgeTarget|null;onInstalled:(value:ExtensionInstallation)=>void}){
+export function WrenAppAccounts({workspaceId,target,onInstalled,bare}:{bare?:boolean;workspaceId:string;target:ExtensionTarget|null;onInstalled?:(value:ExtensionInstallation)=>void}){
  const pathname=usePathname(),query=useSearchParams(),base=`${workBase(workspaceId)}/app-accounts`;
- const nextQuery=new URLSearchParams(),conversation=query.get("conversation");
- if(conversation)nextQuery.set("conversation",conversation);
- nextQuery.set("app","linear");
- const next=`${pathname}?${nextQuery}`;
+ // Return to the same origin context after provider sign-in. Embedded chats
+ // and rooms resume on the Customize apps view for that exact conversation;
+ // the global Connections page returns to itself.
+ const conversation=query.get("conversation")??target?.scope.conversationId??"";
+ const next=pathname==="/app/account/connections"?`/app/account/connections${conversation?`?conversation=${encodeURIComponent(conversation)}`:""}`:appsPageHref(conversation||undefined,{app:"linear"});
  const resource=useWrenResource<{accounts:WrenAppAccount[];enabled:boolean}>(base,3000,keepAccountsCurrent);
  const [busy,setBusy]=useState(""),[error,setError]=useState(""),[reauth,setReauth]=useState(false),[confirm,setConfirm]=useState("");
  const [review,setReview]=useState<{account:WrenAppAccount;discovery:MCPDiscovery}|null>(null);
@@ -33,12 +36,13 @@ export function WrenAppAccounts({workspaceId,target,onInstalled,bare}:{bare?:boo
   {resource.loading&&!resource.data?<p role="status">Checking your accounts…</p>:null}
   {accounts.map(account=><div className={styles.savedAccount} key={account.id}>
    <strong>{account.label}</strong><small>{account.reconnect?"Reconnect required":"Your saved connection"}</small>
-   <div className={styles.actions}><button disabled={!!busy||account.reconnect} className={account.reconnect?undefined:styles.primary} onClick={()=>void choose(account)}>{busy===account.id?"Loading…":"Choose tools"}</button><button disabled={!!busy} className={account.reconnect?styles.primary:undefined} onClick={()=>{setReconnecting(account.id);setRenaming("");setConfirm("");setError("");}}>Reconnect</button><button disabled={!!busy} onClick={()=>{setRenaming(account.id);setReconnecting("");setConfirm("");setLabel(account.label);}}>Rename</button><button disabled={!!busy} onClick={()=>{setConfirm(account.id);setReconnecting("");setRenaming("");}}>Disconnect</button></div>
+   <div className={styles.actions}>{target?<button disabled={!!busy||account.reconnect} className={account.reconnect?undefined:styles.primary} onClick={()=>void choose(account)}>{busy===account.id?"Loading…":"Choose tools"}</button>:null}<button disabled={!!busy} className={account.reconnect?styles.primary:undefined} onClick={()=>{setReconnecting(account.id);setRenaming("");setConfirm("");setError("");}}>Reconnect</button><button disabled={!!busy} onClick={()=>{setRenaming(account.id);setReconnecting("");setConfirm("");setLabel(account.label);}}>Rename</button><button disabled={!!busy} onClick={()=>{setConfirm(account.id);setReconnecting("");setRenaming("");}}>Disconnect</button></div>
    {reconnecting===account.id?<div className={styles.disconnect}><p>Reconnect {account.label} using the Linear account you choose. This restores its existing access in your chats and rooms. Other people’s accounts stay separate.</p><div className={styles.actions}><button className={styles.primary} disabled={!!busy} onClick={()=>void connect(account)}>{busy===account.id?"Opening Linear…":"Continue to Linear"}</button><button disabled={!!busy} onClick={()=>setReconnecting("")}>Cancel</button></div></div>:null}
    {renaming===account.id?<form onSubmit={event=>{event.preventDefault();void change(account,false);}}><label>Account label<input autoFocus required maxLength={100} value={label} onChange={event=>setLabel(event.target.value)}/></label><div className={styles.actions}><button disabled={!!busy||!label.trim()}>Save label</button><button type="button" onClick={()=>setRenaming("")}>Cancel</button></div></form>:null}
-   {confirm===account.id?<div className={styles.disconnect}><p>Disconnect {account.label} from this workspace? Your Wrens will lose this account’s access in every chat. Messages and other people’s connections stay available. You can reconnect later.</p><button disabled={!!busy} onClick={()=>void change(account,true)}>Disconnect this account</button><button disabled={!!busy} onClick={()=>setConfirm("")}>Keep connected</button></div>:null}
+   {confirm===account.id?<div className={styles.disconnect}><p>Disconnect {account.label} from this workspace? Your chats, rooms, and Wrens will lose this account’s access. Messages and other people’s connections stay available. You can reconnect later.</p><button disabled={!!busy} onClick={()=>void change(account,true)}>Disconnect this account</button><button disabled={!!busy} onClick={()=>setConfirm("")}>Keep connected</button></div>:null}
   </div>)}
   {resource.data?.enabled?<button disabled={!!busy} className={accounts.length?undefined:styles.primary} onClick={()=>void connect()}>{busy==="connect"?"Opening Linear…":accounts.length?"Connect another Linear account":"Connect Linear"}</button>:resource.data?<p>Account connections aren’t configured on this server.</p>:null}
+  {!target&&accounts.length?<p><Link className="rule-link" href={appsPageHref()}>Choose where to use these accounts in Customize</Link></p>:null}
   {reauth?<a href={`/sign-in?reauth=1&next=${encodeURIComponent(next)}`}>Sign in again and return here</a>:null}
   {resource.error||error?<p role="alert">{error||resource.error}</p>:null}
   {review?<div className={styles.accountReview}><button onClick={()=>setReview(null)}>Back to your accounts</button><WrenMCPConnection key={review.account.id} workspaceId={workspaceId} initialDiscovery={review.discovery} appAccount={review.account} target={target} onInstalled={onInstalled} onSaved={resource.refresh}/></div>:null}

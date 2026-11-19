@@ -18,11 +18,11 @@ type wrenAppConnectionStatus struct {
 func (h *HTTPServer) wrenAppConnectionStatuses(ctx context.Context, c Conversation, run OperatorRun) ([]wrenAppConnectionStatus, error) {
 	s := h.service.Store
 	out := []wrenAppConnectionStatus{}
-	scope, ok, err := s.knowledgeRunScope(ctx, c, run)
+	scope, ok, human, err := s.extensionRunScope(ctx, c, run)
 	if err != nil || !ok {
 		return out, err
 	}
-	installs, err := s.WrenExtensionInstallations(ctx, c.WorkspaceID, c.AccountID, scope)
+	installs, err := s.extensionRunInstalls(ctx, c, scope, human)
 	if err != nil {
 		return nil, err
 	}

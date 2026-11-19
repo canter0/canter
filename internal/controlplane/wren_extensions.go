@@ -81,8 +81,9 @@ type WrenExtensionInstallationInput struct {
 	Revoke           bool   `json:"revoke"`
 }
 type WrenExtensionInstallation struct {
-	ID          string `json:"id"`
-	WorkspaceID string `json:"workspaceId"`
+	PluginConnectionID string `json:"pluginConnectionId,omitempty"`
+	ID                 string `json:"id"`
+	WorkspaceID        string `json:"workspaceId"`
 	WrenKnowledgeScope
 	OwnerID              string        `json:"ownerId"`
 	ExtensionID          string        `json:"extensionId"`
@@ -293,13 +294,13 @@ func (s *Store) WrenExtension(ctx context.Context, workspace, account, id string
 	if _, err := workspaceRole(ctx, s.pool, workspace, account, false); err != nil {
 		return WrenExtension{}, err
 	}
-	return scanExtension(s.pool.QueryRow(ctx, `SELECT `+extensionColumns+` FROM wren_extensions e JOIN wren_extension_versions v ON v.extension_id=e.id AND v.version=CASE WHEN $3=0 THEN e.current_version ELSE $3 END WHERE e.id=$1 AND e.workspace_id=$2`, id, workspace, version))
+	return scanExtension(s.pool.QueryRow(ctx, `SELECT `+extensionColumns+` FROM wren_extensions e JOIN wren_extension_versions v ON v.extension_id=e.id AND v.version=CASE WHEN $3=0 THEN e.current_version ELSE $3 END WHERE e.id=$1 AND e.workspace_id=$2 AND (e.id NOT LIKE 'extension\_plugin\_%' OR e.owner_id=$4)`, id, workspace, version, account))
 }
 func (s *Store) WrenExtensions(ctx context.Context, workspace, account string) ([]WrenExtension, error) {
 	if _, err := workspaceRole(ctx, s.pool, workspace, account, false); err != nil {
 		return nil, err
 	}
-	rows, err := s.pool.Query(ctx, `SELECT `+extensionColumns+` FROM wren_extensions e JOIN wren_extension_versions v ON v.extension_id=e.id AND v.version=e.current_version WHERE e.workspace_id=$1 ORDER BY e.updated_at DESC,e.id LIMIT 50`, workspace)
+	rows, err := s.pool.Query(ctx, `SELECT `+extensionColumns+` FROM wren_extensions e JOIN wren_extension_versions v ON v.extension_id=e.id AND v.version=e.current_version WHERE e.workspace_id=$1 AND (e.id NOT LIKE 'extension\_plugin\_%' OR e.owner_id=$2) ORDER BY e.updated_at DESC,e.id LIMIT 50`, workspace, account)
 	if err != nil {
 		return nil, err
 	}
@@ -428,11 +429,91 @@ func extensionLoopbackHost(host string) bool {
 	return err == nil && ip.IsLoopback()
 }
 
-const extensionInstallColumns = `i.id,i.workspace_id,i.conversation_id,i.scope_kind,COALESCE(i.wren_id,''),i.owner_id,i.extension_id,i.version,i.revision,i.enabled,i.revoked_at,i.allow_write,i.credential_mode,i.created_at,i.updated_at`
+// Extension installations also support the operator scope: the ordinary
+// owner-only conversation without a Wren persona. Legacy private/room scopes
+// keep their existing knowledge checks; operator asserts a positively ordinary
+// conversation owned by the requesting account.
+func extensionScopeAccess(ctx context.Context, q artifactQueryer, workspace, account string, scope WrenKnowledgeScope, lock bool) error {
+	if scope.Scope != "operator" {
+		return knowledgeScopeAccess(ctx, q, workspace, account, scope, lock)
+	}
+	if scope.WrenID != "" {
+		return fmt.Errorf("operator connections belong to the conversation, not a Wren")
+	}
+	if err := artifactAccess(ctx, q, workspace, account, scope.ConversationID, lock); err != nil {
+		return err
+	}
+	var allowed bool
+	err := q.QueryRow(ctx, `SELECT c.account_id=$3 AND NOT EXISTS(SELECT 1 FROM wren_rooms room WHERE room.conversation_id=c.id) AND NOT EXISTS(SELECT 1 FROM wrens w WHERE w.conversation_id=c.id) AND NOT EXISTS(SELECT 1 FROM wren_shared_chats chat WHERE chat.conversation_id=c.id) AND NOT EXISTS(SELECT 1 FROM wren_jobs j WHERE j.child_conversation_id=c.id) AND NOT EXISTS(SELECT 1 FROM conversation_shares cs WHERE cs.conversation_id=c.id) FROM operator_conversations c WHERE c.id=$1 AND c.workspace_id=$2`, scope.ConversationID, workspace, account).Scan(&allowed)
+	if err != nil {
+		return err
+	}
+	if !allowed {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// Extension tool availability follows the persisted run: its requester and a
+// positively verified human trigger. An unattended or unattributed run never
+// falls back to a person's saved credentials. Room/Wren scopes keep their
+// existing checks; only a positively ordinary owner conversation resolves the
+// operator scope.
+// extensionRunScope resolves the conversation scope plus whether the run is a
+// positively verified human turn: persisted human origin, an operator executor,
+// and an actual initiating user message. Personal credentials are only offered
+// on human turns; explicit room service credentials remain authorized for
+// room-triggered runs. Without positive human evidence personal access fails
+// closed.
+func (s *Store) extensionRunScope(ctx context.Context, c Conversation, run OperatorRun) (WrenKnowledgeScope, bool, bool, error) {
+	var human bool
+	err := s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM operator_runs r JOIN operator_messages m ON m.run_id=r.id AND m.role='user' WHERE r.id=$1 AND r.conversation_id=$2 AND r.origin_kind='human' AND r.executor_kind='operator' AND NOT EXISTS(SELECT 1 FROM wren_jobs j WHERE j.child_run_id=r.id OR j.return_run_id=r.id))`, run.ID, c.ID).Scan(&human)
+	if err != nil {
+		return WrenKnowledgeScope{}, false, false, err
+	}
+	scope, ok, err := s.knowledgeRunScope(ctx, c, run)
+	if err != nil || ok {
+		return scope, ok, human, err
+	}
+	var ordinary bool
+	err = s.pool.QueryRow(ctx, `SELECT c.account_id=$4 AND NOT EXISTS(SELECT 1 FROM wren_rooms room WHERE room.conversation_id=c.id) AND NOT EXISTS(SELECT 1 FROM wrens w WHERE w.conversation_id=c.id) AND NOT EXISTS(SELECT 1 FROM wren_shared_chats chat WHERE chat.conversation_id=c.id) AND NOT EXISTS(SELECT 1 FROM wren_jobs j WHERE j.child_conversation_id=c.id) AND NOT EXISTS(SELECT 1 FROM conversation_shares cs WHERE cs.conversation_id=c.id) AND COALESCE(r.requester_account_id,c.account_id)=$4 FROM operator_runs r JOIN operator_conversations c ON c.id=r.conversation_id WHERE r.id=$1 AND c.id=$2 AND c.workspace_id=$3`, run.ID, c.ID, c.WorkspaceID, c.AccountID).Scan(&ordinary)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return WrenKnowledgeScope{}, false, false, ErrForbidden
+	}
+	if err != nil {
+		return WrenKnowledgeScope{}, false, false, err
+	}
+	if !ordinary || !human {
+		return WrenKnowledgeScope{}, false, false, nil
+	}
+	scope = WrenKnowledgeScope{ConversationID: c.ID, Scope: "operator"}
+	if err = extensionScopeAccess(ctx, s.pool, c.WorkspaceID, c.AccountID, scope, false); err != nil {
+		return scope, false, false, err
+	}
+	return scope, true, true, nil
+}
+
+// extensionRunInstalls returns the installations a run may see or invoke:
+// unattended turns only ever resolve explicit room service credentials.
+func (s *Store) extensionRunInstalls(ctx context.Context, c Conversation, scope WrenKnowledgeScope, human bool) ([]WrenExtensionInstallation, error) {
+	installs, err := s.WrenExtensionInstallations(ctx, c.WorkspaceID, c.AccountID, scope)
+	if err != nil || human {
+		return installs, err
+	}
+	personal := installs[:0]
+	for _, v := range installs {
+		if v.CredentialMode == "service" {
+			personal = append(personal, v)
+		}
+	}
+	return personal, nil
+}
+
+const extensionInstallColumns = `i.id,i.workspace_id,i.conversation_id,i.scope_kind,COALESCE(i.wren_id,''),i.owner_id,i.extension_id,i.version,i.revision,i.enabled,i.revoked_at,i.allow_write,i.credential_mode,i.created_at,i.updated_at,COALESCE(i.plugin_connection_id,'')`
 
 func scanExtensionInstall(row interface{ Scan(...any) error }) (WrenExtensionInstallation, error) {
 	var v WrenExtensionInstallation
-	err := row.Scan(&v.ID, &v.WorkspaceID, &v.ConversationID, &v.Scope, &v.WrenID, &v.OwnerID, &v.ExtensionID, &v.Version, &v.Revision, &v.Enabled, &v.RevokedAt, &v.AllowWrite, &v.CredentialMode, &v.CreatedAt, &v.UpdatedAt)
+	err := row.Scan(&v.ID, &v.WorkspaceID, &v.ConversationID, &v.Scope, &v.WrenID, &v.OwnerID, &v.ExtensionID, &v.Version, &v.Revision, &v.Enabled, &v.RevokedAt, &v.AllowWrite, &v.CredentialMode, &v.CreatedAt, &v.UpdatedAt, &v.PluginConnectionID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		err = ErrNotFound
 	}
@@ -452,7 +533,10 @@ func (s *Store) WrenExtensionInstallation(ctx context.Context, workspace, accoun
 	if err != nil {
 		return v, err
 	}
-	if err = knowledgeScopeAccess(ctx, s.pool, workspace, account, v.WrenKnowledgeScope, false); err != nil {
+	if v.Scope != "operator" && !s.wrensAvailable() {
+		return WrenExtensionInstallation{}, ErrNotFound
+	}
+	if err = extensionScopeAccess(ctx, s.pool, workspace, account, v.WrenKnowledgeScope, false); err != nil {
 		return WrenExtensionInstallation{}, err
 	}
 	v.Extension, err = s.WrenExtension(ctx, workspace, account, v.ExtensionID, v.Version)
@@ -467,10 +551,19 @@ func (s *Store) WrenExtensionInstallation(ctx context.Context, workspace, accoun
 	if v.Extension.Manifest.Auth == "none" {
 		v.CredentialConfigured = true
 	}
+	if v.PluginConnectionID != "" {
+		err = s.pool.QueryRow(ctx, `SELECT revision,enabled AND state='ready' FROM plugin_connections WHERE id=$1 AND workspace_id=$2 AND account_id=$3`, v.PluginConnectionID, workspace, account).Scan(&v.CredentialRevision, &v.CredentialConfigured)
+		if err != nil {
+			return WrenExtensionInstallation{}, err
+		}
+	}
 	return v, nil
 }
 func (s *Store) WrenExtensionInstallations(ctx context.Context, workspace, account string, scope WrenKnowledgeScope) ([]WrenExtensionInstallation, error) {
-	if err := knowledgeScopeAccess(ctx, s.pool, workspace, account, scope, false); err != nil {
+	if scope.Scope != "operator" && !s.wrensAvailable() {
+		return nil, ErrNotFound
+	}
+	if err := extensionScopeAccess(ctx, s.pool, workspace, account, scope, false); err != nil {
 		return nil, err
 	}
 	rows, err := s.pool.Query(ctx, `SELECT id FROM wren_extension_installations WHERE workspace_id=$1 AND conversation_id=$2 AND scope_kind=$3 ORDER BY created_at DESC,id LIMIT 100`, workspace, scope.ConversationID, scope.Scope)
@@ -502,7 +595,7 @@ func (s *Store) WrenExtensionInstallations(ctx context.Context, workspace, accou
 	return out, nil
 }
 func extensionScopeWrite(ctx context.Context, q artifactQueryer, workspace, account string, scope WrenKnowledgeScope, active bool) error {
-	if err := knowledgeScopeAccess(ctx, q, workspace, account, scope, true); err != nil {
+	if err := extensionScopeAccess(ctx, q, workspace, account, scope, true); err != nil {
 		return err
 	}
 	if err := requireWorkspaceWriter(ctx, q, workspace, account, true); err != nil {
@@ -524,6 +617,9 @@ func extensionManage(ctx context.Context, q artifactQueryer, v WrenExtensionInst
 	return nil
 }
 func (s *Store) InstallWrenExtension(ctx context.Context, workspace, account string, input WrenExtensionInstallationInput) (WrenExtensionInstallation, error) {
+	if input.Scope != "operator" && !s.wrensAvailable() {
+		return WrenExtensionInstallation{}, ErrNotFound
+	}
 	if input.ID == "" && input.ExpectedRevision == 0 {
 		var err error
 		input.ID, err = newID("extinstall_")
@@ -868,10 +964,16 @@ func extensionInstallUsable(ctx context.Context, q artifactQueryer, v WrenExtens
 	if !v.Enabled || v.RevokedAt != nil || v.Extension.Disabled {
 		return fmt.Errorf("%w: this extension is disabled or revoked", ErrForbidden)
 	}
+	if v.PluginConnectionID != "" {
+		var usable bool
+		if err := q.QueryRow(ctx, `SELECT enabled AND state='ready' AND extension_id=$4 FROM plugin_connections WHERE id=$1 AND workspace_id=$2 AND account_id=$3`, v.PluginConnectionID, v.WorkspaceID, account, v.ExtensionID).Scan(&usable); err != nil || !usable || v.Scope == "room" || v.OwnerID != account {
+			return ErrForbidden
+		}
+	}
 	if err := requireWorkspaceWriter(ctx, q, v.WorkspaceID, account, true); err != nil {
 		return err
 	}
-	if err := knowledgeScopeAccess(ctx, q, v.WorkspaceID, v.OwnerID, v.WrenKnowledgeScope, false); err != nil {
+	if err := extensionScopeAccess(ctx, q, v.WorkspaceID, v.OwnerID, v.WrenKnowledgeScope, false); err != nil {
 		return fmt.Errorf("%w: the installation owner no longer has access", ErrForbidden)
 	}
 	if err := requireWorkspaceWriter(ctx, q, v.WorkspaceID, v.OwnerID, true); err != nil {
@@ -880,7 +982,7 @@ func extensionInstallUsable(ctx context.Context, q artifactQueryer, v WrenExtens
 	return validateWrenLifecycleTx(ctx, q, v.ConversationID, v.WrenID)
 }
 func (h *HTTPServer) WrenExtensionTools(ctx context.Context, c Conversation, run OperatorRun) ([]mcpTool, error) {
-	scope, ok, err := h.service.Store.knowledgeRunScope(ctx, c, run)
+	scope, ok, human, err := h.service.Store.extensionRunScope(ctx, c, run)
 	if err != nil || !ok {
 		return nil, err
 	}
@@ -890,7 +992,10 @@ func (h *HTTPServer) WrenExtensionTools(ctx context.Context, c Conversation, run
 	if err = h.service.Store.RequireWorkspaceWriter(ctx, c.WorkspaceID, c.AccountID); err != nil {
 		return nil, err
 	}
-	installs, err := h.service.Store.WrenExtensionInstallations(ctx, c.WorkspaceID, c.AccountID, scope)
+	if err = h.ensurePersonalPlugins(ctx, c, scope, human); err != nil {
+		return nil, err
+	}
+	installs, err := h.service.Store.extensionRunInstalls(ctx, c, scope, human)
 	if err != nil {
 		return nil, err
 	}
@@ -937,11 +1042,11 @@ func (h *HTTPServer) WrenExtensionToolPolicy(ctx context.Context, c Conversation
 	}
 	for _, tool := range tools {
 		if tool.Name == name {
-			scope, ok, err := h.service.Store.knowledgeRunScope(ctx, c, run)
+			scope, ok, human, err := h.service.Store.extensionRunScope(ctx, c, run)
 			if err != nil || !ok {
 				return operatorToolPolicy{}, false, err
 			}
-			installs, err := h.service.Store.WrenExtensionInstallations(ctx, c.WorkspaceID, c.AccountID, scope)
+			installs, err := h.service.Store.extensionRunInstalls(ctx, c, scope, human)
 			if err != nil {
 				return operatorToolPolicy{}, false, err
 			}
@@ -958,14 +1063,14 @@ func (h *HTTPServer) WrenExtensionToolPolicy(ctx context.Context, c Conversation
 	return operatorToolPolicy{}, false, nil
 }
 func (h *HTTPServer) InvokeWrenExtensionTool(ctx context.Context, c Conversation, run OperatorRun, name string, args json.RawMessage, operationKey string) (any, error) {
-	scope, ok, err := h.service.Store.knowledgeRunScope(ctx, c, run)
+	scope, ok, human, err := h.service.Store.extensionRunScope(ctx, c, run)
 	if err != nil || !ok {
 		if err == nil {
 			err = ErrForbidden
 		}
 		return nil, err
 	}
-	installs, err := h.service.Store.WrenExtensionInstallations(ctx, c.WorkspaceID, c.AccountID, scope)
+	installs, err := h.service.Store.extensionRunInstalls(ctx, c, scope, human)
 	if err != nil {
 		return nil, err
 	}
@@ -1113,6 +1218,16 @@ func (h *HTTPServer) invokeWrenExtensionReviewed(ctx context.Context, initial Wr
 	if err = extensionInstallUsable(ctx, tx, current, account); err != nil {
 		return WrenExtensionCall{}, err
 	}
+	if current.PluginConnectionID != "" {
+		// Re-check a newly saved blocking hook at approval/execution too.
+		items, e := personalHooksTx(ctx, tx, current.WorkspaceID, account)
+		if e != nil {
+			return WrenExtensionCall{}, e
+		}
+		if reason := personalToolBlock(items, extensionDynamicName(current.ID, current.Version, tool.Name), tool.RemoteName, personalHookToolName(current, tool.Name)); reason != "" {
+			return WrenExtensionCall{}, fmt.Errorf("%w: %s", ErrForbidden, reason)
+		}
+	}
 	if tool.Impact == "write" && !current.AllowWrite {
 		return WrenExtensionCall{}, ErrForbidden
 	}
@@ -1190,7 +1305,20 @@ func (h *HTTPServer) invokeWrenExtensionReviewed(ctx context.Context, initial Wr
 	}
 	var credential, appCredentialVersion []byte
 	var linkedAppAccount string
-	if current.Extension.Manifest.Auth == "bearer" {
+	pluginRevision := 0
+	if current.PluginConnectionID != "" {
+		secret, e := h.pluginCredentialsTx(ctx, tx, current, account)
+		if e != nil {
+			if errors.Is(e, errAppReconnect) {
+				if commitErr := tx.Commit(ctx); commitErr != nil {
+					return WrenExtensionCall{}, commitErr
+				}
+			}
+			return WrenExtensionCall{}, e
+		}
+		pluginRevision = secret.Revision
+		ctx = pluginContext(ctx, secret)
+	} else if current.Extension.Manifest.Auth == "bearer" {
 		var key, appAccount string
 		var sealed []byte
 		slot := extensionCredentialKey(current, account)
@@ -1258,6 +1386,12 @@ func (h *HTTPServer) invokeWrenExtensionReviewed(ctx context.Context, initial Wr
 	httpStatus := 0
 	if tool.Method == "MCP" {
 		result, httpStatus, status, failure = performWrenMCP(ctx, client, tool, canonical, string(credential))
+		if current.PluginConnectionID != "" && (httpStatus == 401 || httpStatus == 403) {
+			_, markErr := h.service.Store.pool.Exec(ctx, `UPDATE plugin_connections SET state='needs_auth',failure='Sign in again to continue.',revision=revision+1,updated_at=now() WHERE id=$1 AND revision=$2 AND enabled AND state='ready'`, current.PluginConnectionID, pluginRevision)
+			if markErr != nil {
+				return WrenExtensionCall{}, markErr
+			}
+		}
 	} else {
 		body, _ := json.Marshal(map[string]any{"protocol": "canter-json-tools-v1", "tool": tool.Name, "arguments": json.RawMessage(canonical), "operationId": id})
 		method, endpoint := http.MethodPost, tool.Endpoint
@@ -1351,7 +1485,7 @@ func (h *HTTPServer) invokeWrenExtensionReviewed(ctx context.Context, initial Wr
 			return WrenExtensionCall{}, err
 		}
 	}
-	if err = knowledgeScopeAccess(saveCtx, h.service.Store.pool, current.WorkspaceID, account, current.WrenKnowledgeScope, false); err != nil {
+	if err = extensionScopeAccess(saveCtx, h.service.Store.pool, current.WorkspaceID, account, current.WrenKnowledgeScope, false); err != nil {
 		return WrenExtensionCall{}, err
 	}
 	return call, nil

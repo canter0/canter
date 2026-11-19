@@ -16,7 +16,7 @@ import (
 )
 
 const maxDictationBytes = 8 << 20
-const dictationModel = "nvidia/nemotron-3.5-transcribe"
+const dictationModel = "nvidia/parakeet-tdt-0.6b-v3"
 
 type WrenAudioConfig struct {
 	APIKey    string
@@ -89,6 +89,7 @@ func dictationWAVDuration(b []byte) (float64, error) {
 }
 
 func (h *HTTPServer) wrenDictation(w http.ResponseWriter, r *http.Request, p Principal, c Conversation) {
+	w.Header().Set("Cache-Control", "no-store")
 	s := h.service.Store
 	authorize := func() error {
 		if p.Account == nil || p.Installation != nil {
@@ -96,6 +97,9 @@ func (h *HTTPServer) wrenDictation(w http.ResponseWriter, r *http.Request, p Pri
 		}
 		if err := s.RequireWorkspaceWriter(r.Context(), c.WorkspaceID, p.Account.ID); err != nil {
 			return err
+		}
+		if c.ID == "" {
+			return nil
 		}
 		_, err := s.Conversation(r.Context(), c.WorkspaceID, p.Account.ID, c.ID)
 		return err

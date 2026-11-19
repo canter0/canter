@@ -21,6 +21,10 @@ type operatorToolPolicy struct {
 // decision; a name such as create_* must never imply read-only execution.
 func operatorPolicy(name string) (operatorToolPolicy, bool) {
 	switch name {
+	case "canter_manage_customizations", "canter_install_skill":
+		return operatorToolPolicy{Effect: "standing", RetrySafe: true}, true
+	case "canter_search_skills", "canter_inspect_skill", "canter_read_skill_file", "canter_find_plugin_tools":
+		return operatorToolPolicy{Effect: "read", RetrySafe: true}, true
 	case "canter_search_web", "canter_open_web":
 		// Read-only, but a request may have been billed before interruption.
 		return operatorToolPolicy{Effect: "web", RetrySafe: false}, true

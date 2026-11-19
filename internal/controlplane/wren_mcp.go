@@ -38,6 +38,7 @@ func extensionMCPName(name string) bool {
 // credential. Redirects, OAuth replays, standalone streams, sampling, roots and
 // elicitation are deliberately not enabled by this tool client.
 type extensionMCPTransport struct {
+	headers    map[string]string
 	base       http.RoundTripper
 	endpoint   string
 	credential string
@@ -51,11 +52,17 @@ func (t *extensionMCPTransport) RoundTrip(request *http.Request) (*http.Response
 	copy := request.Clone(request.Context())
 	copy.GetBody = nil
 	copy.Header.Del("Authorization")
+	for name, value := range t.headers {
+		copy.Header.Set(name, value)
+	}
 	if t.credential != "" {
 		copy.Header.Set("Authorization", "Bearer "+t.credential)
 	}
 	copy.Header.Set("User-Agent", "Canter-Connectors/1.0 (+https://canter.dev)")
 	response, err := t.base.RoundTrip(copy)
+	for name := range t.headers {
+		copy.Header.Del(name)
+	}
 	copy.Header.Del("Authorization")
 	if err != nil {
 		return nil, err
@@ -91,6 +98,9 @@ func (b *extensionMCPBody) Read(p []byte) (int, error) {
 }
 func extensionMCPSession(ctx context.Context, client *http.Client, endpoint, credential string) (*mcp.ClientSession, *extensionMCPTransport, error) {
 	transport := &extensionMCPTransport{base: client.Transport, endpoint: endpoint, credential: credential}
+	if configured, ok := ctx.Value(pluginHeaderContext{}).(pluginEndpointHeaders); ok && configured.Endpoint == endpoint {
+		transport.headers = configured.Headers
+	}
 	isolated := *client
 	isolated.Transport = transport
 	isolated.Timeout = 40 * time.Second
@@ -141,7 +151,16 @@ func performWrenMCP(ctx context.Context, client *http.Client, tool WrenExtension
 			return nil, status, mcpUncertainStatus(tool), "The MCP result did not match the published output schema."
 		}
 	}
-	safe, _ := json.Marshal(extensionRedactJSON(document, credential))
+	document = extensionRedactJSON(document, credential)
+	if configured, ok := ctx.Value(pluginHeaderContext{}).(pluginEndpointHeaders); ok {
+		for _, value := range configured.Headers {
+			document = extensionRedactJSON(document, value)
+			if strings.HasPrefix(value, "Bearer ") {
+				document = extensionRedactJSON(document, strings.TrimPrefix(value, "Bearer "))
+			}
+		}
+	}
+	safe, _ := json.Marshal(document)
 	return safe, status, "completed", ""
 }
 func mcpUncertainStatus(tool WrenExtensionTool) string {

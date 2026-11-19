@@ -4,12 +4,12 @@ import {useRef,useState,type FormEvent} from "react";
 import {canterFetch} from "@/lib/canter-api";
 import {notifyWorkUpdate,workBase} from "@/lib/wren-work";
 import type {ExtensionTool,WrenExtension,WrenAppAccount,ExtensionInstallation} from "@/lib/wren-extensions";
-import type {KnowledgeTarget} from "@/lib/wren-knowledge";
+import type {ExtensionTarget} from "@/lib/wren-knowledge";
 import styles from "./wren-extensions-panel.module.css";
 
 export type MCPDiscovery={name:string;origin:string;endpoint:string;auth:"none"|"bearer";tools:ExtensionTool[];warnings:string[]};
-export function WrenMCPConnection({workspaceId,onSaved,initialDiscovery,appAccount,target,onInstalled}:{workspaceId:string;onSaved:()=>void;initialDiscovery?:MCPDiscovery;appAccount?:WrenAppAccount;target?:KnowledgeTarget|null;onInstalled?:(value:ExtensionInstallation)=>void}){
- const [endpoint,setEndpoint]=useState(""),[token,setToken]=useState(""),[discovery,setDiscovery]=useState<MCPDiscovery|null>(initialDiscovery??null);
+export function WrenMCPConnection({workspaceId,onSaved,initialDiscovery,initialEndpoint="",appAccount,target,onInstalled}:{workspaceId:string;onSaved:()=>void;initialDiscovery?:MCPDiscovery;initialEndpoint?:string;appAccount?:WrenAppAccount;target?:ExtensionTarget|null;onInstalled?:(value:ExtensionInstallation)=>void}){
+ const [endpoint,setEndpoint]=useState(initialEndpoint),[token,setToken]=useState(""),[discovery,setDiscovery]=useState<MCPDiscovery|null>(initialDiscovery??null);
  const [name,setName]=useState(initialDiscovery?.name??""),[selected,setSelected]=useState<Record<string,ExtensionTool["impact"]>>({});
  const [requiresToken,setRequiresToken]=useState(false);
  const [busy,setBusy]=useState(false),[error,setError]=useState(""),[saved,setSaved]=useState(false);

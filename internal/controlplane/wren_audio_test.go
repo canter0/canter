@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -48,6 +49,72 @@ func TestDictationWAVValidatesActualDurationAndContainer(t *testing.T) {
 		}
 	}
 }
+
+func TestDraftDictationReservesAllowanceWithoutCreatingConversation(t *testing.T) {
+	s, c, token := operatorFixture(t)
+	ctx := context.Background()
+	if err := s.ConfigureWrenAIAllowance(ctx, c.WorkspaceID, 1000); err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	h := NewHTTPServer(&Service{Store: s}, HTTPConfig{PublicURL: "https://canter.test", AIUsage: WrenAIUsageConfig{Enforce: true, KindEstimatesMicroUSD: map[string]int64{"dictation": 100}}, Audio: WrenAudioConfig{APIKey: "private-key", transport: audioRoundTrip(func(r *http.Request) (*http.Response, error) {
+		calls++
+		var body struct {
+			Model string `json:"model"`
+		}
+		if json.NewDecoder(r.Body).Decode(&body) != nil || body.Model != "nvidia/parakeet-tdt-0.6b-v3" {
+			t.Fatal("wrong transcription model")
+		}
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"text":"Create a hook.","usage":{"cost":0.00001}}`)), Header: make(http.Header)}, nil
+	})}})
+	call := func(method string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(method, "/v1/workspaces/"+c.WorkspaceID+"/dictation", bytes.NewReader(audioTestWAV(1)))
+		r.AddCookie(&http.Cookie{Name: "canter_session", Value: token})
+		r.Header.Set("Origin", "https://canter.test")
+		r.Header.Set("Content-Type", "audio/wav")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		return w
+	}
+	var before, after int
+	if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM operator_conversations WHERE workspace_id=$1`, c.WorkspaceID).Scan(&before); err != nil {
+		t.Fatal(err)
+	}
+	if w := call("GET"); w.Code != 200 || !strings.Contains(w.Body.String(), `"enabled":true`) {
+		t.Fatalf("draft readiness: %d %s", w.Code, w.Body.String())
+	}
+	if w := call("POST"); w.Code != 200 || !strings.Contains(w.Body.String(), `"sent":false`) || !strings.Contains(w.Body.String(), "Create a hook.") {
+		t.Fatalf("draft transcript: %d %s", w.Code, w.Body.String())
+	}
+	if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM operator_conversations WHERE workspace_id=$1`, c.WorkspaceID).Scan(&after); err != nil || before != after {
+		t.Fatalf("dictation created a conversation: %v", err)
+	}
+	allowance, err := s.WrenAIAllowance(ctx, c.WorkspaceID)
+	if err != nil || allowance.SpentMicroUSD != 10 || allowance.HeldMicroUSD != 0 || calls != 1 {
+		t.Fatalf("unmetered draft dictation: %+v calls=%d err=%v", allowance, calls, err)
+	}
+	for _, kind := range []string{"media", "operator", "acp"} {
+		_, err = s.ReserveWrenAIUsage(ctx, WrenAIReservationInput{WorkspaceID: c.WorkspaceID, AccountID: c.AccountID, RequestKey: "not-a-dictation-" + kind, Kind: kind, Model: "test", AmountMicroUSD: 100})
+		if !errors.Is(err, ErrForbidden) {
+			t.Fatalf("%s escaped conversation scope: %v", kind, err)
+		}
+	}
+	if _, err = s.pool.Exec(ctx, `UPDATE memberships SET role='viewer' WHERE account_id=$1 AND workspace_id=$2`, c.AccountID, c.WorkspaceID); err != nil {
+		t.Fatal(err)
+	}
+	if w := call("POST"); w.Code != 403 || calls != 1 {
+		t.Fatalf("viewer reached paid provider: %d calls=%d", w.Code, calls)
+	}
+	if _, err = s.pool.Exec(ctx, `UPDATE memberships SET role='owner' WHERE account_id=$1 AND workspace_id=$2`, c.AccountID, c.WorkspaceID); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.ConfigureWrenAIAllowance(ctx, c.WorkspaceID, 10); err != nil {
+		t.Fatal(err)
+	}
+	if w := call("POST"); w.Code != 429 || calls != 1 {
+		t.Fatalf("exhausted allowance reached provider: %d %s calls=%d", w.Code, w.Body.String(), calls)
+	}
+}
 func TestWrenAudioHTTPAuthorizationLimitsAndEditableTranscript(t *testing.T) {
 	s, c, token := operatorFixture(t)
 	ctx := context.Background()
@@ -64,7 +131,7 @@ func TestWrenAudioHTTPAuthorizationLimitsAndEditableTranscript(t *testing.T) {
 				Format string `json:"format"`
 			} `json:"input_audio"`
 		}
-		if json.NewDecoder(r.Body).Decode(&body) != nil || body.Model != "nvidia/nemotron-3.5-transcribe" || body.Audio.Format != "wav" || body.Audio.Data == "" {
+		if json.NewDecoder(r.Body).Decode(&body) != nil || body.Model != "nvidia/parakeet-tdt-0.6b-v3" || body.Audio.Format != "wav" || body.Audio.Data == "" {
 			t.Fatal("wrong fixedmodel/audio")
 		}
 		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"text":"Draft a website review."}`)), Header: make(http.Header)}, nil

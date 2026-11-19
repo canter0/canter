@@ -95,22 +95,24 @@ function dictationError(cause: unknown): string {
 export function useWrenDictation({
   workspaceId,
   conversationId,
+  draftScope,
   accountId,
   disabled,
   onTranscript,
 }: {
   workspaceId?: string;
   conversationId?: string;
+  draftScope?: string;
   accountId?: string;
   disabled: boolean;
   onTranscript: (text: string) => boolean;
 }) {
   const scope =
-    workspaceId && conversationId && accountId
-      ? `${accountId}:${workspaceId}:${conversationId}`
+    workspaceId && accountId
+      ? `${accountId}:${workspaceId}:${conversationId??"draft"}:${draftScope??""}`
       : "";
   const endpoint = scope
-    ? `/workspaces/${encodeURIComponent(workspaceId!)}/conversations/${encodeURIComponent(conversationId!)}/dictation`
+    ? `/workspaces/${encodeURIComponent(workspaceId!)}${conversationId?`/conversations/${encodeURIComponent(conversationId)}`:""}/dictation`
     : "";
   const [stored, setStored] = useState<State>(empty),
     [retry, setRetry] = useState(0);
@@ -174,7 +176,7 @@ export function useWrenDictation({
             scope,
             checked: true,
             reason: !endpoint
-              ? "Open a conversation to dictate a message."
+              ? "Select a workspace to dictate a message."
               : disabled
                 ? "Dictation is unavailable while this composer is disabled."
                 : "Microphone recording is not supported in this browser.",

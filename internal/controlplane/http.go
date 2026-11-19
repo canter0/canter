@@ -361,6 +361,10 @@ func nodeRequestIsHTTPS(r *http.Request) bool {
 }
 
 func (h *HTTPServer) auth(w http.ResponseWriter, r *http.Request, parts []string) {
+	if len(parts) == 2 && parts[0] == "plugin-oauth" && parts[1] == "callback" {
+		h.pluginOAuthCallback(w, r)
+		return
+	}
 	if len(parts) == 2 && parts[0] == "app-oauth" && parts[1] == "callback" {
 		h.appOAuthCallback(w, r)
 		return
@@ -731,12 +735,33 @@ func (h *HTTPServer) workspaces(w http.ResponseWriter, r *http.Request, parts []
 		writeStoreError(w, err)
 		return
 	}
-	if !h.service.Store.wrensAvailable() && (parts[1] == "wrens" || parts[1] == "rooms" || parts[1] == "computers" || parts[1] == "app-accounts" || (strings.HasPrefix(parts[1], "wren-") && parts[1] != "wren-members")) {
+	if !h.service.Store.wrensAvailable() && (parts[1] == "wrens" || parts[1] == "rooms" || parts[1] == "computers" || (strings.HasPrefix(parts[1], "wren-") && parts[1] != "wren-members" && parts[1] != "wren-extensions")) {
 		writeError(w, http.StatusNotFound, ErrNotFound)
 		return
 	}
 	if parts[1] == "ai-usage" && len(parts) == 2 {
 		h.workspaceWrenAIUsage(w, r, p, workspaceID)
+		return
+	}
+	if parts[1] == "dictation" && len(parts) == 2 {
+		h.wrenDictation(w, r, p, Conversation{WorkspaceID: workspaceID})
+		return
+	}
+	if parts[1] == "customizations" {
+		h.workspaceCustomizations(w, r, p, workspaceID, parts[2:])
+		return
+	}
+	if parts[1] == "plugins" {
+		h.workspacePlugins(w, r, p, workspaceID, parts[2:])
+		return
+	}
+	if parts[1] == "plugin-marketplace" && len(parts) == 2 && r.Method == http.MethodGet {
+		catalog, err := currentPluginMarketplace(r.Context())
+		if err != nil {
+			writeStoreError(w, err)
+			return
+		}
+		writeJSON(w, 200, catalog)
 		return
 	}
 	if parts[1] == "agent-settings" && len(parts) == 2 {

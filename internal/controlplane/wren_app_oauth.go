@@ -170,6 +170,15 @@ func appNextPath(value string) string {
 		u.Fragment = ""
 		return u.String()
 	}
+	if u.Path == "/app/account/connections" {
+		q := url.Values{}
+		if conversation := u.Query().Get("conversation"); strings.HasPrefix(conversation, "conv_") {
+			q.Set("conversation", conversation)
+		}
+		u.RawQuery = q.Encode()
+		u.Fragment = ""
+		return u.String()
+	}
 	if strings.HasPrefix(u.Path, "/app/wrens") {
 		q := url.Values{"apps": []string{"1"}}
 		u.RawQuery = q.Encode()

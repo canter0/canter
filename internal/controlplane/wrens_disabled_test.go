@@ -112,12 +112,12 @@ func TestWrensDisabledRouteGuard(t *testing.T) {
 		return w
 	}
 
-	for _, segment := range []string{"wrens", "rooms", "computers", "app-accounts", "wren-read", "wren-search", "wren-media", "wren-templates"} {
+	for _, segment := range []string{"wrens", "rooms", "computers", "wren-read", "wren-search", "wren-media", "wren-templates"} {
 		if w := request(segment); w.Code != http.StatusNotFound {
 			t.Fatalf("disabled wrens route %q: %d %s", segment, w.Code, w.Body.String())
 		}
 	}
-	for _, segment := range []string{"sandboxes", "super-sandboxes", "conversations", "members", "wren-members", "ci"} {
+	for _, segment := range []string{"sandboxes", "super-sandboxes", "conversations", "members", "wren-members", "ci", "app-accounts", "wren-extensions", "customizations", "plugins"} {
 		if w := request(segment); w.Code != http.StatusOK {
 			t.Fatalf("non-wrens route %q failed: %d %s", segment, w.Code, w.Body.String())
 		}
