@@ -257,8 +257,9 @@ func (h *HTTPServer) ciRunnerBootstrapHTTP(w http.ResponseWriter, r *http.Reques
 	ctx, cancel := context.WithTimeout(r.Context(), ciBootstrapHandlerBudget)
 	defer cancel()
 	store := h.service.Store
-	admission := h.config.CI.Admission
-	profile := h.config.CI.Bootstrap.ProfileDigest
+	execution := h.ciExecutionConfig(ctx)
+	admission := execution.Admission
+	profile := execution.Bootstrap.ProfileDigest
 
 	// Authenticate the capability before touching the request body: an
 	// invalid credential must cost zero body, source, or enforcer work.
@@ -292,7 +293,7 @@ func (h *HTTPServer) ciRunnerBootstrapHTTP(w http.ResponseWriter, r *http.Reques
 
 	// The enforcer client exists before the claim so the independent stop
 	// is available even if the durable commit lands and the next RPC fails.
-	enforcer, err := h.ciAdmissionEnforcer()
+	enforcer, err := h.ciAdmissionEnforcer(ctx)
 	if err != nil {
 		ciBootstrapUnavailable(w)
 		return
@@ -410,7 +411,7 @@ func (h *HTTPServer) ciRunnerBootstrapHTTP(w http.ResponseWriter, r *http.Reques
 	// coincides with the read is caught either way. The marker is never
 	// rolled back and no JIT is reissued.
 	now = store.now()
-	if claims.ExpiresAt <= now.Unix() || !plan.SetupDeadlineAt.After(now) || ctx.Err() != nil {
+	if claims.ExpiresAt <= now.Unix() || !plan.SetupDeadlineAt.After(now) || !h.ciExecutionActive(ctx) {
 		ciBootstrapUnavailable(w)
 		return
 	}
@@ -427,7 +428,7 @@ func (h *HTTPServer) ciRunnerBootstrapHTTP(w http.ResponseWriter, r *http.Reques
 		EncodedJitConfig:    jit.EncodedJitConfig,
 		AdmissionCapability: admissionToken,
 	})
-	if err != nil || len(out) > ciBootstrapResponseMaxBytes {
+	if err != nil || len(out) > ciBootstrapResponseMaxBytes || !h.ciExecutionActive(ctx) {
 		ciBootstrapUnavailable(w)
 		return
 	}

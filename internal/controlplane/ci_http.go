@@ -101,10 +101,18 @@ func (h *HTTPServer) ciOverviewView(ctx context.Context, p Principal, workspaceI
 	}
 	cacheReady := h.config.CI.Cache != nil && h.config.CI.Cache.available(ctx)
 	pool := ciPoolOffline
-	if h.config.CI.Managed != nil {
+	if h.config.CI.ManagedService != nil {
+		pool = h.config.CI.ManagedService.pool(ctx)
+	} else if h.config.CI.Managed != nil {
 		pool = h.config.CI.Managed.Pool(ctx)
 	}
 	features := ciFeatureList(h.ciConfigured(), cacheReady)
+	logsAvailable := h.config.CI.Managed != nil && h.config.CI.Managed.logsAvailable()
+	if s := h.config.CI.ManagedService; s != nil {
+		s.mu.Lock()
+		logsAvailable = s.state == "running" && s.handle != nil && s.handle.config.Managed.logsAvailable()
+		s.mu.Unlock()
+	}
 	for i := range features {
 		if features[i].ID == "runner-pool" {
 			if pool.Ready {
@@ -116,7 +124,7 @@ func (h *HTTPServer) ciOverviewView(ctx context.Context, p Principal, workspaceI
 				features[i].Description = pool.Message
 			}
 		}
-		if features[i].ID == "job-logs" && h.config.CI.Managed != nil && h.config.CI.Managed.logsAvailable() {
+		if features[i].ID == "job-logs" && logsAvailable {
 			features[i].Status = "available"
 			features[i].Description = "Completed managed-job logs are collected from GitHub. Live console streaming is not enabled."
 		}

@@ -113,7 +113,7 @@ func newCIManagedRuntime(ctx context.Context, store *Store, compute ciManagedPro
 		return r, nil
 	}
 	// Run mode.
-	if len(cfg.SigningKey) != 32 {
+	if len(cfg.SigningKey) != 32 || string(cfg.SigningKey) == string(cfg.EnforcerToken) {
 		return nil, ErrConflict
 	}
 	if len(cfg.ProfileJSON) < 1 || len(cfg.ProfileJSON) > 32768 {
@@ -124,7 +124,7 @@ func newCIManagedRuntime(ctx context.Context, store *Store, compute ciManagedPro
 	}
 	profile, err := ciManagedRuntimeProfile(cfg.ProfileJSON)
 	if err != nil {
-		return nil, err
+		return nil, &ciManagedStartupError{reason: "profile_invalid"}
 	}
 	pu, err := url.Parse(profile.BootstrapURL)
 	if err != nil {
@@ -263,8 +263,22 @@ func (r *CIManagedRuntime) checkEnforcer(ctx context.Context) error {
 	hctx, cancel := context.WithTimeout(ctx, ciManagedDBBound)
 	defer cancel()
 	health, err := r.enforcer.health(hctx)
-	if err != nil || !health.Running || health.GitHubAppID != r.appID.Load() {
-		return ErrConflict
+	if err != nil {
+		var httpErr *ciEnforcerHTTPError
+		transient := errors.Is(err, errCIEnforcerTransport) ||
+			(errors.As(err, &httpErr) && (httpErr.status == http.StatusTooManyRequests ||
+				httpErr.status == http.StatusBadGateway || httpErr.status == http.StatusServiceUnavailable ||
+				httpErr.status == http.StatusGatewayTimeout))
+		if transient {
+			return &ciManagedStartupError{reason: "enforcer_unavailable", retryable: true}
+		}
+		return &ciManagedStartupError{reason: "invalid_configuration"}
+	}
+	if !health.Running {
+		return &ciManagedStartupError{reason: "enforcer_unavailable", retryable: true}
+	}
+	if health.GitHubAppID != r.appID.Load() {
+		return &ciManagedStartupError{reason: "enforcer_app_mismatch"}
 	}
 	return nil
 }
@@ -284,6 +298,10 @@ func (r *CIManagedRuntime) enforcerReady(ctx context.Context) bool {
 // returns nil; a stopped context is rejected before any worker starts;
 // concurrent calls are rejected via the atomic running flag.
 func (r *CIManagedRuntime) Run(ctx context.Context) error {
+	return r.run(ctx, nil)
+}
+
+func (r *CIManagedRuntime) run(ctx context.Context, started func()) error {
 	if r == nil || (r.mode != CIManagedRecover && r.mode != CIManagedRun) {
 		return nil
 	}
@@ -302,6 +320,9 @@ func (r *CIManagedRuntime) Run(ctx context.Context) error {
 	}
 	if r.mode != CIManagedRecover && r.scheduler == nil {
 		return ErrConflict
+	}
+	if started != nil {
+		started()
 	}
 	// Primary workers and the log collector share one child context: a
 	// stalled download is cancelled and joined with everything else before

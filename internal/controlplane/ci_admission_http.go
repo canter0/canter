@@ -145,7 +145,10 @@ type ciAdmissionDenyReceipt struct {
 }
 
 func (h *HTTPServer) ciAdmissionConfigured() bool {
-	cfg := h.config.CI.Admission
+	return ciAdmissionConfigValid(h.config.CI.Admission)
+}
+
+func ciAdmissionConfigValid(cfg *CIAdmissionConfig) bool {
 	if cfg == nil || len(cfg.SigningKey) < 32 || len(cfg.EnforcerToken) < 32 ||
 		string(cfg.SigningKey) == string(cfg.EnforcerToken) {
 		return false
@@ -156,8 +159,8 @@ func (h *HTTPServer) ciAdmissionConfigured() bool {
 	return true
 }
 
-func (h *HTTPServer) ciAdmissionEnforcer() (*ciEnforcerClient, error) {
-	cfg := h.config.CI.Admission
+func (h *HTTPServer) ciAdmissionEnforcer(ctx context.Context) (*ciEnforcerClient, error) {
+	cfg := h.ciExecutionConfig(ctx).Admission
 	return newCIEnforcerClient(cfg.EnforcerURL, cfg.EnforcerToken, cfg.HTTPClient, cfg.AllowLoopbackHTTP)
 }
 
@@ -201,7 +204,7 @@ func ciAdmissionDeny(w http.ResponseWriter, req ciAdmissionRequest) {
 func (h *HTTPServer) ciRunnerAdmissionHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	store := h.service.Store
-	cfg := h.config.CI.Admission
+	cfg := h.ciExecutionConfig(ctx).Admission
 
 	// Authenticate the capability before touching the request body: an
 	// invalid credential must cost zero body, source, or enforcer work.
@@ -289,7 +292,7 @@ func (h *HTTPServer) ciRunnerAdmissionHTTP(w http.ResponseWriter, r *http.Reques
 	}
 	planDigest, specDigest := spec.digests()
 
-	enforcer, err := h.ciAdmissionEnforcer()
+	enforcer, err := h.ciAdmissionEnforcer(ctx)
 	if err != nil {
 		ciAdmissionUnavailable(w)
 		return
@@ -411,13 +414,19 @@ func (h *HTTPServer) ciRunnerAdmissionHTTP(w http.ResponseWriter, r *http.Reques
 	// A managed run also returns the evidence capability as a response
 	// header only; the receipt JSON is unchanged. Mint failure denies the
 	// allow with a fixed 503 — the committed receipt is retried identically.
-	if h.config.CI.Managed != nil && h.config.CI.Managed.mode == CIManagedRun {
-		token, err := h.ciEvidenceAdmissionToken(workspace, runner, req, receipt, snapFinal)
+	managed := h.ciExecutionConfig(ctx).Managed
+	if managed != nil && managed.mode == CIManagedRun {
+		token, err := h.ciEvidenceAdmissionToken(ctx, workspace, runner, req, receipt, snapFinal)
 		if err != nil {
 			ciAdmissionUnavailable(w)
 			return
 		}
 		w.Header().Set(ciEvidenceHeader, token)
+	}
+	if !h.ciExecutionActive(ctx) {
+		w.Header().Del(ciEvidenceHeader)
+		ciAdmissionUnavailable(w)
+		return
 	}
 	ciAdmissionWriteReceipt(w, http.StatusOK, receipt)
 }

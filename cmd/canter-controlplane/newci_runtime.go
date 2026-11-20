@@ -22,6 +22,25 @@ type ciStartupConfig struct {
 	PublicURL string
 }
 
+func ciCacheStartupConfigFromEnv(getenv func(string) string) (ciStartupConfig, error) {
+	return ciStartupConfigFromEnv(func(name string) string {
+		if name == "CANTER_CI_MANAGED_MODE" {
+			return "off"
+		}
+		return getenv(name)
+	})
+}
+
+func ciManagedStartupConfigFromEnv(getenv func(string) string) (controlplane.CIManagedRuntimeConfig, error) {
+	cfg, err := ciStartupConfigFromEnv(func(name string) string {
+		if name == "CANTER_CI_CACHE_ROOT" {
+			return ""
+		}
+		return getenv(name)
+	})
+	return cfg.Managed, err
+}
+
 // ciStartupConfigFromEnv loads CI startup configuration. The managed mode is
 // trimmed but case-sensitive; empty or "off" ignores every other managed
 // field and reads no files. Errors name only the environment variable, never
