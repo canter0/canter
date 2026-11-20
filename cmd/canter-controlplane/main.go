@@ -19,7 +19,6 @@ import (
 
 	"github.com/canter0/canter/internal/controlplane"
 	"github.com/canter0/canter/internal/envfile"
-	"github.com/canter0/canter/internal/provider/compute"
 	"github.com/canter0/canter/sdk"
 )
 
@@ -139,30 +138,13 @@ func main() {
 	if err := controlplane.ValidateCIConfig(ciConfig); err != nil {
 		log.Fatal(err)
 	}
-	startup, err := ciStartupConfigFromEnv(os.Getenv)
+	startup, err := ciCacheStartupConfigFromEnv(os.Getenv)
 	if err != nil {
 		log.Fatal(err)
 	}
-	var ciRuntime *controlplane.CIManagedRuntime
+	managedCI := ciManagedServiceFromEnv(store, ciConfig, os.Getenv)
+	ciConfig.ManagedService = managedCI
 	var ciCache *controlplane.CICacheServer
-	if startup.Managed.Mode != "" && startup.Managed.Mode != controlplane.CIManagedOff {
-		provider, providerErr := compute.NewFromEnv()
-		if providerErr != nil {
-			log.Fatalf("initialize CI compute provider: %v", providerErr)
-		}
-		if region := strings.TrimSpace(os.Getenv("CANTER_CI_COMPUTE_REGION")); region != "" {
-			provider = provider.WithRegion(region)
-		}
-		ciRuntime, err = controlplane.NewCIManagedRuntime(ctx, store, provider, ciConfig, startup.Managed)
-		if err != nil {
-			log.Fatalf("initialize managed CI runtime: %v", err)
-		}
-		ciConfig = ciRuntime.CIConfig(ciConfig)
-		// The runtime and HTTP config hold their own copies; clear the
-		// loader's original key/token buffers.
-		clear(startup.Managed.SigningKey)
-		clear(startup.Managed.EnforcerToken)
-	}
 	if startup.CacheRoot != "" {
 		ciCache, err = controlplane.NewCICacheServer(ctx, controlplane.CICacheServerConfig{
 			Store: store, RootDir: startup.CacheRoot, PublicURL: startup.PublicURL, GitHub: ciConfig,
@@ -394,16 +376,11 @@ func main() {
 	}
 	log.Printf("Canter control plane listening on %s", addr)
 	var ciWorkers sync.WaitGroup
-	if ciRuntime != nil {
-		ciWorkers.Add(1)
-		go func() {
-			defer ciWorkers.Done()
-			if err := ciRuntime.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
-				log.Printf("managed CI runtime stopped: %v", err)
-				stop()
-			}
-		}()
-	}
+	ciWorkers.Add(1)
+	go func() {
+		defer ciWorkers.Done()
+		_ = managedCI.Run(ctx)
+	}()
 	if ciCache != nil {
 		ciWorkers.Add(1)
 		go func() {

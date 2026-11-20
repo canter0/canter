@@ -331,3 +331,25 @@ func TestCIStartupEnforcerLoopbackHTTP(t *testing.T) {
 		t.Fatalf("invalid value must be rejected by name: %v", err)
 	}
 }
+
+func TestCIStartupManagedAndCacheFailureIsolation(t *testing.T) {
+	env := ciRunEnv(t, t.TempDir())
+	env["CANTER_CI_MANAGED_PROFILE_FILE"] = "/missing/SECRET-profile"
+	env["CANTER_CI_CACHE_ROOT"] = t.TempDir()
+	cache, err := ciCacheStartupConfigFromEnv(ciEnvMap(env))
+	if err != nil || cache.CacheRoot != env["CANTER_CI_CACHE_ROOT"] {
+		t.Fatalf("managed failure blocked independent cache loading: %v", err)
+	}
+	if _, err := ciManagedStartupConfigFromEnv(ciEnvMap(env)); err == nil || strings.Contains(err.Error(), "SECRET") {
+		t.Fatalf("managed configuration was not rejected safely: %v", err)
+	}
+	env = ciRunEnv(t, t.TempDir())
+	env["CANTER_CI_CACHE_ROOT"] = "invalid/relative/cache"
+	if _, err := ciCacheStartupConfigFromEnv(ciEnvMap(env)); err == nil {
+		t.Fatal("cache validation was weakened")
+	}
+	managed, err := ciManagedStartupConfigFromEnv(ciEnvMap(env))
+	if err != nil || managed.Mode != "run" {
+		t.Fatalf("cache failure poisoned managed loading: %v", err)
+	}
+}

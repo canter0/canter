@@ -67,6 +67,9 @@ type CIConfig struct {
 	// offline; a configured runtime reports live pool readiness and owns the
 	// admission/bootstrap endpoints through CIConfig.
 	Managed *CIManagedRuntime
+	// ManagedService owns production managed execution. When supplied, it is
+	// authoritative and direct Managed/Admission/Bootstrap fields cannot bypass it.
+	ManagedService *CIManagedService
 }
 
 // CIBootstrapConfig carries the provisioning profile digest that scopes the
