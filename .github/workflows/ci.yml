@@ -17,6 +17,7 @@ permissions:
 jobs:
   ci-tools:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - run: python3 -m unittest discover -s scripts -p 'test_canter_ci_*.py'
@@ -24,6 +25,7 @@ jobs:
 
   sdks:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
@@ -51,6 +53,7 @@ jobs:
           - mode: race
             test_flags: "-race"
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     services:
       postgres:
         # Docker's official distribution avoids shared-runner Docker Hub limits.
@@ -94,6 +97,7 @@ jobs:
     needs: go-suites
     if: always()
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Require both Go suites
         env:
@@ -106,6 +110,7 @@ jobs:
 
   web:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: web

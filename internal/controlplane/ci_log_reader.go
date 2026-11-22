@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"sort"
 	"strconv"
 	"strings"
 	"unicode"
@@ -109,22 +108,9 @@ func (s *Store) ciLogRuns(ctx context.Context, workspace, job string) ([]ciLogRu
 
 func pageCILogs(runs []ciLogRun, offset int, query string, requestedMatch int) ciLogPage {
 	result := ciLogPage{Lines: []ciLogLine{}}
-	var lines []ciLogLine
 	matchByte := -1
-	for _, run := range runs {
-		for text, cursor := run.text, run.offset; text != ""; {
-			end := min(len(text), ciLogLineBytes)
-			if newline := strings.IndexByte(text[:end], '\n'); newline >= 0 {
-				end = newline + 1
-			} else {
-				for end < len(text) && !utf8.RuneStart(text[end]) {
-					end--
-				}
-			}
-			lines = append(lines, ciLogLine{Offset: cursor, Stream: run.stream, Text: text[:end]})
-			text, cursor = text[end:], cursor+end
-		}
-		if query != "" {
+	if query != "" {
+		for _, run := range runs {
 			for start := 0; start < len(run.text); {
 				relative := strings.Index(run.text[start:], query)
 				if relative < 0 {
@@ -139,21 +125,48 @@ func pageCILogs(runs []ciLogRun, offset int, query string, requestedMatch int) c
 			}
 		}
 	}
-	if matchByte >= 0 {
-		line := sort.Search(len(lines), func(i int) bool { return lines[i].Offset > matchByte }) - 1
-		offset = lines[line].Offset
-		result.Match, result.MatchOffset = &requestedMatch, &offset
+	var previous [ciLogRangeLines]int
+	skipped := 0
+	for _, run := range runs {
+		for text, cursor := run.text, run.offset; text != ""; {
+			end := min(len(text), ciLogLineBytes)
+			if newline := strings.IndexByte(text[:end], '\n'); newline >= 0 {
+				end = newline + 1
+			} else {
+				for end < len(text) && !utf8.RuneStart(text[end]) {
+					end--
+				}
+			}
+			// If search found a match, start on the line containing it or the
+			// following lines. Otherwise retain byte-offset paging semantics.
+			if (matchByte >= 0 && cursor+end <= matchByte) || (matchByte < 0 && cursor < offset) {
+				previous[skipped%ciLogRangeLines] = cursor
+				skipped++
+			} else {
+				if len(result.Lines) == ciLogRangeLines {
+					next := cursor
+					result.Next = &next
+					return result
+				}
+				if len(result.Lines) == 0 {
+					result.Lines = make([]ciLogLine, 0, ciLogRangeLines)
+					if matchByte >= 0 {
+						matchOffset := cursor
+						result.Match, result.MatchOffset = &requestedMatch, &matchOffset
+					}
+					if skipped > 0 {
+						prev := previous[max(0, skipped-ciLogRangeLines)%ciLogRangeLines]
+						result.Previous = &prev
+					}
+				}
+				result.Lines = append(result.Lines, ciLogLine{Offset: cursor, Stream: run.stream, Text: text[:end]})
+			}
+			text, cursor = text[end:], cursor+end
+		}
 	}
-	start := sort.Search(len(lines), func(i int) bool { return lines[i].Offset >= offset })
-	end := min(len(lines), start+ciLogRangeLines)
-	if start > 0 {
-		result.Previous = &lines[max(0, start-ciLogRangeLines)].Offset
-	}
-	if end < len(lines) {
-		result.Next = &lines[end].Offset
-	}
-	if start < end {
-		result.Lines = lines[start:end]
+	if len(result.Lines) == 0 && skipped > 0 {
+		prev := previous[max(0, skipped-ciLogRangeLines)%ciLogRangeLines]
+		result.Previous = &prev
 	}
 	return result
 }

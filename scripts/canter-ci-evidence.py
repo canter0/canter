@@ -7,6 +7,7 @@ across all allocated CPUs. Network/OOM counters start at the admission baseline.
 """
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from datetime import datetime, timezone
 import hashlib
@@ -44,6 +45,8 @@ FRAME_MAX_BYTES = 8192
 POST_TIMEOUT_SECONDS = 5
 LOCAL_READ_TIMEOUT_SECONDS = 5
 LOCAL_BACKLOG = 4
+LOCAL_WORKERS = 4
+LOCAL_REPLY_TIMEOUT_SECONDS = 1
 LOCAL_SERVER_POLL_SECONDS = 0.2
 CLI_WAIT_SECONDS = 30
 REPORT_MAX_FILES = 64
@@ -749,8 +752,6 @@ class CIReporter:
     def _handle_conn(self, conn):
         try:
             conn.settimeout(None)
-            with self._conns_lock:
-                self._conns.add(conn)
             deadline = monotonic() + LOCAL_READ_TIMEOUT_SECONDS
             prefix = self._recv_exact(conn, FRAME_PREFIX_BYTES, deadline)
             length = struct.unpack('>I', prefix)[0]
@@ -759,6 +760,7 @@ class CIReporter:
             raw = self._recv_exact(conn, length, deadline)
             reply = self._post_raw(raw)
             try:
+                conn.settimeout(LOCAL_REPLY_TIMEOUT_SECONDS)
                 conn.sendall(reply)
             except OSError:
                 pass
@@ -774,21 +776,39 @@ class CIReporter:
 
     def _serve(self):
         listener = self._listener
-        while not (self._closing.is_set() or self._stop.is_set()):
+        slots = threading.BoundedSemaphore(LOCAL_WORKERS)
+
+        def handle(conn):
             try:
-                ready, _, _ = select.select(
-                    [listener], [], [], LOCAL_SERVER_POLL_SECONDS)
-            except (OSError, ValueError):
-                return
-            if not ready:
-                continue
-            try:
-                conn, _ = listener.accept()
-            except OSError:
-                if self._closing.is_set() or self._stop.is_set():
+                self._handle_conn(conn)
+            finally:
+                slots.release()
+
+        with ThreadPoolExecutor(max_workers=LOCAL_WORKERS) as workers:
+            while not (self._closing.is_set() or self._stop.is_set()):
+                try:
+                    ready, _, _ = select.select(
+                        [listener], [], [], LOCAL_SERVER_POLL_SECONDS)
+                except (OSError, ValueError):
                     return
-                continue
-            self._handle_conn(conn)
+                if not ready:
+                    continue
+                try:
+                    conn, _ = listener.accept()
+                except OSError:
+                    if self._closing.is_set() or self._stop.is_set():
+                        return
+                    continue
+                if not slots.acquire(blocking=False):
+                    conn.close()
+                    continue
+                with self._conns_lock:
+                    if self._closing.is_set() or self._stop.is_set():
+                        conn.close()
+                        slots.release()
+                        return
+                    self._conns.add(conn)
+                workers.submit(handle, conn)
 
     def _remove_socket(self):
         if self._sock_dev is None:
@@ -816,6 +836,10 @@ class CIReporter:
         with self._conns_lock:
             conns = list(self._conns)
         for conn in conns:
+            try:
+                conn.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
             try:
                 conn.close()
             except OSError:
