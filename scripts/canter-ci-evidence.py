@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Report guest CI metrics and JUnit; never authorize execution or billing."""
+"""Guest-reported CI measurements and workflow-reported JUnit data.
+
+These observations never authorize execution or determine billing. Missing
+observations stay missing; CPU is VM-wide execution utilization, normalized
+across all allocated CPUs. Network/OOM counters start at the admission baseline.
+"""
 
 import argparse
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
@@ -39,7 +44,6 @@ FRAME_MAX_BYTES = 8192
 POST_TIMEOUT_SECONDS = 5
 LOCAL_READ_TIMEOUT_SECONDS = 5
 LOCAL_BACKLOG = 4
-LOCAL_WORKERS = 4
 LOCAL_SERVER_POLL_SECONDS = 0.2
 CLI_WAIT_SECONDS = 30
 REPORT_MAX_FILES = 64
@@ -72,6 +76,7 @@ def _read_proc(root, name):
 
 
 def read_vm_counters(proc_root='/proc'):
+    """Read only host procfs, with independent missing-data handling."""
     out = {}
     try:
         row = next(line.split() for line in _read_proc(proc_root, 'stat').splitlines()
@@ -132,6 +137,7 @@ def read_vm_counters(proc_root='/proc'):
 
 
 def make_vm_metric(current, previous, baseline, at):
+    """CPU averages the interval; network/OOM are admission-relative totals."""
     out = {'at': at}
     if previous:
         values = [frame.get(key) for frame in (current, previous)
@@ -254,6 +260,7 @@ def parse_junit(raw):
 
 
 def read_junit_reports(paths):
+    """Read explicit regular files; cap aggregate bytes and unique cases."""
     if not isinstance(paths, (list, tuple)) or not 1 <= len(paths) <= REPORT_MAX_FILES:
         raise EvidenceError('invalid test report selection')
     total = 0
@@ -283,6 +290,7 @@ def read_junit_reports(paths):
 
 
 def encode_evidence_batch(metrics, tests, batch_id=None):
+    """Encode once; all retries must retain these exact bytes and batch ID."""
     if batch_id is None:
         batch_id = secrets.token_hex(32)
     if (not re.fullmatch(r'[0-9a-f]{64}', batch_id)
@@ -302,6 +310,7 @@ def encode_evidence_batch(metrics, tests, batch_id=None):
 
 
 def make_test_batches(tests):
+    """Partition without truncating cases or exceeding the exact wire limit."""
     if not isinstance(tests, list) or len(tests) > MAX_TESTS:
         raise EvidenceError('too many reported tests')
     packets = []
@@ -338,6 +347,7 @@ def utc_timestamp():
 
 
 def iter_vm_metrics(baseline, baseline_at, stop, monotonic_deadline):
+    """Advance observed counters even when a downstream best-effort post fails."""
     if stop.is_set() or monotonic() >= monotonic_deadline:
         return
     previous = baseline
@@ -560,6 +570,8 @@ def _decode_frame(raw):
 
 
 class _CombinedStop:
+    """Stop view for the root generator: parent stop OR reporter closing."""
+
     def __init__(self, *events):
         self._events = events
 
@@ -578,7 +590,9 @@ class _CombinedStop:
 
 
 class CIReporter:
-    """Private socket and sampling loop; token stays in memory and pipes."""
+    """Parent-owned evidence publisher: one private UDS listener plus the
+    root sampling generator. The token lives only in memory and anonymous
+    pipes; workflow reporters reach it only through the job-private socket."""
 
     def __init__(self, endpoint, frame, admission_dir, stop,
                  hard_deadline_unix_ms, allow_loopback_http=False):
@@ -735,6 +749,8 @@ class CIReporter:
     def _handle_conn(self, conn):
         try:
             conn.settimeout(None)
+            with self._conns_lock:
+                self._conns.add(conn)
             deadline = monotonic() + LOCAL_READ_TIMEOUT_SECONDS
             prefix = self._recv_exact(conn, FRAME_PREFIX_BYTES, deadline)
             length = struct.unpack('>I', prefix)[0]
@@ -743,19 +759,18 @@ class CIReporter:
             raw = self._recv_exact(conn, length, deadline)
             reply = self._post_raw(raw)
             try:
-                conn.settimeout(1)
                 conn.sendall(reply)
             except OSError:
                 pass
         except (OSError, EvidenceError):
             pass
         finally:
+            with self._conns_lock:
+                self._conns.discard(conn)
             try:
                 conn.close()
             except OSError:
                 pass
-            with self._conns_lock:
-                self._conns.discard(conn)
 
     def _serve(self):
         listener = self._listener
@@ -773,14 +788,7 @@ class CIReporter:
                 if self._closing.is_set() or self._stop.is_set():
                     return
                 continue
-            with self._conns_lock:
-                if (self._closing.is_set() or self._stop.is_set()
-                        or len(self._conns) >= LOCAL_WORKERS):
-                    conn.close()
-                    continue
-                self._conns.add(conn)
-                threading.Thread(target=self._handle_conn,
-                                 args=(conn,), daemon=True).start()
+            self._handle_conn(conn)
 
     def _remove_socket(self):
         if self._sock_dev is None:
@@ -808,10 +816,6 @@ class CIReporter:
         with self._conns_lock:
             conns = list(self._conns)
         for conn in conns:
-            try:
-                conn.shutdown(socket.SHUT_RDWR)
-            except OSError:
-                pass
             try:
                 conn.close()
             except OSError:
