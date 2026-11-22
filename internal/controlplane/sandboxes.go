@@ -37,12 +37,12 @@ type SandboxConfig struct {
 	// SuperSandboxReconcilePaused keeps the reconciler stopped for a release
 	// rollback window; persisted batches stay inspectable and cancellable.
 	SuperSandboxReconcilePaused bool
-	SSHSourceCIDR      string
-	FreeMax            int
-	PaidMax            int
-	FreeHoursPerMonth  int
-	IdleSleep          time.Duration
-	PreviewDomain      string
+	SSHSourceCIDR               string
+	FreeMax                     int
+	PaidMax                     int
+	FreeHoursPerMonth           int
+	IdleSleep                   time.Duration
+	PreviewDomain               string
 	// ImageID pins sandboxes to a prebuilt provider image (CANTER_SANDBOX_IMAGE).
 	ImageID string
 }
