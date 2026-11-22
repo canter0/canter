@@ -553,6 +553,35 @@ class ActivationTests(unittest.TestCase):
         run.assert_any_call('systemctl', 'start', 'canter-controlplane', 'canter-web')
 
 
+class RestoreUnitTests(unittest.TestCase):
+    def test_failed_replace_keeps_original_and_removes_staging(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            target = Path(temporary) / 'canter-harness.socket'
+            target.write_bytes(b'original-unit')
+            target.chmod(0o600)
+            staged = []
+
+            def failing_replace(self, destination):
+                staged.append((self.read_bytes(), self.stat().st_mode & 0o777,
+                               self.parent == target.parent))
+                raise OSError('replace failed')
+
+            with patch.object(Path, 'replace', failing_replace):
+                with self.assertRaisesRegex(OSError, 'replace failed'):
+                    release.restore_unit(target, b'new-unit')
+            self.assertEqual(target.read_bytes(), b'original-unit')
+            self.assertEqual(target.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(staged, [(b'new-unit', 0o644, True)])
+            self.assertEqual([path.name for path in Path(temporary).iterdir()],
+                             ['canter-harness.socket'])
+
+            release.restore_unit(target, b'new-unit')
+            self.assertEqual(target.read_bytes(), b'new-unit')
+            self.assertEqual(target.stat().st_mode & 0o777, 0o644)
+            release.restore_unit(target, None)
+            self.assertFalse(target.exists())
+
+
 class WebAccountTests(unittest.TestCase):
     def test_creates_missing_group_and_user_with_mocked_account_tools(self):
         web_group = grp.struct_group(('canter-web', 'x', 321, []))

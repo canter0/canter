@@ -273,6 +273,9 @@ var customizationsMigration string
 //go:embed migrations/095_agent_customizations.sql
 var agentCustomizationsMigration string
 
+//go:embed migrations/096_super_sandbox_reliability.sql
+var superSandboxReliabilityMigration string
+
 //go:embed migrations/091_sandbox_job_history.sql
 var sandboxJobHistoryMigration string
 
@@ -1036,6 +1039,7 @@ func (s *Store) Migrate(ctx context.Context) error {
 		{"093_operator_extensions", operatorExtensionsMigration},
 		{"094_customizations", customizationsMigration},
 		{"095_agent_customizations", agentCustomizationsMigration},
+		{"096_super_sandbox_reliability", superSandboxReliabilityMigration},
 	} {
 		var inserted string
 		err := tx.QueryRow(ctx, `INSERT INTO schema_migrations(version) VALUES($1) ON CONFLICT DO NOTHING RETURNING version`, migration.version).Scan(&inserted)

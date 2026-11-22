@@ -322,6 +322,20 @@ func main() {
 	default:
 		log.Fatal("CANTER_SANDBOX_DIRECTORY_TRANSFERS_ENABLED must be true or false")
 	}
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("CANTER_SUPER_SANDBOX_ADMISSION_DISABLED"))) {
+	case "", "false":
+	case "true":
+		sandboxes.SuperSandboxAdmissionDisabled = true
+	default:
+		log.Fatal("CANTER_SUPER_SANDBOX_ADMISSION_DISABLED must be true or false")
+	}
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("CANTER_SUPER_SANDBOX_RECONCILE_PAUSED"))) {
+	case "", "false":
+	case "true":
+		sandboxes.SuperSandboxReconcilePaused = true
+	default:
+		log.Fatal("CANTER_SUPER_SANDBOX_RECONCILE_PAUSED must be true or false")
+	}
 	handler := controlplane.NewHTTPServer(service, controlplane.HTTPConfig{AIUsage: aiUsage, Media: controlplane.WrenMediaConfig{Model: os.Getenv("CANTER_WREN_IMAGE_MODEL")}, Audio: controlplane.WrenAudioConfigFromEnv(), Harnesses: harnesses, Computers: computers, Sandboxes: sandboxes, Auth: auth, PublicURL: publicURL, CookieSecure: cookieSecure, RequireInvite: strings.EqualFold(os.Getenv("CANTER_REQUIRE_INVITE"), "true"), GoogleOAuth: googleOAuth, GitHubOAuth: githubOAuth, GitHubApp: githubApp, GitHubAppSlug: os.Getenv("CANTER_GITHUB_APP_SLUG"), CI: ciConfig, Billing: billing, Operator: operator, Secrets: vault})
 	go func() { _ = handler.(*controlplane.HTTPServer).RunAuthMaintenance(ctx) }()
 	go func() { _ = handler.(*controlplane.HTTPServer).RunWrenMessagingMaintenance(ctx) }()
@@ -337,12 +351,16 @@ func main() {
 			stop()
 		}
 	}()
-	go func() {
-		if err := (&controlplane.SuperSandboxDispatcher{Server: handler.(*controlplane.HTTPServer)}).Run(ctx); err != nil && ctx.Err() == nil {
-			log.Printf("super sandbox dispatcher stopped: %v", err)
-			stop()
-		}
-	}()
+	// A paused reconciler is a release-safety window, not a shutdown: the HTTP
+	// surface stays up so persisted batches remain inspectable and cancellable.
+	if !sandboxes.SuperSandboxReconcilePaused {
+		go func() {
+			if err := (&controlplane.SuperSandboxDispatcher{Server: handler.(*controlplane.HTTPServer)}).Run(ctx); err != nil && ctx.Err() == nil {
+				log.Printf("super sandbox dispatcher stopped: %v", err)
+				stop()
+			}
+		}()
+	}
 
 	go func() {
 		if err := (&controlplane.WrenHarnessDispatcher{Server: handler.(*controlplane.HTTPServer)}).Run(ctx); err != nil && ctx.Err() == nil {

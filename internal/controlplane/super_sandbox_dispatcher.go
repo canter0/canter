@@ -22,7 +22,23 @@ type SuperSandboxDispatcher struct {
 	// client is only a test seam. Production always uses the generation-fenced
 	// sandbox client (including secret dialing and setup gates).
 	client func(context.Context, Sandbox) (sandboxAgentClient, error)
+	// observeTimeout bounds one guest observation; a test seam, default 10s.
+	observeTimeout time.Duration
+	// pendingRuns is a test seam for queue-scan failures; nil uses pending.
+	pendingRuns func(context.Context) ([][2]string, error)
 }
+
+// Task-state reason codes persisted on uncertain or evidence-closed tasks.
+// Keep them generic: never raw guest errors or command output.
+const (
+	superSandboxReasonMissingExitCode  = "missing_exit_code"
+	superSandboxReasonWorkerInterrupt  = "worker_interrupted"
+	superSandboxReasonUnconfirmed      = "receipt_unconfirmed"
+	superSandboxReasonUnobservable     = "worker_unobservable"
+	superSandboxReasonGenerationChange = "generation_changed"
+	superSandboxReasonWorkerRemoved    = "worker_removed"
+	superSandboxReasonStartRejected    = "start_rejected"
+)
 
 func (d *SuperSandboxDispatcher) Run(ctx context.Context) error {
 	if d.Server == nil {
@@ -43,13 +59,50 @@ func (d *SuperSandboxDispatcher) Run(ctx context.Context) error {
 	completed := make(chan string, concurrency)
 	var queue [][2]string
 	poll := true
+	// A failing queue scan is a degraded scheduler, not a fatal server error:
+	// back off (2s doubling to 30s) and keep joining in-flight runs.
+	var backoff time.Duration
 	for {
 		// Even with the feature flag withdrawn, observe and cancel persisted
 		// active work. Do not scan/hot-spin while all four slots are occupied.
 		if poll && len(inflight) < concurrency {
-			items, err := d.pending(workerCtx)
+			pending := d.pending
+			if d.pendingRuns != nil {
+				pending = d.pendingRuns
+			}
+			items, err := pending(workerCtx)
 			if err != nil {
-				return err
+				if workerCtx.Err() != nil {
+					return workerCtx.Err()
+				}
+				if backoff == 0 {
+					slog.Error("super sandbox queue scan failed; scheduling degraded until recovery", "error", err)
+					backoff = 2 * time.Second
+				} else if backoff < 30*time.Second {
+					backoff *= 2
+					if backoff > 30*time.Second {
+						backoff = 30 * time.Second
+					}
+				}
+				timer := time.NewTimer(backoff)
+				waiting := true
+				for waiting {
+					select {
+					case <-ctx.Done():
+						timer.Stop()
+						return ctx.Err()
+					case id := <-completed:
+						delete(inflight, id)
+					case <-timer.C:
+						waiting = false
+					}
+				}
+				poll = true
+				continue
+			}
+			if backoff != 0 {
+				slog.Info("super sandbox queue scan recovered")
+				backoff = 0
 			}
 			queue, poll = items, false
 		}
@@ -108,11 +161,19 @@ type superSandboxClaim struct {
 	Request    wrencomputer.JobRequest
 }
 
-// claim checks authority and cancellation in the same transaction that assigns
-// a worker and records BOTH the batch task and existing sandbox_jobs handle.
-// The workspace lock coordinates different runs and product/role mutations;
-// the partial unique index additionally enforces cross-replica exclusion.
+// claim preserves the original signature for existing callers; admission is
+// always enabled through this path.
 func (d *SuperSandboxDispatcher) claim(ctx context.Context, workspace, id string) (*superSandboxClaim, error) {
+	return d.gateClaim(ctx, workspace, id, true)
+}
+
+// gateClaim checks authority and cancellation in the same transaction that
+// may assign a worker and record BOTH the batch task and existing
+// sandbox_jobs handle. The workspace lock coordinates different runs and
+// product/role mutations; the partial unique index additionally enforces
+// cross-replica exclusion. With admit=false it only refreshes
+// authority/cancellation state and never assigns new work.
+func (d *SuperSandboxDispatcher) gateClaim(ctx context.Context, workspace, id string, admit bool) (*superSandboxClaim, error) {
 	s := d.Server.service.Store
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -127,10 +188,13 @@ func (d *SuperSandboxDispatcher) claim(ctx context.Context, workspace, id string
 	var account *string
 	var maxConcurrency int
 	var finished *time.Time
-	if err = tx.QueryRow(ctx, `SELECT state,creator_account_id,max_concurrency,finished_at FROM super_sandboxes WHERE workspace_id=$1 AND id=$2 FOR UPDATE`, workspace, id).Scan(&state, &account, &maxConcurrency, &finished); err != nil {
+	if err = tx.QueryRow(ctx, `SELECT id FROM super_sandboxes WHERE workspace_id=$1 AND id=$2 FOR UPDATE`, workspace, id).Scan(&locked); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrNotFound
 		}
+		return nil, err
+	}
+	if err = tx.QueryRow(ctx, `SELECT state,creator_account_id,max_concurrency,finished_at FROM super_sandboxes WHERE workspace_id=$1 AND id=$2`, workspace, id).Scan(&state, &account, &maxConcurrency, &finished); err != nil {
 		return nil, err
 	}
 	if finished != nil {
@@ -159,13 +223,21 @@ func (d *SuperSandboxDispatcher) claim(ctx context.Context, workspace, id string
 		}
 		return nil, tx.Commit(ctx)
 	}
-	// Uncertainty blocks further dispatch in this run rather than masking it
-	// with more work. Existing reservations are never refunded/reassigned.
-	if state == "needs_attention" {
+	if !admit {
+		return nil, tx.Commit(ctx)
+	}
+	// A persisted-but-unstarted claim is never launched while another task in
+	// this run is uncertain or in a rejection close: read the live task rows
+	// under this same lock, never the pre-aggregated batch state alone.
+	var blocked bool
+	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM super_sandbox_tasks WHERE run_id=$1 AND (state='unknown' OR (resolution_mode IS NOT NULL AND state IN ('starting','running'))))`, id).Scan(&blocked); err != nil {
+		return nil, err
+	}
+	if blocked {
 		return nil, tx.Commit(ctx)
 	}
 	var active int
-	if err = tx.QueryRow(ctx, `SELECT count(*) FROM super_sandbox_tasks WHERE run_id=$1 AND state IN ('starting','running','unknown')`, id).Scan(&active); err != nil {
+	if err = tx.QueryRow(ctx, `SELECT count(*) FROM super_sandbox_tasks WHERE run_id=$1 AND state IN ('starting','running')`, id).Scan(&active); err != nil {
 		return nil, err
 	}
 	if active >= maxConcurrency {
@@ -233,7 +305,9 @@ func (d *SuperSandboxDispatcher) claim(ctx context.Context, workspace, id string
 }
 
 func (d *SuperSandboxDispatcher) activeClaims(ctx context.Context, id string) ([]superSandboxClaim, error) {
-	rows, err := d.Server.service.Store.pool.Query(ctx, `SELECT id,worker_id,generation,job_request FROM super_sandbox_tasks WHERE run_id=$1 AND state IN ('starting','running','unknown') ORDER BY task_index LIMIT 16`, id)
+	// Rotate by least recently attempted, then task index, so a bounded pass
+	// cannot permanently starve late-index tasks.
+	rows, err := d.Server.service.Store.pool.Query(ctx, `SELECT id,worker_id,generation,job_request FROM super_sandbox_tasks WHERE run_id=$1 AND state IN ('starting','running','unknown') ORDER BY COALESCE(last_attempt_at,'-infinity'::timestamptz),task_index LIMIT 16`, id)
 	if err != nil {
 		return nil, err
 	}
@@ -266,58 +340,141 @@ func (d *SuperSandboxDispatcher) Reconcile(ctx context.Context, workspace, id st
 		err = errors.Join(err, stampErr)
 	}()
 	// Revalidate authority even when there is no new work, so revocation also
-	// stops owned active jobs. claim commits before any guest contact.
-	_, err = d.claim(ctx, workspace, id)
-	if err != nil {
+	// stops owned active jobs. Refresh only: no new admission this step.
+	if _, err = d.gateClaim(ctx, workspace, id, false); err != nil {
 		return err
 	}
 	claims, err := d.activeClaims(ctx, id)
 	if err != nil {
 		return err
 	}
+	// Observe independent tasks in up to two in-flight guest sequences. One
+	// failed or expired observation records its own uncertainty and must not
+	// abort the other peer observations in this pass.
+	var wg sync.WaitGroup
+	slots := make(chan struct{}, 2)
+	errCh := make(chan error, len(claims))
 	for _, c := range claims {
-		if err = d.observe(ctx, workspace, id, c); err != nil {
-			return err
+		c := c
+		if ctx.Err() != nil {
+			break
 		}
+		slots <- struct{}{}
+		if ctx.Err() != nil {
+			<-slots
+			break
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			defer func() { <-slots }()
+			errCh <- d.observe(ctx, workspace, id, c)
+		}()
 	}
-	for i := 0; i < 15; i++ {
-		c, err := d.claim(ctx, workspace, id)
-		if err != nil {
-			return err
+	wg.Wait()
+	close(errCh)
+	var obsErr error
+	for e := range errCh {
+		obsErr = errors.Join(obsErr, e)
+	}
+	err = errors.Join(err, obsErr)
+	if err != nil && ctx.Err() != nil {
+		return err
+	}
+	// Claim serially; observe each newly committed claim before the next so a
+	// committed-but-uncertain start blocks further launches this same pass.
+	for i := 0; i < 16; i++ {
+		c, cerr := d.claim(ctx, workspace, id)
+		if cerr != nil {
+			return errors.Join(err, cerr)
 		}
 		if c == nil {
 			break
 		}
-		if err = d.observe(ctx, workspace, id, *c); err != nil {
+		if cerr = d.observe(ctx, workspace, id, *c); cerr != nil {
+			return errors.Join(err, cerr)
+		}
+	}
+	return errors.Join(err, d.aggregate(ctx, workspace, id))
+}
+
+// withSuperSandboxRunLock serializes every receipt write behind the run's row
+// lock so committed evidence and the claim gate order correctly against each
+// other. The write deadline is derived from the RUN context: the observation
+// RPC may consume its own deadline without aborting peer work.
+func (d *SuperSandboxDispatcher) withSuperSandboxRunLock(ctx context.Context, workspace, id string, fn func(context.Context, pgx.Tx) error) error {
+	return d.withSuperSandboxLocks(ctx, workspace, id, false, fn)
+}
+
+// withSuperSandboxLocks optionally takes the workspace row lock first, then
+// the run row lock, matching gateClaim/CancelSuperSandbox lock order so a
+// mayStart gate can never deadlock against an in-flight claim or cancel.
+func (d *SuperSandboxDispatcher) withSuperSandboxLocks(ctx context.Context, workspace, id string, lockWorkspace bool, fn func(context.Context, pgx.Tx) error) error {
+	write, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	tx, err := d.Server.service.Store.pool.Begin(write)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(write)
+	if lockWorkspace {
+		var ws string
+		if err = tx.QueryRow(write, `SELECT id FROM workspaces WHERE id=$1 FOR UPDATE`, workspace).Scan(&ws); err != nil {
 			return err
 		}
 	}
-	return d.aggregate(ctx, workspace, id)
+	var locked string
+	if err = tx.QueryRow(write, `SELECT id FROM super_sandboxes WHERE workspace_id=$1 AND id=$2 FOR UPDATE`, workspace, id).Scan(&locked); err != nil {
+		return err
+	}
+	if err = fn(write, tx); err != nil {
+		return err
+	}
+	return tx.Commit(write)
 }
 
 func (d *SuperSandboxDispatcher) observe(ctx context.Context, workspace, id string, c superSandboxClaim) error {
 	s := d.Server.service.Store
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	v, err := s.Sandbox(ctx, workspace, c.WorkerID)
-	if err != nil {
-		return d.unknown(ctx, c, "Worker could not be observed")
+	// Stamp the attempt before any guest contact so rotation and starvation
+	// accounting reflect this pass even if the RPC hangs to its deadline.
+	if _, err := s.pool.Exec(ctx, `UPDATE super_sandbox_tasks SET last_attempt_at=now() WHERE id=$1`, c.TaskID); err != nil {
+		return err
 	}
+	timeout := d.observeTimeout
+	if timeout <= 0 {
+		timeout = 10 * time.Second
+	}
+	obsCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	// Confirmed removal of the exact assigned provider generation is the only
+	// receipt-free release: task and job handle settle in one transaction.
+	var removed bool
+	if err := s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM sandbox_destroyed_generations WHERE workspace_id=$1 AND sandbox_id=$2 AND generation=$3)`, workspace, c.WorkerID, c.Generation).Scan(&removed); err != nil {
+		return err
+	}
+	if removed {
+		return d.workerRemoved(ctx, workspace, id, c)
+	}
+	v, err := s.Sandbox(obsCtx, workspace, c.WorkerID)
+	if err != nil {
+		return d.unknownReason(ctx, workspace, id, c, superSandboxReasonUnobservable, "Worker could not be observed")
+	}
+	// Phase/generation alone is never release evidence; hold the reservation.
 	if v.Generation != c.Generation || v.Phase == "deleted" || v.Phase == "failed" {
-		return d.unknown(ctx, c, "Worker died or changed generation; the old command will not be replayed on a replacement")
+		return d.unknownReason(ctx, workspace, id, c, superSandboxReasonGenerationChange, "Worker died or changed generation; the old command will not be replayed on a replacement")
 	}
 	var client sandboxAgentClient
 	if d.client != nil {
-		client, err = d.client(ctx, v)
+		client, err = d.client(obsCtx, v)
 	} else {
-		client, err = d.Server.sandboxClient(ctx, v)
+		client, err = d.Server.sandboxClient(obsCtx, v)
 	}
 	if err != nil {
-		return d.unknown(ctx, c, "Worker connection is uncertain")
+		return d.unknownReason(ctx, workspace, id, c, superSandboxReasonUnobservable, "Worker connection is uncertain")
 	}
 	defer client.Close()
-	var state, taskState string
-	if err = s.pool.QueryRow(ctx, `SELECT r.state,t.state FROM super_sandboxes r JOIN super_sandbox_tasks t ON t.run_id=r.id WHERE r.workspace_id=$1 AND r.id=$2 AND t.id=$3`, workspace, id, c.TaskID).Scan(&state, &taskState); err != nil {
+	var state, taskState, resolution string
+	if err = s.pool.QueryRow(ctx, `SELECT r.state,t.state,COALESCE(t.resolution_mode,'') FROM super_sandboxes r JOIN super_sandbox_tasks t ON t.run_id=r.id WHERE r.workspace_id=$1 AND r.id=$2 AND t.id=$3`, workspace, id, c.TaskID).Scan(&state, &taskState, &resolution); err != nil {
 		return err
 	}
 	// Another replica may have positively finished this claim since the active
@@ -326,19 +483,68 @@ func (d *SuperSandboxDispatcher) observe(ctx context.Context, workspace, id stri
 		return nil
 	}
 	var job wrencomputer.Job
-	if state == "cancelling" {
+	switch {
+	case resolution == "close_rejected_start":
+		// Rejection close honors the persisted mode: retry only the close,
+		// never the launch. A matching cancelled receipt closes as failed; a
+		// matching terminal receipt is preserved instead.
+		job, err = client.StopJob(obsCtx, c.Request.ID)
+		if err != nil || job.ID != c.Request.ID {
+			return d.unknownReason(ctx, workspace, id, c, superSandboxReasonUnconfirmed, "Rejection close receipt could not be confirmed; worker remains reserved")
+		}
+		if job.Status == "interrupted" {
+			return d.unknownReason(ctx, workspace, id, c, superSandboxReasonWorkerInterrupt, "Rejection close was interrupted; worker remains reserved")
+		}
+		// Known guest terminal statuses only; ordinary release rules do not
+		// apply inside a rejection close.
+		receiptState, receiptTerminal := superSandboxJobState(job)
+		if job.Status == "completed" && job.ExitCode == nil {
+			return d.unknownReason(ctx, workspace, id, c, superSandboxReasonMissingExitCode, "Rejection close reported completion without an exit code; worker remains reserved")
+		}
+		if job.Status == "cancelled" {
+			return d.settle(ctx, workspace, id, c, "failed", superSandboxReasonStartRejected, "Start rejected; job closed", nil, "")
+		}
+		if receiptTerminal {
+			return d.settle(ctx, workspace, id, c, receiptState, "", superSandboxGuestError(job.Error), job.ExitCode, "")
+		}
+		return d.unknownReason(ctx, workspace, id, c, superSandboxReasonUnconfirmed, "Rejection close has not produced a terminal receipt; worker remains reserved")
+	case state == "cancelling":
 		// StopJob writes a guest cancellation tombstone even before StartJob.
 		// Thus a late in-flight start cannot resurrect the command.
-		job, err = client.StopJob(ctx, c.Request.ID)
-	} else {
-		job, err = client.Job(ctx, c.Request.ID)
+		job, err = client.StopJob(obsCtx, c.Request.ID)
+	default:
+		job, err = client.Job(obsCtx, c.Request.ID)
 		if err != nil || job.Status == "unknown" {
-			// Replay only the exact persisted request on the original generation.
-			// A transport error or not_found alone is never terminal evidence.
-			if probeErr := requireSandboxWorkflow(ctx, client); probeErr != nil {
-				return d.unknown(ctx, c, "Worker workflow capability could not be confirmed")
+			var remote *wrencomputer.Error
+			switch {
+			case err != nil && errors.As(err, &remote) && remote.Code == "not_found":
+				// Positive absence of the exact persisted ID: replay the
+				// original stored request, never a newly minted job.
+				if probeErr := requireSandboxWorkflow(obsCtx, client); probeErr != nil {
+					return d.unknownReason(ctx, workspace, id, c, superSandboxReasonUnobservable, "Worker workflow capability could not be confirmed")
+				}
+				// The Probe may have blocked while authority, cancellation, or
+				// sibling uncertainty changed. Re-gate under the run lock; no
+				// database handle is held across the guest call itself.
+				allowed, gateErr := d.mayStart(ctx, workspace, id, c)
+				if gateErr != nil {
+					return gateErr
+				}
+				if !allowed {
+					return nil
+				}
+				job, err = client.StartJob(obsCtx, c.Request)
+				if err != nil {
+					var rejected *wrencomputer.Error
+					if errors.As(err, &rejected) && rejected.Code == "invalid_directory" {
+						return d.rejectStart(ctx, workspace, id, c)
+					}
+				}
+			default:
+				// A transport/read error or an unknown status is uncertainty,
+				// never absence: keep the reservation, retry the read next pass.
+				return d.unknownReason(ctx, workspace, id, c, superSandboxReasonUnconfirmed, "Guest job receipt could not be confirmed; worker remains reserved")
 			}
-			job, err = client.StartJob(ctx, c.Request)
 		}
 		// Cancellation can race a start; close it with the same ID, never with
 		// a worker-wide stop or lifecycle operation.
@@ -347,37 +553,121 @@ func (d *SuperSandboxDispatcher) observe(ctx context.Context, workspace, id stri
 			return readErr
 		}
 		if nowState == "cancelling" {
-			job, err = client.StopJob(ctx, c.Request.ID)
+			job, err = client.StopJob(obsCtx, c.Request.ID)
 		}
 	}
 	if err != nil || job.ID != c.Request.ID {
-		return d.unknown(ctx, c, "Guest job receipt could not be confirmed; worker remains reserved")
+		return d.unknownReason(ctx, workspace, id, c, superSandboxReasonUnconfirmed, "Guest job receipt could not be confirmed; worker remains reserved")
 	}
-	taskState, terminal := superSandboxJobState(job)
-	if taskState == "unknown" {
-		return d.unknown(ctx, c, "Guest job status is unknown; worker remains reserved")
-	}
-	if !terminal {
-		_, err = s.pool.Exec(ctx, `UPDATE super_sandbox_tasks SET state=$2,error='' WHERE id=$1 AND state IN ('starting','running','unknown')`, c.TaskID, taskState)
+	receiptState, _ := superSandboxJobState(job)
+	switch {
+	case job.Status == "interrupted":
+		// The guest noticed the supervisor disappeared, not that the separate
+		// command process exited; keep the reservation explicitly unresolved.
+		return d.unknownReason(ctx, workspace, id, c, superSandboxReasonWorkerInterrupt, "Guest reported an interrupted job; worker remains reserved")
+	case job.Status == "completed" && job.ExitCode == nil:
+		return d.unknownReason(ctx, workspace, id, c, superSandboxReasonMissingExitCode, "Guest reported completion without an exit code; worker remains reserved")
+	case receiptState == "unknown":
+		return d.unknownReason(ctx, workspace, id, c, superSandboxReasonUnconfirmed, "Guest job status is unknown; worker remains reserved")
+	case receiptState == "running" || receiptState == "starting":
+		err = d.withSuperSandboxRunLock(ctx, workspace, id, func(wctx context.Context, tx pgx.Tx) error {
+			// A stale observation must not revert a persisted close mode.
+			_, e := tx.Exec(wctx, `UPDATE super_sandbox_tasks SET state=$2,error='',reason=NULL WHERE id=$1 AND state IN ('starting','running','unknown') AND resolution_mode IS NULL`, c.TaskID, receiptState)
+			return e
+		})
 		s.touchSandbox(ctx, c.WorkerID)
 		return err
+	case sandboxJobTerminal(job.Status):
+		return d.settle(ctx, workspace, id, c, receiptState, "", superSandboxGuestError(job.Error), job.ExitCode, "")
+	default:
+		return d.unknownReason(ctx, workspace, id, c, superSandboxReasonUnconfirmed, "Guest job receipt could not be confirmed; worker remains reserved")
 	}
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
+}
+
+// rejectStart records an explicit typed pre-launch rejection. The first pass
+// persists the close mode only; the rejection-path stop is sent on the next
+// pass and the persisted ID is never started again.
+func (d *SuperSandboxDispatcher) rejectStart(ctx context.Context, workspace, id string, c superSandboxClaim) error {
+	return d.withSuperSandboxRunLock(ctx, workspace, id, func(wctx context.Context, tx pgx.Tx) error {
+		_, err := tx.Exec(wctx, `UPDATE super_sandbox_tasks SET state='unknown',reason=$2,resolution_mode='close_rejected_start',error=$3 WHERE id=$1 AND state IN ('starting','running','unknown')`, c.TaskID, superSandboxReasonStartRejected, "Start rejected; closing the persisted job ID")
 		return err
-	}
-	defer tx.Rollback(ctx)
-	if _, err = tx.Exec(ctx, `UPDATE super_sandbox_tasks SET state=$2,exit_code=$3,error=$4,finished_at=now() WHERE id=$1 AND state IN ('starting','running','unknown')`, c.TaskID, taskState, job.ExitCode, superSandboxGuestError(job.Error)); err != nil {
-		return err
-	}
-	if _, err = tx.Exec(ctx, `UPDATE sandbox_jobs SET finished_at=now() WHERE sandbox_id=$1 AND job_id=$2 AND finished_at IS NULL`, c.WorkerID, c.Request.ID); err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
+	})
+}
+
+// mayStart re-gates a positive-absence replay immediately before the guest
+// call: workspace lock, then the run lock, rechecking authority, the exact
+// worker generation, this task's mode, batch cancellation, and sibling
+// uncertainty. No database handle is held across the subsequent RPC.
+func (d *SuperSandboxDispatcher) mayStart(ctx context.Context, workspace, id string, c superSandboxClaim) (allowed bool, err error) {
+	err = d.withSuperSandboxLocks(ctx, workspace, id, true, func(wctx context.Context, tx pgx.Tx) error {
+		enabled, err := d.Server.service.Store.productEnabled(wctx, tx, workspace, "sandboxes")
+		if err != nil {
+			return err
+		}
+		var account *string
+		var state string
+		var finished *time.Time
+		if err = tx.QueryRow(wctx, `SELECT creator_account_id,state,finished_at FROM super_sandboxes WHERE id=$1`, id).Scan(&account, &state, &finished); err != nil {
+			return err
+		}
+		var role string
+		if account != nil {
+			role, err = workspaceRole(wctx, tx, workspace, *account, true)
+			if err != nil && !errors.Is(err, ErrNotFound) {
+				return err
+			}
+		}
+		if finished != nil || state == "cancelling" || !d.Server.config.Sandboxes.Enabled || !enabled || (role != "owner" && role != "operator") {
+			return nil
+		}
+		return tx.QueryRow(wctx, `SELECT t.state IN ('starting','running','unknown') AND t.resolution_mode IS NULL
+			AND EXISTS(SELECT 1 FROM sandboxes s WHERE s.workspace_id=$2 AND s.id=$3 AND s.generation=$4 AND s.phase='ready' AND NOT s.sleep_requested AND NOT s.delete_requested)
+			AND NOT EXISTS(SELECT 1 FROM super_sandbox_tasks o WHERE o.run_id=$1 AND o.id<>t.id AND (o.state='unknown' OR (o.resolution_mode IS NOT NULL AND o.state IN ('starting','running'))))
+			FROM super_sandbox_tasks t WHERE t.id=$5 AND t.run_id=$1`, id, workspace, c.WorkerID, c.Generation, c.TaskID).Scan(&allowed)
+	})
+	return allowed, err
+}
+
+// workerRemoved settles a task whose exact provider generation was confirmed
+// destroyed. It keeps the recorded worker/job IDs, fabricates no exit code,
+// and releases the reservation by closing the handle in the same transaction.
+func (d *SuperSandboxDispatcher) workerRemoved(ctx context.Context, workspace, id string, c superSandboxClaim) error {
+	return d.settle(ctx, workspace, id, c, "outcome_unavailable", superSandboxReasonWorkerRemoved, "Worker was removed before the job outcome was recorded", nil, "A worker was removed before its command outcome was recorded")
+}
+
+// settle commits a terminal receipt for the exact persisted job ID and closes
+// the ordinary sandbox_jobs handle in the same transaction. runFailure, when
+// nonempty, is recorded on the batch under the same lock so a terminal worker
+// removal is never misread as an ordinary success after a rollback.
+func (d *SuperSandboxDispatcher) settle(ctx context.Context, workspace, id string, c superSandboxClaim, state, reason, message string, exitCode *int, runFailure string) error {
+	return d.withSuperSandboxRunLock(ctx, workspace, id, func(wctx context.Context, tx pgx.Tx) error {
+		var reasonArg any
+		if reason != "" {
+			reasonArg = reason
+		}
+		updated, err := tx.Exec(wctx, `UPDATE super_sandbox_tasks SET state=$2,reason=$3,exit_code=$4,error=$5,finished_at=now() WHERE id=$1 AND run_id=$6 AND job_id=$7 AND state IN ('starting','running','unknown')`, c.TaskID, state, reasonArg, exitCode, message, id, c.Request.ID)
+		if err != nil {
+			return err
+		}
+		// A stale observation (e.g. delayed destruction evidence) must not
+		// close the job or rewrite run failure after a terminal receipt won.
+		if updated.RowsAffected() == 0 {
+			return nil
+		}
+		if _, err := tx.Exec(wctx, `UPDATE sandbox_jobs SET finished_at=now() WHERE sandbox_id=$1 AND job_id=$2 AND finished_at IS NULL`, c.WorkerID, c.Request.ID); err != nil {
+			return err
+		}
+		if runFailure != "" {
+			if _, err := tx.Exec(wctx, `UPDATE super_sandboxes SET failure=$2 WHERE id=$1 AND failure=''`, id, runFailure); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 // Positive guest enums only. Do not use sandboxJobDone: unknown is not done.
-func superSandboxJobState(job wrencomputer.Job) (string, bool) {
+func superSandboxJobState(job wrencomputer.Job) (state string, terminal bool) {
 	switch job.Status {
 	case "starting":
 		return "starting", false
@@ -409,11 +699,14 @@ func superSandboxGuestError(message string) string {
 	return ""
 }
 
-func (d *SuperSandboxDispatcher) unknown(ctx context.Context, c superSandboxClaim, message string) error {
+func (d *SuperSandboxDispatcher) unknownReason(ctx context.Context, workspace, id string, c superSandboxClaim, reason, message string) error {
 	// The RPC may have consumed its deadline. Use the caller's bounded parent
 	// on the next pass if this write fails; starting also retains the lease.
-	_, err := d.Server.service.Store.pool.Exec(ctx, `UPDATE super_sandbox_tasks SET state='unknown',error=$2 WHERE id=$1 AND state IN ('starting','running','unknown')`, c.TaskID, message)
-	return err
+	// Close mode, once persisted, is never cleared by a nonterminal write.
+	return d.withSuperSandboxRunLock(ctx, workspace, id, func(wctx context.Context, tx pgx.Tx) error {
+		_, err := tx.Exec(wctx, `UPDATE super_sandbox_tasks SET state='unknown',reason=$2,error=$3 WHERE id=$1 AND state IN ('starting','running','unknown')`, c.TaskID, reason, message)
+		return err
+	})
 }
 
 func (d *SuperSandboxDispatcher) aggregate(ctx context.Context, workspace, id string) error {
@@ -431,14 +724,19 @@ func (d *SuperSandboxDispatcher) aggregate(ctx context.Context, workspace, id st
 	if finished != nil {
 		return nil
 	}
-	var queued, active, unknown, failed, cancelled int
-	if err = tx.QueryRow(ctx, `SELECT count(*) FILTER (WHERE state='queued'),count(*) FILTER (WHERE state IN ('starting','running','unknown')),count(*) FILTER (WHERE state='unknown'),count(*) FILTER (WHERE state='failed'),count(*) FILTER (WHERE state='cancelled') FROM super_sandbox_tasks WHERE run_id=$1`, id).Scan(&queued, &active, &unknown, &failed, &cancelled); err != nil {
+	var queued, active, unknown, failed, cancelled, unavailable int
+	if err = tx.QueryRow(ctx, `SELECT count(*) FILTER (WHERE state='queued'),count(*) FILTER (WHERE state IN ('starting','running','unknown')),count(*) FILTER (WHERE state='unknown'),count(*) FILTER (WHERE state='failed'),count(*) FILTER (WHERE state='cancelled'),count(*) FILTER (WHERE state='outcome_unavailable') FROM super_sandbox_tasks WHERE run_id=$1`, id).Scan(&queued, &active, &unknown, &failed, &cancelled, &unavailable); err != nil {
 		return err
 	}
 	done := queued == 0 && active == 0
 	if done {
 		switch {
-		case failure != "", failed > 0:
+		case unavailable > 0:
+			state = "failed"
+			if failure == "" {
+				failure = "A worker was removed before its command outcome was recorded"
+			}
+		case failure != "" || failed > 0:
 			state = "failed"
 		case state == "cancelling", cancelled > 0:
 			state = "cancelled"
@@ -455,7 +753,7 @@ func (d *SuperSandboxDispatcher) aggregate(ctx context.Context, workspace, id st
 			state = "queued"
 		}
 	}
-	if _, err = tx.Exec(ctx, `UPDATE super_sandboxes SET state=$2,finished_at=CASE WHEN $3 THEN now() ELSE NULL END WHERE id=$1`, id, state, done); err != nil {
+	if _, err = tx.Exec(ctx, `UPDATE super_sandboxes SET state=$2,failure=$3,finished_at=CASE WHEN $4 THEN now() ELSE NULL END WHERE id=$1`, id, state, failure, done); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

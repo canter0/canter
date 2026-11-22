@@ -38,6 +38,11 @@ func (d *SandboxDispatcher) settleStoppedSandbox(ctx context.Context, v *Sandbox
 	if generation != v.Generation || phase != v.observedPhase {
 		return ErrConflict
 	}
+	// Durable evidence that THIS provider generation was removed; batch
+	// reconcilers may then settle its outstanding jobs without a receipt.
+	if _, err = tx.Exec(ctx, `INSERT INTO sandbox_destroyed_generations(workspace_id,sandbox_id,generation,confirmed_at) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING`, v.WorkspaceID, v.ID, generation, stoppedAt); err != nil {
+		return err
+	}
 	var released int64
 	if err = tx.QueryRow(ctx, `WITH released AS (
  UPDATE usage_reservations SET phase='released',updated_at=now()
