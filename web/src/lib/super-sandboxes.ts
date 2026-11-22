@@ -1,16 +1,21 @@
 export type SuperSandboxState = "queued" | "running" | "cancelling" | "succeeded" | "failed" | "cancelled" | "needs_attention";
-export type SuperSandboxTaskState = "queued" | "starting" | "running" | "unknown" | "succeeded" | "failed" | "cancelled";
+export type SuperSandboxTaskState = "queued" | "starting" | "running" | "unknown" | "succeeded" | "failed" | "cancelled" | "outcome_unavailable";
 export type SuperSandboxTask = {
   id: string; name: string; index: number; command: string; directory?: string;
   timeoutSeconds: number; state: SuperSandboxTaskState; workerId?: string; jobId?: string;
-  startedAt?: string; finishedAt?: string; exitCode?: number; error?: string;
+  startedAt?: string; finishedAt?: string; exitCode?: number; error?: string; reason?: string;
 };
 export type SuperSandbox = {
   id: string; workspaceId: string; name: string; state: SuperSandboxState;
   workerIds: string[]; maxConcurrency: number; maxWorkerSeconds: number; reservedWorkerSeconds: number;
-  createdAt: string; startedAt?: string; finishedAt?: string; failure?: string; tasks: SuperSandboxTask[];
+  createdAt: string; startedAt?: string; finishedAt?: string; failure?: string; blockedReason?: string; tasks: SuperSandboxTask[];
 };
 export type SuperSandboxListResponse = { superSandboxes: SuperSandbox[]; enabled: boolean };
+export type SuperSandboxSummary = Pick<SuperSandbox, "id" | "name" | "state" | "blockedReason" | "createdAt" | "startedAt" | "finishedAt" | "maxWorkerSeconds" | "reservedWorkerSeconds" | "maxConcurrency"> & {
+  workerCount: number;
+  progress: { total: number; settled: number; succeeded: number; unknown: number; outcomeUnavailable: number };
+};
+export type SuperSandboxSummaryResponse = { superSandboxes: SuperSandboxSummary[]; enabled: boolean; nextCursor: string };
 
 export function superSandboxTerminal(state: string): boolean {
   // needs_attention is unresolved, not a completed run. Cancellation must
@@ -20,15 +25,36 @@ export function superSandboxTerminal(state: string): boolean {
 
 export function superSandboxStateLabel(state: SuperSandboxState | SuperSandboxTaskState): string {
   if (state === "needs_attention") return "Needs attention";
-  if (state === "unknown") return "Unknown · needs attention";
+  if (state === "unknown") return "Outcome unknown · needs attention";
+  if (state === "outcome_unavailable") return "Outcome unavailable";
   return state.charAt(0).toUpperCase() + state.slice(1);
 }
 
+const blockerLabels: Record<string, string> = {
+  worker_unavailable: "Selected workers are sleeping or not ready. Wake the worker to continue; the batch does not replace it.",
+  worker_replaced: "A selected worker was removed or replaced. Its commands will not be reassigned to a new machine.",
+  workers_busy: "Selected workers are currently reserved by other tasks.",
+  missing_exit_code: "A worker reported a result without an exit code. The task outcome is unresolved.",
+  worker_interrupted: "A worker reported an interrupted job. Whether the command finished is unresolved.",
+  receipt_unconfirmed: "A worker's job receipt could not be confirmed. The task outcome is unresolved.",
+  worker_unobservable: "A worker could not be observed. The task outcome is unresolved.",
+  generation_changed: "A worker changed generation. The task outcome is unresolved.",
+  worker_removed: "A worker was removed before its job outcome was recorded.",
+  start_rejected: "The worker rejected a command before launch; its job is being closed.",
+  outcome_unknown: "A task outcome is unknown. The worker stays reserved until it is resolved.",
+};
+
+export function superSandboxBlockerLabel(reason?: string): string {
+  if (!reason) return "";
+  return blockerLabels[reason] ?? "This batch needs attention. Inspect its tasks before deciding what to do next.";
+}
+
 export function superSandboxProgress(tasks: SuperSandboxTask[]) {
-  const completed = tasks.filter(task => superSandboxTerminal(task.state)).length;
+  const settled = tasks.filter(task => superSandboxTerminal(task.state) || task.state === "outcome_unavailable").length;
   const succeeded = tasks.filter(task => task.state === "succeeded").length;
   const unknown = tasks.filter(task => task.state === "unknown").length;
-  return { completed, succeeded, unknown, total: tasks.length };
+  const outcomeUnavailable = tasks.filter(task => task.state === "outcome_unavailable").length;
+  return { settled, succeeded, unknown, outcomeUnavailable, total: tasks.length };
 }
 
 export function workerDuration(seconds: number): string {
