@@ -1,18 +1,30 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { superSandboxProgress, superSandboxTerminal, superSandboxStateLabel, workerDuration, runtimeAllocation, superSandboxRequestPrompt } from "../src/lib/super-sandboxes.ts";
+import { superSandboxProgress, superSandboxTerminal, superSandboxStateLabel, superSandboxBlockerLabel, workerDuration, runtimeAllocation, superSandboxRequestPrompt } from "../src/lib/super-sandboxes.ts";
 import { dashboardRequestSurface, createDashboardRequest, serializeDashboardRequest, parseDashboardRequest } from "../src/lib/dashboard-requests.ts";
 import { wrenSurfacePlacement } from "../src/lib/wren-surface-placement.ts";
 
 const task = (state, index) => ({ id: `task_${index}`, name: `Task ${index}`, index, command: "true", timeoutSeconds: 60, state });
 
-test("unknown outcomes and in-flight cancellation are never counted as completed", () => {
-  const states = ["queued", "starting", "running", "unknown", "succeeded", "failed", "cancelled"];
-  assert.deepEqual(superSandboxProgress(states.map(task)), { completed: 3, succeeded: 1, unknown: 1, total: 7 });
-  assert.deepEqual(superSandboxProgress([]), { completed: 0, succeeded: 0, unknown: 0, total: 0 });
+test("unknown outcomes and in-flight cancellation are never counted as settled", () => {
+  const states = ["queued", "starting", "running", "unknown", "succeeded", "failed", "cancelled", "outcome_unavailable"];
+  assert.deepEqual(superSandboxProgress(states.map(task)), { settled: 4, succeeded: 1, unknown: 1, outcomeUnavailable: 1, total: 8 });
+  assert.deepEqual(superSandboxProgress([]), { settled: 0, succeeded: 0, unknown: 0, outcomeUnavailable: 0, total: 0 });
   for (const state of ["queued", "running", "cancelling", "needs_attention", "unknown"]) assert.equal(superSandboxTerminal(state), false);
   for (const state of ["succeeded", "failed", "cancelled"]) assert.equal(superSandboxTerminal(state), true);
   assert.match(superSandboxStateLabel("unknown"), /unknown.*attention/i);
+});
+
+test("outcome states and blocker reasons get distinct labels", () => {
+  assert.equal(superSandboxStateLabel("outcome_unavailable"), "Outcome unavailable");
+  assert.match(superSandboxStateLabel("unknown"), /Outcome unknown/);
+  assert.match(superSandboxBlockerLabel("worker_replaced"), /removed or replaced/);
+  assert.match(superSandboxBlockerLabel("worker_unavailable"), /sleeping or not ready/);
+  assert.match(superSandboxBlockerLabel("workers_busy"), /reserved/);
+  assert.match(superSandboxBlockerLabel("worker_removed"), /removed before/);
+  assert.match(superSandboxBlockerLabel("start_rejected"), /rejected/);
+  assert.equal(superSandboxBlockerLabel(""), "");
+  assert.match(superSandboxBlockerLabel("code_from_the_future"), /needs attention/);
 });
 
 test("worker runtime allocation preserves reserved upfront time, not elapsed time or cost", () => {

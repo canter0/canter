@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -410,16 +411,26 @@ func TestSuperSandboxStableReplayAfterLostReceipt(t *testing.T) {
 	if busy, err := h.service.Store.superSandboxWorkerBusy(context.Background(), v.Tasks[0].WorkerID); err != nil || !busy {
 		t.Fatalf("uncertain worker not busy: %v %v", busy, err)
 	}
-	// A new dispatcher (process restart), with lookup unavailable, must replay
-	// identical ID+command+directory+timeout+env+sandbox flag, never a new task.
+	// A new dispatcher (process restart), with lookup unavailable, must NOT
+	// replay: a read error is uncertainty, never positive absence.
 	g.lost = false
 	g.readError = true
 	d = superSandboxDispatcher(h, g)
 	superSandboxReconcile(t, d, v.ID)
+	v = superSandboxRead(t, h, v.ID)
+	if len(g.starts) != 1 || v.Tasks[0].State != "unknown" {
+		t.Fatalf("read error replayed or released uncertain claim: %+v %+v", g.starts, v)
+	}
+	// Positive absence of the exact persisted ID replays identical
+	// ID+command+directory+timeout+env+sandbox flag, never a new task.
+	g.readError = false
+	g.mu.Lock()
+	delete(g.jobs, first.ID)
+	g.mu.Unlock()
+	superSandboxReconcile(t, d, v.ID)
 	if len(g.starts) != 2 || !reflect.DeepEqual(first, g.starts[1]) || len(g.requests) != 1 {
 		t.Fatalf("replay changed persisted request: %+v", g.starts)
 	}
-	g.readError = false
 	g.finish(first.ID, "completed", 0)
 	superSandboxReconcile(t, d, v.ID)
 	v = superSandboxRead(t, h, v.ID)
@@ -1030,5 +1041,794 @@ func TestSuperSandboxWorkerRecipeEligibility(t *testing.T) {
 	superSandboxExec(t, h, `UPDATE sandboxes SET environment='{"repository":{"url":"https://example.test/repo.git","ref":"main"}}', setup='{"status":"succeeded"}' WHERE id='sbx_one'`)
 	if _, err = h.CreateSuperSandbox(ctx, "ws", "owner", actor, input("repository-setup-worker", "sbx_one", "sbx_two")); err != nil {
 		t.Fatalf("completed repository-only setup worker rejected: %v", err)
+	}
+}
+
+// A typed pre-launch rejection persists the close mode, sends the rejection
+// stop on a later pass, and never retries the launch.
+func TestSuperSandboxRejectedStartClosesWithoutRetries(t *testing.T) {
+	h, actor := superSandboxFixture(t)
+	in := superSandboxInput("rejected-start", 2)
+	in.MaxConcurrency = 1
+	in.Tasks[0].Directory = "missing"
+	v := superSandboxCreate(t, h, actor, in)
+	g := &superSandboxRejectingGuest{superSandboxGuest: newSuperSandboxGuest()}
+	d := superSandboxDispatcher(h, g.superSandboxGuest)
+	d.client = func(context.Context, Sandbox) (sandboxAgentClient, error) { return g, nil }
+	superSandboxReconcile(t, d, v.ID)
+	v = superSandboxRead(t, h, v.ID)
+	if g.rejected != 1 || v.Tasks[0].State != "unknown" || v.Tasks[0].Reason != "start_rejected" {
+		t.Fatalf("first rejection not recorded: rejects=%d %+v", g.rejected, v.Tasks[0])
+	}
+	var mode string
+	if err := h.service.Store.pool.QueryRow(context.Background(), `SELECT COALESCE(resolution_mode,'') FROM super_sandbox_tasks WHERE id=$1`, v.Tasks[0].ID).Scan(&mode); err != nil || mode != "close_rejected_start" {
+		t.Fatalf("close mode not persisted: %q %v", mode, err)
+	}
+	if v.Tasks[1].State != "queued" || len(g.starts) != 0 {
+		t.Fatalf("rejection launched or dropped pending work: %+v", v)
+	}
+	// A lost close receipt keeps the reservation; only the close retries.
+	g.stopError = true
+	superSandboxReconcile(t, d, v.ID)
+	if g.rejected != 1 || len(g.stops) != 1 || g.stops[0] != v.Tasks[0].JobID {
+		t.Fatalf("close retried the launch or stopped another ID: rejects=%d stops=%v", g.rejected, g.stops)
+	}
+	if busy, err := h.service.Store.superSandboxWorkerBusy(context.Background(), v.Tasks[0].WorkerID); err != nil || !busy {
+		t.Fatalf("lost close receipt released worker: %v %v", busy, err)
+	}
+	g.stopError = false
+	superSandboxReconcile(t, d, v.ID)
+	v = superSandboxRead(t, h, v.ID)
+	if g.rejected != 1 || v.Tasks[0].State != "failed" || v.Tasks[0].Reason != "start_rejected" || v.Tasks[0].Error != "Start rejected; job closed" {
+		t.Fatalf("rejection close did not settle: %+v", v.Tasks[0])
+	}
+	g.finish(v.Tasks[1].JobID, "completed", 0)
+	superSandboxReconcile(t, d, v.ID)
+	v = superSandboxRead(t, h, v.ID)
+	if v.State != "failed" || v.FinishedAt == nil || v.Tasks[1].State != "succeeded" {
+		t.Fatalf("batch did not settle after close: %+v", v)
+	}
+}
+
+type superSandboxInterruptingGuest struct {
+	*superSandboxGuest
+	interrupted bool
+}
+
+func (g *superSandboxInterruptingGuest) Job(ctx context.Context, id string) (wrencomputer.Job, error) {
+	if g.interrupted {
+		return wrencomputer.Job{ID: id, Status: "interrupted"}, nil
+	}
+	return g.superSandboxGuest.Job(ctx, id)
+}
+
+func (g *superSandboxInterruptingGuest) StopJob(ctx context.Context, id string) (wrencomputer.Job, error) {
+	if g.interrupted {
+		return wrencomputer.Job{ID: id, Status: "interrupted"}, nil
+	}
+	return g.superSandboxGuest.StopJob(ctx, id)
+}
+
+type superSandboxRejectingGuest struct {
+	*superSandboxGuest
+	rejected int
+}
+
+func (g *superSandboxRejectingGuest) StartJob(ctx context.Context, r wrencomputer.JobRequest) (wrencomputer.Job, error) {
+	if !strings.Contains(r.Directory, "missing") {
+		return g.superSandboxGuest.StartJob(ctx, r)
+	}
+	g.mu.Lock()
+	g.rejected++
+	g.mu.Unlock()
+	return wrencomputer.Job{}, &wrencomputer.Error{Code: "invalid_directory", Message: "directory does not exist"}
+}
+
+// A repeated interrupted receipt is explicitly unresolved: the reservation
+// is never released by that evidence class.
+func TestSuperSandboxInterruptedKeepsReservation(t *testing.T) {
+	h, actor := superSandboxFixture(t)
+	in := superSandboxInput("interrupted", 2)
+	in.MaxConcurrency = 1
+	v := superSandboxCreate(t, h, actor, in)
+	g := newSuperSandboxGuest()
+	d := superSandboxDispatcher(h, g)
+	superSandboxReconcile(t, d, v.ID)
+	v = superSandboxRead(t, h, v.ID)
+	interrupt := &superSandboxInterruptingGuest{superSandboxGuest: g}
+	d.client = func(context.Context, Sandbox) (sandboxAgentClient, error) { return interrupt, nil }
+	for i := 0; i < 2; i++ {
+		interrupt.interrupted = true
+		superSandboxReconcile(t, d, v.ID)
+	}
+	v = superSandboxRead(t, h, v.ID)
+	if v.Tasks[0].State != "unknown" || v.Tasks[0].Reason != "worker_interrupted" || v.Tasks[1].State != "queued" || v.FinishedAt != nil {
+		t.Fatalf("interrupted released or settled work: %+v", v)
+	}
+	if busy, err := h.service.Store.superSandboxWorkerBusy(context.Background(), v.Tasks[0].WorkerID); err != nil || !busy {
+		t.Fatalf("interrupted released worker: %v %v", busy, err)
+	}
+	// Cancellation with a still-interrupted job stays cancelling with the
+	// reason visible; it is not promised a stop time.
+	if _, err := h.CancelSuperSandbox(context.Background(), "ws", "owner", v.ID, actor); err != nil {
+		t.Fatal(err)
+	}
+	superSandboxReconcile(t, d, v.ID)
+	v = superSandboxRead(t, h, v.ID)
+	if v.State != "cancelling" || v.FinishedAt != nil || v.Tasks[1].State != "cancelled" || v.Tasks[0].Reason != "worker_interrupted" {
+		t.Fatalf("interrupted stop forced resolution: %+v", v)
+	}
+	interrupt.interrupted = false
+	superSandboxReconcile(t, d, v.ID)
+	v = superSandboxRead(t, h, v.ID)
+	if v.State != "cancelled" || v.FinishedAt == nil || v.Tasks[0].State != "cancelled" {
+		t.Fatalf("terminal stop receipt ignored: %+v", v)
+	}
+}
+
+// One unreachable worker must not hide a peer's already-finished job.
+func TestSuperSandboxDeadlinedObservationLeavesPeerVisible(t *testing.T) {
+	h, actor := superSandboxFixture(t)
+	v := superSandboxCreate(t, h, actor, superSandboxInput("deadline-peer", 2))
+	g := newSuperSandboxGuest()
+	d := superSandboxDispatcher(h, g)
+	d.observeTimeout = 200 * time.Millisecond
+	superSandboxReconcile(t, d, v.ID)
+	v = superSandboxRead(t, h, v.ID)
+	if v.Tasks[0].State != "running" || v.Tasks[1].State != "running" {
+		t.Fatalf("expected two running tasks: %+v", v.Tasks)
+	}
+	blocked := v.Tasks[0].WorkerID
+	g.finish(v.Tasks[1].JobID, "completed", 0)
+	d.client = func(ctx context.Context, worker Sandbox) (sandboxAgentClient, error) {
+		if worker.ID == blocked {
+			<-ctx.Done()
+			return nil, ctx.Err()
+		}
+		return g, nil
+	}
+	superSandboxReconcile(t, d, v.ID)
+	v = superSandboxRead(t, h, v.ID)
+	if v.Tasks[0].State != "unknown" || v.Tasks[0].Reason != "worker_unobservable" {
+		t.Fatalf("deadlined worker not marked uncertain: %+v", v.Tasks[0])
+	}
+	if v.Tasks[1].State != "succeeded" || v.Tasks[1].FinishedAt == nil {
+		t.Fatalf("peer completion hidden by deadlined worker: %+v", v.Tasks[1])
+	}
+}
+
+// Confirmed removal evidence settles the outstanding task; a phase or
+// generation change alone never releases the reservation.
+func TestSuperSandboxWorkerRemovalEvidence(t *testing.T) {
+	h, actor := superSandboxFixture(t)
+	in := superSandboxInput("removed-worker", 1)
+	in.WorkerIDs, in.MaxConcurrency = []string{"sbx_one"}, 1
+	v := superSandboxCreate(t, h, actor, in)
+	g := newSuperSandboxGuest()
+	d := superSandboxDispatcher(h, g)
+	superSandboxReconcile(t, d, v.ID)
+	v = superSandboxRead(t, h, v.ID)
+	jobID, generation := v.Tasks[0].JobID, v.Tasks[0].WorkerID
+	// A synthetic generation bump is not evidence: nothing settles.
+	superSandboxExec(t, h, `UPDATE sandboxes SET generation=generation+1 WHERE id=$1`, generation)
+	superSandboxReconcile(t, d, v.ID)
+	v = superSandboxRead(t, h, v.ID)
+	if v.Tasks[0].State != "unknown" || v.Tasks[0].Reason != "generation_changed" || len(g.starts) != 1 {
+		t.Fatalf("synthetic generation bump released task: %+v", v.Tasks[0])
+	}
+	if busy, err := h.service.Store.superSandboxWorkerBusy(context.Background(), generation); err != nil || !busy {
+		t.Fatalf("synthetic generation bump released worker: %v %v", busy, err)
+	}
+	// A failed/unfinished destroy (no evidence row) releases nothing either.
+	superSandboxReconcile(t, d, v.ID)
+	v = superSandboxRead(t, h, v.ID)
+	if v.Tasks[0].State != "unknown" {
+		t.Fatalf("missing evidence settled task: %+v", v.Tasks[0])
+	}
+	// Confirmed settle of the ORIGINAL generation writes evidence exactly once;
+	// repeated writes are idempotent. The fence rejects a mismatched view.
+	sd := &SandboxDispatcher{Server: h}
+	mismatched := &Sandbox{ID: generation, WorkspaceID: "ws", Generation: 1, observedPhase: "ready"}
+	if err := sd.settleStoppedSandbox(context.Background(), mismatched); !errors.Is(err, ErrConflict) {
+		t.Fatalf("stale generation settled evidence: %v", err)
+	}
+	superSandboxExec(t, h, `UPDATE sandboxes SET generation=1 WHERE id=$1`, generation)
+	removed := &Sandbox{ID: generation, WorkspaceID: "ws", Generation: 1, observedPhase: "ready"}
+	if err := sd.settleStoppedSandbox(context.Background(), removed); err != nil {
+		t.Fatal(err)
+	}
+	if err := sd.settleStoppedSandbox(context.Background(), removed); err != nil {
+		t.Fatalf("repeated settle not idempotent: %v", err)
+	}
+	var confirmed int
+	if err := h.service.Store.pool.QueryRow(context.Background(), `SELECT count(*) FROM sandbox_destroyed_generations WHERE sandbox_id=$1 AND generation=1`, generation).Scan(&confirmed); err != nil || confirmed != 1 {
+		t.Fatalf("evidence rows=%d err=%v", confirmed, err)
+	}
+	superSandboxReconcile(t, d, v.ID)
+	v = superSandboxRead(t, h, v.ID)
+	if v.Tasks[0].State != "outcome_unavailable" || v.Tasks[0].Reason != "worker_removed" || v.Tasks[0].JobID != jobID || v.Tasks[0].ExitCode != nil {
+		t.Fatalf("removal evidence not applied: %+v", v.Tasks[0])
+	}
+	var finished *time.Time
+	if err := h.service.Store.pool.QueryRow(context.Background(), `SELECT finished_at FROM sandbox_jobs WHERE job_id=$1`, jobID).Scan(&finished); err != nil || finished == nil {
+		t.Fatalf("removal did not close job handle: %v %v", finished, err)
+	}
+	if v.State != "failed" || v.FinishedAt == nil || v.Failure == "" || v.BlockedReason != "" {
+		t.Fatalf("removed-worker batch not settled as failed: %+v", v)
+	}
+	if len(g.starts) != 1 {
+		t.Fatal("settled outcome replayed an old job")
+	}
+	// Only the confirmed generation carries evidence: a replacement row gets
+	// nothing from the stale generation.
+	in.IdempotencyKey = "after-removal"
+	in.WorkerIDs = []string{"sbx_two"}
+	next := superSandboxCreate(t, h, actor, in)
+	superSandboxReconcile(t, d, next.ID)
+	next = superSandboxRead(t, h, next.ID)
+	if next.Tasks[0].State != "running" || next.Tasks[0].WorkerID != "sbx_two" {
+		t.Fatalf("healthy replacement worker could not be claimed: %+v", next.Tasks[0])
+	}
+}
+
+// An unknown task blocks a second claim on a DIFFERENT worker under the run
+// lock, including after a dispatcher restart, without blocking observation or
+// cancellation of an already-running peer.
+func TestSuperSandboxUnknownBlocksCrossWorkerClaim(t *testing.T) {
+	h, actor := superSandboxFixture(t)
+	in := superSandboxInput("cross-worker-block", 3)
+	v := superSandboxCreate(t, h, actor, in)
+	g := newSuperSandboxGuest()
+	d := superSandboxDispatcher(h, g)
+	superSandboxReconcile(t, d, v.ID)
+	v = superSandboxRead(t, h, v.ID)
+	if v.Tasks[0].State != "running" || v.Tasks[1].State != "running" {
+		t.Fatalf("expected two running tasks: %+v", v.Tasks)
+	}
+	g.unknown = true
+	superSandboxReconcile(t, d, v.ID)
+	v = superSandboxRead(t, h, v.ID)
+	if v.Tasks[0].State != "unknown" || v.Tasks[1].State != "unknown" || v.Tasks[2].State != "queued" {
+		t.Fatalf("uncertain receipts not isolated: %+v", v.Tasks)
+	}
+	g.unknown = false
+	g.mu.Lock()
+	g.jobs[v.Tasks[1].JobID] = wrencomputer.Job{ID: v.Tasks[1].JobID, Status: "interrupted"}
+	g.mu.Unlock()
+	g.finish(v.Tasks[0].JobID, "completed", 0)
+	superSandboxReconcile(t, superSandboxDispatcher(h, g), v.ID)
+	v = superSandboxRead(t, h, v.ID)
+	if v.Tasks[0].State != "succeeded" || v.Tasks[1].State != "unknown" || v.Tasks[2].State != "queued" {
+		t.Fatalf("peer completion blocked or third task claimed: %+v", v.Tasks)
+	}
+	g.mu.Lock()
+	delete(g.jobs, v.Tasks[1].JobID)
+	g.mu.Unlock()
+	if _, err := h.CancelSuperSandbox(context.Background(), "ws", "owner", v.ID, actor); err != nil {
+		t.Fatal(err)
+	}
+	superSandboxReconcile(t, d, v.ID)
+	v = superSandboxRead(t, h, v.ID)
+	if v.State != "cancelled" || v.FinishedAt == nil || v.Tasks[2].State != "cancelled" || len(g.stops) == 0 {
+		t.Fatalf("uncertain batch could not drain: %+v stops=%v", v, g.stops)
+	}
+}
+
+// Queued work on a sleeping worker reports a blocker, and waking the worker
+// under a new generation never rewrites the original batch.
+func TestSuperSandboxSleepingWorkerBlocker(t *testing.T) {
+	h, actor := superSandboxFixture(t)
+	in := superSandboxInput("sleeping-worker", 1)
+	in.WorkerIDs, in.MaxConcurrency = []string{"sbx_one"}, 1
+	v := superSandboxCreate(t, h, actor, in)
+	superSandboxExec(t, h, `UPDATE sandboxes SET phase='asleep' WHERE id='sbx_one'`)
+	g := newSuperSandboxGuest()
+	d := superSandboxDispatcher(h, g)
+	superSandboxReconcile(t, d, v.ID)
+	v = superSandboxRead(t, h, v.ID)
+	if v.State != "queued" || v.BlockedReason != "worker_unavailable" || len(g.starts) != 0 {
+		t.Fatalf("sleeping worker blocker missing: %+v", v)
+	}
+	// Waking as a NEW generation is a replacement, not a resumption.
+	superSandboxExec(t, h, `UPDATE sandboxes SET phase='ready',generation=generation+1 WHERE id='sbx_one'`)
+	superSandboxReconcile(t, d, v.ID)
+	v = superSandboxRead(t, h, v.ID)
+	if v.State != "needs_attention" || v.BlockedReason != "worker_replaced" || len(g.starts) != 0 {
+		t.Fatalf("replacement generation reused for queued work: %+v", v)
+	}
+}
+
+// Summary pages are workspace-scoped, keyset-ordered without task bodies, and
+// reject malformed cursors.
+func TestSuperSandboxSummaryPagination(t *testing.T) {
+	h, actor := superSandboxFixture(t)
+	for i := 0; i < 101; i++ {
+		in := superSandboxInput(fmt.Sprintf("summary-%03d", i), 2)
+		in.MaxConcurrency = 1
+		in.WorkerIDs = []string{"sbx_one"}
+		v, err := h.CreateSuperSandbox(context.Background(), "ws", "owner", actor, in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Equal timestamps exercise the deterministic (created_at,id) tiebreak.
+		superSandboxExec(t, h, `UPDATE super_sandboxes SET created_at='2020-01-01'::timestamptz WHERE id=$1`, v.ID)
+	}
+	foreign, err := h.CreateSuperSandbox(context.Background(), "other", "outsider", sdk.ActorRef{Kind: "human", ID: "outsider"}, func() SuperSandboxCreateInput {
+		in := superSandboxInput("foreign-summary", 1)
+		in.WorkerIDs, in.MaxConcurrency = []string{"sbx_other"}, 1
+		return in
+	}())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	page1, err := h.service.Store.SuperSandboxSummaries(ctx, "ws", 100, nil)
+	if err != nil || len(page1) != 100 {
+		t.Fatalf("first page: %d %v", len(page1), err)
+	}
+	seen := map[string]bool{}
+	var cursor *superSandboxCursor
+	for i, row := range page1 {
+		if row.WorkerCount != 1 || row.Progress.Total != 2 || row.Progress.Settled != 0 || row.State != "queued" {
+			t.Fatalf("bad summary row: %+v", row)
+		}
+		if i > 0 && page1[i-1].CreatedAt.Before(row.CreatedAt) {
+			t.Fatalf("created_at ordering violated at %d", i)
+		}
+		if seen[row.ID] {
+			t.Fatalf("duplicate page row %s", row.ID)
+		}
+		seen[row.ID] = true
+	}
+	last1 := page1[len(page1)-1]
+	cursor = &superSandboxCursor{CreatedAt: last1.CreatedAt, ID: last1.ID}
+	page2, err := h.service.Store.SuperSandboxSummaries(ctx, "ws", 100, cursor)
+	if err != nil || len(page2) != 1 || seen[page2[0].ID] {
+		t.Fatalf("second page: %+v %v", page2, err)
+	}
+	for _, rows := range [][]SuperSandboxSummary{page1, page2} {
+		for _, row := range rows {
+			if row.ID == foreign.ID {
+				t.Fatal("cross-workspace batch in summary page")
+			}
+		}
+	}
+	// Malformed cursor and out-of-range limit are rejected over HTTP.
+	owner := Principal{Account: &Account{ID: "owner"}, Actor: actor}
+	req := httptest.NewRequest(http.MethodGet, "/v1/workspaces/ws/super-sandboxes?view=summary&cursor=not-a-cursor", nil)
+	w := httptest.NewRecorder()
+	h.workspaceSuperSandboxes(w, req, owner, "ws", nil)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("malformed cursor accepted: %d %s", w.Code, w.Body.String())
+	}
+	req = httptest.NewRequest(http.MethodGet, "/v1/workspaces/ws/super-sandboxes?view=summary&limit=101", nil)
+	w = httptest.NewRecorder()
+	h.workspaceSuperSandboxes(w, req, owner, "ws", nil)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("out-of-range limit accepted: %d", w.Code)
+	}
+	req = httptest.NewRequest(http.MethodGet, "/v1/workspaces/ws/super-sandboxes?view=summary&limit=2", nil)
+	w = httptest.NewRecorder()
+	h.workspaceSuperSandboxes(w, req, owner, "ws", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("summary request: %d %s", w.Code, w.Body.String())
+	}
+	var payload struct {
+		SuperSandboxes []SuperSandboxSummary `json:"superSandboxes"`
+		Enabled        bool                  `json:"enabled"`
+		NextCursor     string                `json:"nextCursor"`
+	}
+	if err = json.Unmarshal(w.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload.SuperSandboxes) != 2 || payload.NextCursor == "" || !payload.Enabled {
+		t.Fatalf("summary payload: %+v", payload)
+	}
+	if payload.SuperSandboxes[0].ID == payload.SuperSandboxes[1].ID {
+		t.Fatalf("duplicate rows in a single page: %+v", payload.SuperSandboxes)
+	}
+	if _, err = decodeSuperSandboxCursor(payload.NextCursor); err != nil {
+		t.Fatalf("nextCursor does not decode: %v", err)
+	}
+	raw := w.Body.String()
+	if strings.Contains(raw, "echo test") || strings.Contains(raw, `"tasks"`) || strings.Contains(raw, "jobId") {
+		t.Fatalf("summary leaked task detail: %s", raw)
+	}
+	// Legacy list unchanged and never silently switched to summary rows.
+	req = httptest.NewRequest(http.MethodGet, "/v1/workspaces/ws/super-sandboxes", nil)
+	w = httptest.NewRecorder()
+	h.workspaceSuperSandboxes(w, req, owner, "ws", nil)
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"tasks"`) {
+		t.Fatalf("legacy list changed: %d", w.Code)
+	}
+}
+
+// The admission gate blocks new batch creation while leaving reconciliation
+// and cancellation of existing batches fully operational.
+func TestSuperSandboxAdmissionGate(t *testing.T) {
+	h, actor := superSandboxFixture(t)
+	h.config.Sandboxes.SuperSandboxAdmissionDisabled = true
+	if _, err := h.CreateSuperSandbox(context.Background(), "ws", "owner", actor, superSandboxInput("admission-off", 1)); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("admission accepted while disabled: %v", err)
+	}
+	owner := Principal{Account: &Account{ID: "owner"}, Actor: actor}
+	req := httptest.NewRequest(http.MethodGet, "/v1/workspaces/ws/super-sandboxes?view=summary", nil)
+	w := httptest.NewRecorder()
+	h.workspaceSuperSandboxes(w, req, owner, "ws", nil)
+	if w.Code != http.StatusOK || strings.Contains(w.Body.String(), `"enabled":true`) {
+		t.Fatalf("summary reported enabled with admission off: %d %s", w.Code, w.Body.String())
+	}
+	h.config.Sandboxes.SuperSandboxAdmissionDisabled = false
+	v := superSandboxCreate(t, h, actor, superSandboxInput("admission-on", 1))
+	h.config.Sandboxes.SuperSandboxAdmissionDisabled = true
+	if _, err := h.CancelSuperSandbox(context.Background(), "ws", "owner", v.ID, actor); err != nil {
+		t.Fatalf("admission gate blocked cancellation: %v", err)
+	}
+	g := newSuperSandboxGuest()
+	d := superSandboxDispatcher(h, g)
+	superSandboxReconcile(t, d, v.ID)
+	v = superSandboxRead(t, h, v.ID)
+	if v.FinishedAt == nil || v.State != "cancelled" {
+		t.Fatalf("admission gate blocked drain: %+v", v)
+	}
+}
+
+// A full worker slate where the earliest workers answer too slowly must not
+// hide peer completions; once they answer again, the persisted jobs resume
+// from their recorded state.
+func TestSuperSandboxSixteenTasksSlowEarlyWorkers(t *testing.T) {
+	h, actor := superSandboxFixture(t)
+	slow := map[string]bool{}
+	in := superSandboxInput("sixteen", 16)
+	in.MaxConcurrency = 16
+	in.WorkerIDs = nil
+	for i := 0; i < 16; i++ {
+		worker := fmt.Sprintf("sbx_w%d", i)
+		superSandboxExec(t, h, `INSERT INTO sandboxes(id,workspace_id,name,size,tier,phase) VALUES($1,'ws','W','free-1x1','free','ready')`, worker)
+		if i < 2 {
+			slow[worker] = true
+		}
+		in.WorkerIDs = append(in.WorkerIDs, worker)
+	}
+	v := superSandboxCreate(t, h, actor, in)
+	g := newSuperSandboxGuest()
+	d := superSandboxDispatcher(h, g)
+	d.observeTimeout = 250 * time.Millisecond
+	superSandboxReconcile(t, d, v.ID)
+	// A pass commits at most 15 new claims; the last slot takes a second pass.
+	superSandboxReconcile(t, d, v.ID)
+	v = superSandboxRead(t, h, v.ID)
+	if v.Tasks[0].State != "running" || v.Tasks[15].State != "running" {
+		t.Fatalf("full slate did not claim: %+v", v.Tasks)
+	}
+	// Early workers now answer too slowly; the rest complete in the same pass.
+	d.client = func(ctx context.Context, worker Sandbox) (sandboxAgentClient, error) {
+		if slow[worker.ID] {
+			<-ctx.Done()
+			return nil, ctx.Err()
+		}
+		return g, nil
+	}
+	for _, task := range v.Tasks[2:] {
+		g.finish(task.JobID, "completed", 0)
+	}
+	superSandboxReconcile(t, d, v.ID)
+	v = superSandboxRead(t, h, v.ID)
+	settled := 0
+	for _, task := range v.Tasks {
+		if task.State == "succeeded" {
+			settled++
+		}
+	}
+	if settled != 14 || v.Tasks[0].State != "unknown" || v.Tasks[1].State != "unknown" || v.State != "needs_attention" {
+		t.Fatalf("slow workers hid peer completions: %+v", v.Tasks)
+	}
+	// Healthy again: the recorded jobs are read, not restarted, then finish.
+	d.client = func(context.Context, Sandbox) (sandboxAgentClient, error) { return g, nil }
+	superSandboxReconcile(t, d, v.ID)
+	v = superSandboxRead(t, h, v.ID)
+	if v.Tasks[0].State != "running" || v.Tasks[1].State != "running" || len(g.starts) != 16 {
+		t.Fatalf("uncertain jobs replayed or lost: %+v starts=%d", v.Tasks, len(g.starts))
+	}
+	g.finish(v.Tasks[0].JobID, "completed", 0)
+	g.finish(v.Tasks[1].JobID, "completed", 0)
+	superSandboxReconcile(t, d, v.ID)
+	v = superSandboxRead(t, h, v.ID)
+	if v.State != "succeeded" || v.FinishedAt == nil {
+		t.Fatalf("full slate did not finish: %+v", v)
+	}
+}
+
+// The replay gate re-reads authority under the run lock after a blocked
+// workflow Probe: cancellation or sibling uncertainty during the block must
+// prevent the launch entirely.
+func TestSuperSandboxMayStartRechecksBlockedProbe(t *testing.T) {
+	t.Run("cancelled during probe", func(t *testing.T) {
+		h, actor := superSandboxFixture(t)
+		in := superSandboxInput("gate-cancel", 1)
+		in.MaxConcurrency = 1
+		v := superSandboxCreate(t, h, actor, in)
+		g := newSuperSandboxGuest()
+		probe := &superSandboxProbeGateGuest{superSandboxGuest: g, entered: make(chan struct{}, 4), resume: make(chan struct{})}
+		d := superSandboxDispatcher(h, g)
+		d.client = func(context.Context, Sandbox) (sandboxAgentClient, error) { return probe, nil }
+		done := make(chan error, 1)
+		go func() { done <- d.Reconcile(context.Background(), "ws", v.ID) }()
+		select {
+		case <-probe.entered:
+		case <-time.After(10 * time.Second):
+			t.Fatal("replay probe never reached guest")
+		}
+		if _, err := h.CancelSuperSandbox(context.Background(), "ws", "owner", v.ID, actor); err != nil {
+			t.Fatal(err)
+		}
+		close(probe.resume)
+		if err := <-done; err != nil {
+			t.Fatal(err)
+		}
+		if len(g.starts) != 0 {
+			t.Fatalf("launch issued after cancellation: %+v", g.starts)
+		}
+		v = superSandboxRead(t, h, v.ID)
+		if v.State != "cancelling" || v.Tasks[0].State == "succeeded" {
+			t.Fatalf("cancel during blocked probe misrecorded: %+v", v)
+		}
+	})
+	t.Run("sibling unknown during probe", func(t *testing.T) {
+		h, actor := superSandboxFixture(t)
+		v := superSandboxCreate(t, h, actor, superSandboxInput("gate-sibling", 3))
+		g := newSuperSandboxGuest()
+		// Let the FIRST replay Probe through so task 0 launches; the second
+		// (task 1's replay) blocks while we mark task 0 unknown.
+		probe := &superSandboxProbeGateGuest{superSandboxGuest: g, entered: make(chan struct{}, 4), resume: make(chan struct{}), allow: 1}
+		d := superSandboxDispatcher(h, g)
+		d.client = func(context.Context, Sandbox) (sandboxAgentClient, error) { return probe, nil }
+		done := make(chan error, 1)
+		go func() { done <- d.Reconcile(context.Background(), "ws", v.ID) }()
+		select {
+		case <-probe.entered:
+		case <-time.After(10 * time.Second):
+			t.Fatal("second replay probe never reached guest")
+		}
+		v = superSandboxRead(t, h, v.ID)
+		if v.Tasks[0].State != "running" || v.Tasks[1].State != "starting" {
+			t.Fatalf("fixture did not reach one running one starting: %+v", v.Tasks)
+		}
+		superSandboxExec(t, h, `UPDATE super_sandbox_tasks SET state='unknown',reason='worker_interrupted' WHERE id=$1`, v.Tasks[0].ID)
+		close(probe.resume)
+		if err := <-done; err != nil {
+			t.Fatal(err)
+		}
+		v = superSandboxRead(t, h, v.ID)
+		if len(g.starts) != 1 || v.Tasks[1].State != "starting" || v.Tasks[2].State != "queued" {
+			t.Fatalf("sibling uncertainty still allowed launch: %+v starts=%+v", v.Tasks, g.starts)
+		}
+	})
+}
+
+type superSandboxProbeGateGuest struct {
+	*superSandboxGuest
+	entered chan struct{}
+	resume  chan struct{}
+	allow   int
+	mu2     sync.Mutex
+}
+
+func (g *superSandboxProbeGateGuest) Probe(ctx context.Context) (wrencomputer.Capabilities, error) {
+	g.mu2.Lock()
+	if g.allow > 0 {
+		g.allow--
+		g.mu2.Unlock()
+		return g.superSandboxGuest.Probe(ctx)
+	}
+	g.mu2.Unlock()
+	select {
+	case g.entered <- struct{}{}:
+	default:
+	}
+	select {
+	case <-g.resume:
+		return g.superSandboxGuest.Probe(ctx)
+	case <-ctx.Done():
+		return wrencomputer.Capabilities{}, ctx.Err()
+	}
+}
+
+// Ordinary failures report failed without removal copy; an ordinary stop
+// endpoint cancelling jobs reports cancelled, never success.
+func TestSuperSandboxAggregateAttribution(t *testing.T) {
+	h, actor := superSandboxFixture(t)
+	in := superSandboxInput("attribution-fail", 1)
+	in.MaxConcurrency = 1
+	v := superSandboxCreate(t, h, actor, in)
+	g := newSuperSandboxGuest()
+	d := superSandboxDispatcher(h, g)
+	superSandboxReconcile(t, d, v.ID)
+	v = superSandboxRead(t, h, v.ID)
+	g.finish(v.Tasks[0].JobID, "failed", 3)
+	superSandboxReconcile(t, d, v.ID)
+	v = superSandboxRead(t, h, v.ID)
+	if v.State != "failed" || v.Failure != "" || v.BlockedReason != "" || v.Tasks[0].Reason != "" {
+		t.Fatalf("ordinary failure misattributed: %+v", v)
+	}
+	in.IdempotencyKey = "attribution-cancel"
+	next := superSandboxCreate(t, h, actor, in)
+	superSandboxReconcile(t, d, next.ID)
+	next = superSandboxRead(t, h, next.ID)
+	// The ordinary stop endpoint cancels the guest job outside the batch.
+	g.finish(next.Tasks[0].JobID, "cancelled", 0)
+	if _, err := h.CancelSuperSandbox(context.Background(), "ws", "owner", next.ID, actor); err != nil {
+		t.Fatal(err)
+	}
+	superSandboxReconcile(t, d, next.ID)
+	next = superSandboxRead(t, h, next.ID)
+	if next.State != "cancelled" || next.Failure != "" || next.Tasks[0].State != "cancelled" {
+		t.Fatalf("ordinary cancellation misreported: %+v", next)
+	}
+}
+
+// Blocker derivation: no blocker on terminal rows or when a ready free worker
+// exists; workers_busy only when eligible workers are all reserved.
+func TestSuperSandboxBlockerDerivation(t *testing.T) {
+	h, actor := superSandboxFixture(t)
+	in := superSandboxInput("blocker-free", 2)
+	in.WorkerIDs, in.MaxConcurrency = []string{"sbx_one"}, 1
+	v := superSandboxCreate(t, h, actor, in)
+	v = superSandboxRead(t, h, v.ID)
+	if v.BlockedReason != "" {
+		t.Fatalf("ready free worker reported blocker: %q", v.BlockedReason)
+	}
+	g := newSuperSandboxGuest()
+	d := superSandboxDispatcher(h, g)
+	superSandboxReconcile(t, d, v.ID)
+	v = superSandboxRead(t, h, v.ID)
+	if v.Tasks[0].State != "running" || v.BlockedReason != "" {
+		t.Fatalf("batch at its own concurrency limit reported blocker: %+v", v)
+	}
+	g.finish(v.Tasks[0].JobID, "completed", 0)
+	superSandboxReconcile(t, d, v.ID)
+	v = superSandboxRead(t, h, v.ID)
+	if v.Tasks[0].State != "succeeded" || v.Tasks[1].State != "running" || v.BlockedReason != "" {
+		t.Fatalf("in-progress batch at concurrency reported blocker: %+v", v)
+	}
+	g.finish(v.Tasks[1].JobID, "completed", 0)
+	superSandboxReconcile(t, d, v.ID)
+	v = superSandboxRead(t, h, v.ID)
+	if v.State != "succeeded" || v.BlockedReason != "" {
+		t.Fatalf("terminal batch reported blocker: %+v", v)
+	}
+	// All eligible workers reserved by another run: busy, not unavailable.
+	in.IdempotencyKey = "blocker-busy"
+	next := superSandboxCreate(t, h, actor, in)
+	other := superSandboxInput("blocker-busy-owner", 1)
+	other.WorkerIDs, other.MaxConcurrency = []string{"sbx_one"}, 1
+	owner := superSandboxCreate(t, h, actor, other)
+	superSandboxReconcile(t, d, owner.ID)
+	owner = superSandboxRead(t, h, owner.ID)
+	if owner.Tasks[0].State != "running" {
+		t.Fatalf("owner task not running: %+v", owner.Tasks[0])
+	}
+	superSandboxReconcile(t, d, next.ID)
+	next = superSandboxRead(t, h, next.ID)
+	if next.Tasks[0].State != "queued" || next.BlockedReason != "workers_busy" {
+		t.Fatalf("reserved worker slate not reported busy: %+v", next)
+	}
+}
+
+type superSandboxCloseCompletedGuest struct {
+	*superSandboxGuest
+}
+
+// StopJob returns a completed receipt without an exit code, the invalid
+// terminal write that must hold rather than release inside a rejection close.
+func (g *superSandboxCloseCompletedGuest) StopJob(_ context.Context, id string) (wrencomputer.Job, error) {
+	return wrencomputer.Job{ID: id, Status: "completed"}, nil
+}
+
+// A rejection close that reports completed-without-exit-code stays active as
+// missing_exit_code: the close keeps its mode, the reservation holds, and the
+// next pass still only retries the close.
+func TestSuperSandboxRejectionCloseCompletedWithoutExitCodeHolds(t *testing.T) {
+	h, actor := superSandboxFixture(t)
+	in := superSandboxInput("close-completed-no-code", 1)
+	in.Tasks[0].Directory = "missing"
+	v := superSandboxCreate(t, h, actor, in)
+	g := &superSandboxRejectingGuest{superSandboxGuest: newSuperSandboxGuest()}
+	d := superSandboxDispatcher(h, g.superSandboxGuest)
+	d.client = func(context.Context, Sandbox) (sandboxAgentClient, error) { return g, nil }
+	superSandboxReconcile(t, d, v.ID)
+	closer := &superSandboxCloseCompletedGuest{superSandboxGuest: g.superSandboxGuest}
+	d.client = func(context.Context, Sandbox) (sandboxAgentClient, error) { return closer, nil }
+	for i := 0; i < 2; i++ {
+		superSandboxReconcile(t, d, v.ID)
+	}
+	v = superSandboxRead(t, h, v.ID)
+	if v.Tasks[0].State != "unknown" || v.Tasks[0].Reason != "missing_exit_code" {
+		t.Fatalf("completed-without-code close released: %+v", v.Tasks[0])
+	}
+	if v.FinishedAt != nil || v.State == "failed" {
+		t.Fatalf("batch wrongly finished from invalid close receipt: %+v", v)
+	}
+	var mode string
+	if err := h.service.Store.pool.QueryRow(context.Background(), `SELECT COALESCE(resolution_mode,'') FROM super_sandbox_tasks WHERE id=$1`, v.Tasks[0].ID).Scan(&mode); err != nil || mode != "close_rejected_start" {
+		t.Fatalf("invalid receipt cleared close mode: %q %v", mode, err)
+	}
+	if busy, err := h.service.Store.superSandboxWorkerBusy(context.Background(), v.Tasks[0].WorkerID); err != nil || !busy {
+		t.Fatalf("invalid close receipt released worker: %v %v", busy, err)
+	}
+}
+
+// Delayed destruction evidence arriving after a terminal receipt must not
+// rewrite the task, close the already-settled job, or fabricate run failure.
+func TestSuperSandboxStaleRemovalCannotRewriteSuccess(t *testing.T) {
+	h, actor := superSandboxFixture(t)
+	v := superSandboxCreate(t, h, actor, superSandboxInput("stale-removal", 1))
+	g := newSuperSandboxGuest()
+	d := superSandboxDispatcher(h, g)
+	superSandboxReconcile(t, d, v.ID)
+	v = superSandboxRead(t, h, v.ID)
+	g.finish(v.Tasks[0].JobID, "completed", 0)
+	superSandboxReconcile(t, d, v.ID)
+	v = superSandboxRead(t, h, v.ID)
+	if v.State != "succeeded" || v.Tasks[0].State != "succeeded" {
+		t.Fatalf("expected succeeded batch, got %+v", v)
+	}
+	var generation int
+	if err := h.service.Store.pool.QueryRow(context.Background(), `SELECT generation FROM super_sandbox_tasks WHERE id=$1`, v.Tasks[0].ID).Scan(&generation); err != nil {
+		t.Fatal(err)
+	}
+	superSandboxExec(t, h, `INSERT INTO sandbox_destroyed_generations(workspace_id,sandbox_id,generation,confirmed_at) VALUES('ws',$1,$2,now())`, v.Tasks[0].WorkerID, generation)
+	if err := d.observe(context.Background(), "ws", v.ID, superSandboxClaim{TaskID: v.Tasks[0].ID, WorkerID: v.Tasks[0].WorkerID, Generation: generation, Request: wrencomputer.JobRequest{ID: v.Tasks[0].JobID}}); err != nil {
+		t.Fatal(err)
+	}
+	v = superSandboxRead(t, h, v.ID)
+	if v.Tasks[0].State != "succeeded" || v.State != "succeeded" || v.Failure != "" {
+		t.Fatalf("stale removal rewrote terminal state: %+v", v)
+	}
+}
+
+// A failing queue scan backs off and retries; the run stays alive until
+// cancel and then joins workers cleanly.
+func TestSuperSandboxRunRetriesAfterQueueScanFailure(t *testing.T) {
+	h, actor := superSandboxFixture(t)
+	v := superSandboxCreate(t, h, actor, superSandboxInput("queue-retry", 1))
+	g := newSuperSandboxGuest()
+	d := superSandboxDispatcher(h, g)
+	var calls int32
+	d.pendingRuns = func(context.Context) ([][2]string, error) {
+		if atomic.AddInt32(&calls, 1) == 1 {
+			return nil, errors.New("queue scan unavailable")
+		}
+		return [][2]string{{"ws", v.ID}}, nil
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- d.Run(ctx) }()
+	deadline := time.After(10 * time.Second)
+	for {
+		g.mu.Lock()
+		started := len(g.starts)
+		g.mu.Unlock()
+		if started > 0 {
+			break
+		}
+		select {
+		case <-deadline:
+			cancel()
+			t.Fatal("queue retry never reached the guest")
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+	if atomic.LoadInt32(&calls) < 2 {
+		t.Fatalf("queue scan did not retry: calls=%d", calls)
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("run ended with %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("run did not join workers after cancel")
 	}
 }

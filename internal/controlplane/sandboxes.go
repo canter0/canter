@@ -30,6 +30,13 @@ type SandboxConfig struct {
 	Enabled            bool
 	CollectJobHistory  bool
 	DirectoryTransfers bool
+	// SuperSandboxAdmissionDisabled stops NEW batch admission during a
+	// mixed-version drain; reconciliation, observation and cancellation of
+	// existing batches are unaffected.
+	SuperSandboxAdmissionDisabled bool
+	// SuperSandboxReconcilePaused keeps the reconciler stopped for a release
+	// rollback window; persisted batches stay inspectable and cancellable.
+	SuperSandboxReconcilePaused bool
 	SSHSourceCIDR      string
 	FreeMax            int
 	PaidMax            int
