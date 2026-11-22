@@ -19,6 +19,7 @@ jobs:
   release:
     if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     environment: production
     permissions:
       contents: write
@@ -101,6 +102,7 @@ jobs:
             gh release create "$tag" canter-release.tar.gz SHA256SUMS --target "$RELEASE_SHA" --title "Production ${RELEASE_SHA:0:12}" --notes "Built by GitHub Actions after successful CI. Server activation includes a database backup, readiness checks, and application rollback." --latest
           fi
       - name: Verify production activated this commit
+        timeout-minutes: 55
         run: |
           for attempt in $(seq 1 100); do
             echo "Checking production activation ($attempt/100)"

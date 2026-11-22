@@ -176,6 +176,23 @@ def install_file(source, target, mode=0o755):
     temporary.replace(target)
 
 
+def restore_unit(target, content):
+    if content is None:
+        target.unlink(missing_ok=True)
+        return
+    fd, name = tempfile.mkstemp(prefix=f'.{target.name}.', dir=target.parent)
+    temporary = Path(name)
+    try:
+        with os.fdopen(fd, 'wb') as output:
+            output.write(content)
+            output.flush()
+            os.fchmod(output.fileno(), 0o644)
+            os.fsync(output.fileno())
+        temporary.replace(target)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 def ensure_web_account():
     """Create or verify a dedicated web identity before switching services."""
     try:
@@ -320,11 +337,7 @@ def restore_enforcer(previous):
         binary.unlink(missing_ok=True)
     else:
         install_file(previous['binary'], binary)
-    if previous['unit'] is None:
-        unit.unlink(missing_ok=True)
-    else:
-        unit.write_bytes(previous['unit'])
-        unit.chmod(0o644)
+    restore_unit(unit, previous['unit'])
     run('systemctl', 'daemon-reload')
     if previous['active']:
         run('systemctl', 'restart', ENFORCER_UNIT)
@@ -340,12 +353,7 @@ def restore_runtime(previous, keep_web_unit=False):
         # Keep the hardened identity even when the application release rolls back.
         if name == 'canter-web.service' and keep_web_unit:
             continue
-        target = SYSTEMD / name
-        if content is None:
-            target.unlink(missing_ok=True)
-        else:
-            target.write_bytes(content)
-            target.chmod(0o644)
+        restore_unit(SYSTEMD / name, content)
     static = ROOT / 'bin/canter-static-linux'
     if previous['static'] is None:
         static.unlink(missing_ok=True)
