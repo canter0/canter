@@ -18,6 +18,15 @@ func (h *HTTPServer) ciEvidenceRouteConfigured() bool {
 }
 
 func (h *HTTPServer) ciEvidenceAvailable() bool {
+	if s := h.config.CI.ManagedService; s != nil {
+		ctx, release, ok := s.acquire(context.Background())
+		if !ok {
+			return false
+		}
+		defer release()
+		runtime := h.ciExecutionConfig(ctx).Managed
+		return runtime.mode == CIManagedRun && runtime.running.Load()
+	}
 	return h.ciEvidenceRouteConfigured() && h.config.CI.Managed.running.Load()
 }
 
@@ -52,7 +61,7 @@ func ciEvidenceWriteError(w http.ResponseWriter, status int) {
 // fixed status with no internal detail.
 func (h *HTTPServer) ciRunnerEvidenceHTTP(w http.ResponseWriter, r *http.Request) {
 	store := h.service.Store
-	cfg := h.config.CI.Admission
+	cfg := h.ciExecutionConfig(r.Context()).Admission
 
 	token, ok := ciAdmissionBearer(r)
 	if !ok {
@@ -144,7 +153,7 @@ func (h *HTTPServer) ciRunnerEvidenceHTTP(w http.ResponseWriter, r *http.Request
 // ciEvidenceAdmissionToken mints the evidence capability for a committed
 // admission allow. It re-verifies the durable decision against the exact
 // request and receipt before signing; any drift fails closed.
-func (h *HTTPServer) ciEvidenceAdmissionToken(workspace, runner string, req ciAdmissionRequest, receipt ciAdmissionReceipt, snap ciRunnerLifecycleSnapshot) (string, error) {
+func (h *HTTPServer) ciEvidenceAdmissionToken(ctx context.Context, workspace, runner string, req ciAdmissionRequest, receipt ciAdmissionReceipt, snap ciRunnerLifecycleSnapshot) (string, error) {
 	if snap.GitHubInstallationID == nil || *snap.GitHubInstallationID <= 0 || len(snap.Decision) == 0 {
 		return "", errCIEvidenceCapabilityInvalid
 	}
@@ -157,7 +166,10 @@ func (h *HTTPServer) ciEvidenceAdmissionToken(workspace, runner string, req ciAd
 		decision.Proof.RepositoryID != req.GitHubRepositoryID {
 		return "", errCIEvidenceCapabilityInvalid
 	}
-	return mintCIEvidenceCapability(h.config.CI.Admission.SigningKey, ciEvidenceCapability{
+	if !h.ciExecutionActive(ctx) {
+		return "", errCIEvidenceCapabilityInvalid
+	}
+	return mintCIEvidenceCapability(h.ciExecutionConfig(ctx).Admission.SigningKey, ciEvidenceCapability{
 		Version:              1,
 		Workspace:            workspace,
 		Runner:               runner,

@@ -612,6 +612,14 @@ var errCIEnforcerScope = errors.New("CI enforcer scope mismatch")
 
 var errCIEnforcerPending = errors.New("CI enforcer request pending")
 
+var errCIEnforcerTransport = errors.New("CI enforcer transport unavailable")
+
+type ciEnforcerHTTPError struct{ status int }
+
+func (e *ciEnforcerHTTPError) Error() string {
+	return fmt.Sprintf("CI enforcer request failed (%d)", e.status)
+}
+
 // ciEnforcerPlanDigest computes the pinned plan digest for client-side
 // validation; the caller's plan is authoritative on every call.
 func ciEnforcerPlanDigest(plan ciRunnerLifecyclePlan) string {
@@ -680,7 +688,7 @@ func (c *ciEnforcerClient) call(ctx context.Context, timeout time.Duration, meth
 	resp, err := c.hc.Do(req)
 	if err != nil {
 		// Never leak raw transport or URL errors to callers.
-		return errors.New("CI enforcer transport unavailable")
+		return errCIEnforcerTransport
 	}
 	defer resp.Body.Close()
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, (128<<10)+1))
@@ -696,7 +704,7 @@ func (c *ciEnforcerClient) call(ctx context.Context, timeout time.Duration, meth
 	if resp.StatusCode != http.StatusOK {
 		// A missing lease is availability, not an authenticated scope
 		// mismatch: proofs are withheld while owned physical cleanup proceeds.
-		return fmt.Errorf("CI enforcer request failed (%d)", resp.StatusCode)
+		return &ciEnforcerHTTPError{status: resp.StatusCode}
 	}
 	if out != nil {
 		if err = ciEnforcerStrictJSON(raw, out); err != nil {

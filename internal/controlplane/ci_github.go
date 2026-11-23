@@ -531,6 +531,33 @@ func (h *HTTPServer) ciGitHubPublic(w http.ResponseWriter, r *http.Request, part
 		h.ciGitHubWebhook(w, r)
 		return
 	}
+	if len(parts) == 1 && (parts[0] == "runner-admissions" || parts[0] == "runner-bootstrap" || parts[0] == "runner-evidence") &&
+		h.config.CI.ManagedService != nil {
+		s := h.config.CI.ManagedService
+		if s.mode == "" || s.mode == CIManagedOff || s.mode == CIManagedRecover ||
+			(parts[0] != "runner-evidence" && r.Method != http.MethodPost) {
+			writeError(w, http.StatusNotFound, ErrNotFound)
+			return
+		}
+		ctx, release, ok := s.acquire(r.Context())
+		if !ok {
+			ciAdmissionUnavailable(w)
+			return
+		}
+		defer release()
+		stopBody := context.AfterFunc(ctx, func() { _ = r.Body.Close() })
+		defer stopBody()
+		r = r.WithContext(ctx)
+		switch parts[0] {
+		case "runner-admissions":
+			h.ciRunnerAdmissionHTTP(w, r)
+		case "runner-bootstrap":
+			h.ciRunnerBootstrapHTTP(w, r)
+		case "runner-evidence":
+			h.ciRunnerEvidenceHTTP(w, r)
+		}
+		return
+	}
 	if len(parts) == 1 && parts[0] == "runner-admissions" && r.Method == http.MethodPost && h.ciAdmissionConfigured() {
 		h.ciRunnerAdmissionHTTP(w, r)
 		return

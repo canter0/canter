@@ -227,6 +227,9 @@ func TestCIManagedRuntimeOffAndValidation(t *testing.T) {
 		{"nil store", func(c *CIManagedRuntimeConfig) {}},
 		{"short key", func(c *CIManagedRuntimeConfig) { c.SigningKey = []byte(strings.Repeat("k", 31)) }},
 		{"long key", func(c *CIManagedRuntimeConfig) { c.SigningKey = []byte(strings.Repeat("k", 33)) }},
+		{"key equals enforcer token", func(c *CIManagedRuntimeConfig) {
+			c.EnforcerToken = append([]byte(nil), c.SigningKey...)
+		}},
 		{"empty profile", func(c *CIManagedRuntimeConfig) { c.ProfileJSON = nil }},
 		{"oversize profile", func(c *CIManagedRuntimeConfig) { c.ProfileJSON = make([]byte, 32769) }},
 		{"invalid json", func(c *CIManagedRuntimeConfig) { c.ProfileJSON = []byte("{") }},
