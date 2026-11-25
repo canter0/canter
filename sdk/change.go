@@ -36,13 +36,14 @@ type Change struct {
 }
 
 type ChangePlan struct {
-	BaseRevision ChangeBaseRevision `json:"baseRevision,omitempty"`
-	BaseVersion  string             `json:"baseVersion"`
-	Release      ReleaseManifest    `json:"release"`
-	Scale        *ReplicaScalePlan  `json:"scale,omitempty"`
-	Migration    *Migration         `json:"migration,omitempty"`
-	Verification ChangeVerification `json:"verification"`
-	Impact       ChangeImpact       `json:"impact"`
+	BaseRevision       ChangeBaseRevision `json:"baseRevision,omitempty"`
+	BaseVersion        string             `json:"baseVersion"`
+	Release            ReleaseManifest    `json:"release"`
+	StagedArtifactSize int64              `json:"stagedArtifactSize,omitempty"`
+	Scale              *ReplicaScalePlan  `json:"scale,omitempty"`
+	Migration          *Migration         `json:"migration,omitempty"`
+	Verification       ChangeVerification `json:"verification"`
+	Impact             ChangeImpact       `json:"impact"`
 }
 
 // ReplicaScalePlan is an application-level capacity transition on the
@@ -127,6 +128,10 @@ type DraftScaleChangeInput struct {
 var environmentName = regexp.MustCompile(`^[A-Z][A-Z0-9_]{0,127}$`)
 
 func (c *Client) DraftChange(ctx context.Context, system System, input DraftChangeInput) (Change, error) {
+	return c.draftChange(ctx, system, input, nil)
+}
+
+func (c *Client) draftChange(ctx context.Context, system System, input DraftChangeInput, staged *StagedArtifact) (Change, error) {
 	if err := system.Validate(); err != nil {
 		return Change{}, err
 	}
@@ -149,9 +154,31 @@ func (c *Client) DraftChange(ctx context.Context, system System, input DraftChan
 	if err := c.m1.Get(ctx, desiredKey(system), &currentDesired); err != nil {
 		return Change{}, fmt.Errorf("read current desired release: %w", err)
 	}
-	release, err := c.StageRelease(ctx, system, input.Release)
-	if err != nil {
-		return Change{}, err
+	var release ReleaseManifest
+	if staged == nil {
+		release, err = c.StageRelease(ctx, system, input.Release)
+		if err != nil {
+			return Change{}, err
+		}
+	} else {
+		port, err := systemPublicPort(system)
+		if err != nil {
+			return Change{}, err
+		}
+		if input.Release.PublicPort != port || input.Release.PublicPort != currentDesired.PublicPort {
+			return Change{}, fmt.Errorf("staged release must keep the existing System public port")
+		}
+		if currentDesired.Version != observed.RunningVersion {
+			return Change{}, fmt.Errorf("staged release requires desired and running base versions to match")
+		}
+		if err := c.VerifyStagedArtifact(ctx, *staged); err != nil {
+			return Change{}, err
+		}
+		version := staged.SHA256[:12]
+		if version == observed.RunningVersion {
+			return Change{}, fmt.Errorf("staged release must differ from the running release")
+		}
+		release = ReleaseManifest{SchemaVersion: "v1", System: system.Metadata.Name, Version: version, ArtifactKey: staged.Key, ArtifactSHA: staged.SHA256, Command: append([]string(nil), input.Release.Command...), Environment: cloneStrings(input.Release.Environment), HealthPath: input.Release.HealthPath, PublicPort: input.Release.PublicPort, RequestedAt: time.Now().UTC()}
 	}
 	currentReplicas := observed.DesiredReplicas
 	if currentReplicas < 1 {
@@ -165,8 +192,10 @@ func (c *Client) DraftChange(ctx context.Context, system System, input DraftChan
 		lease := *currentDesired.CapacityLease
 		release.CapacityLease = &lease
 	}
-	if err := c.m1.PutJSON(ctx, releaseKey(system, release.Version), release); err != nil {
-		return Change{}, fmt.Errorf("persist release replica intent: %w", err)
+	if staged == nil {
+		if err := c.m1.PutJSON(ctx, releaseKey(system, release.Version), release); err != nil {
+			return Change{}, fmt.Errorf("persist release replica intent: %w", err)
+		}
 	}
 	verification := input.Verification
 	if verification.Method == "" {
@@ -179,6 +208,9 @@ func (c *Client) DraftChange(ctx context.Context, system System, input DraftChan
 		return Change{}, fmt.Errorf("v0 verification requires GET, an absolute path, and a valid expected status")
 	}
 	plan := ChangePlan{BaseVersion: observed.RunningVersion, Release: release, Verification: verification, Impact: ChangeImpact{AffectedServices: []string{"web"}, Availability: "rolling replacement; no downtime expected", Data: "none", MonthlyCostDeltaCents: 0}}
+	if staged != nil {
+		plan.StagedArtifactSize = staged.Size
+	}
 	if revision, ok := ChangeBaseRevisionFromContext(ctx); ok {
 		plan.BaseRevision = revision
 	}
@@ -523,6 +555,19 @@ func (c *Client) executeChangeOperation(ctx context.Context, system System, chan
 		if observed.Phase != "running" || !observed.Healthy || observed.RunningVersion != change.Plan.BaseVersion {
 			return "", fmt.Errorf("production moved after planning: expected healthy %s, observed phase=%s version=%s healthy=%t", change.Plan.BaseVersion, observed.Phase, observed.RunningVersion, observed.Healthy)
 		}
+		if change.Plan.StagedArtifactSize != 0 {
+			var desired ReleaseManifest
+			if err := c.m1.Get(ctx, desiredKey(system), &desired); err != nil {
+				return "", err
+			}
+			if desired.Version != change.Plan.BaseVersion {
+				return "", fmt.Errorf("desired release moved after planning")
+			}
+			release := change.Plan.Release
+			if err := c.VerifyStagedArtifact(ctx, StagedArtifact{Key: release.ArtifactKey, SHA256: release.ArtifactSHA, Size: change.Plan.StagedArtifactSize}); err != nil {
+				return "", fmt.Errorf("approved staged artifact is unavailable or failed integrity verification")
+			}
+		}
 		if change.Plan.Scale != nil {
 			ready := observed.ReadyReplicas
 			if ready < 1 && observed.PID > 0 {
@@ -553,6 +598,14 @@ func (c *Client) executeChangeOperation(ctx context.Context, system System, chan
 	case "release.set-desired":
 		if err := lease.Assert(ctx); err != nil {
 			return "", err
+		}
+		if change.Plan.StagedArtifactSize != 0 {
+			if err := c.persistReleaseManifest(ctx, system, change.Plan.Release); err != nil {
+				return "", fmt.Errorf("persist approved release manifest: %w", err)
+			}
+			if err := lease.Assert(ctx); err != nil {
+				return "", err
+			}
 		}
 		if err := c.m1.PutJSON(ctx, desiredKey(system), change.Plan.Release); err != nil {
 			return "", err

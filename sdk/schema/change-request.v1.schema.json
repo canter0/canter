@@ -24,15 +24,20 @@
 		{"required": ["release"], "not": {"required": ["scale"]}},
 		{"required": ["scale"], "not": {"required": ["release"]}}
 	  ],
+	  "allOf": [
+		{"if": {"required": ["release"], "properties": {"release": {"required": ["artifactSha256"]}}}, "then": {"not": {"required": ["migration"]}}}
+	  ],
       "properties": {
         "system": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,47}$"},
         "summary": {"type": "string", "minLength": 1},
         "release": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["artifact", "command", "healthPath", "publicPort"],
+          "required": ["command", "healthPath", "publicPort"],
+          "oneOf": [{"required": ["artifact"]}, {"required": ["artifactSha256"]}],
           "properties": {
             "artifact": {"type": "string", "minLength": 1},
+            "artifactSha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
             "command": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
             "environment": {
               "type": "object",

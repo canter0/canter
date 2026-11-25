@@ -282,11 +282,22 @@ type Execution struct {
 	CompletedAt    *time.Time   `json:"completedAt,omitempty"`
 }
 
+type PersonalAPIKey struct {
+	ID         string     `json:"id"`
+	Name       string     `json:"name"`
+	Prefix     string     `json:"prefix"`
+	CreatedAt  time.Time  `json:"createdAt"`
+	ExpiresAt  time.Time  `json:"expiresAt"`
+	LastUsedAt *time.Time `json:"lastUsedAt,omitempty"`
+	RevokedAt  *time.Time `json:"revokedAt,omitempty"`
+}
+
 type Principal struct {
 	Actor        sdk.ActorRef
 	Account      *Account
 	Installation *Installation
 	Session      *AgentSession
+	APIKey       *PersonalAPIKey `json:"-"`
 	WorkspaceID  string
 	Role         string
 }

@@ -6,7 +6,10 @@ uploads, streamed downloads, lifecycle, saved environments and templates.
 
 The access token may be a string or a zero-argument callable returning a fresh
 token — it is resolved per request and never persisted or echoed into errors.
-Only the standard library is used (urllib, json, base64, hashlib).
+Either a personal API key (``canter_pk_…``, for example
+``os.environ["CANTER_API_KEY"]``) acting with the account's current workspace
+role, or an agent installation access token acting with its granted authority,
+is accepted. Only the standard library is used (urllib, json, base64, hashlib).
 """
 
 from __future__ import annotations
@@ -264,6 +267,19 @@ class SandboxClient:
         return self._request("GET", self._sandbox_path(sandbox_id, f"/history/{job_id}?offset={offset}"))
 
     # -- listing and lifecycle -------------------------------------------------
+
+    def me(self) -> dict:
+        """Return the account identity (GET /v1/me) for a personal API key.
+
+        Construct the client with the key as ``access_token`` — for example
+        ``os.environ["CANTER_API_KEY"]``. Agent installation tokens are not
+        accepted by this endpoint. The workspace_id argument is unused by
+        this call but still required by the client constructor.
+        """
+        result = self._request("GET", "/v1/me")
+        if not isinstance(result, dict) or not isinstance(result.get("account"), dict):
+            raise SandboxProtocolError("invalid account identity receipt")
+        return result
 
     def list(self) -> dict:
         result = self._request("GET", f"{self._base()}/sandboxes")

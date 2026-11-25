@@ -34,11 +34,12 @@ type ChangeRequestSpec struct {
 }
 
 type ChangeRequestRelease struct {
-	Artifact    string            `yaml:"artifact" json:"artifact"`
-	Command     []string          `yaml:"command" json:"command"`
-	Environment map[string]string `yaml:"environment,omitempty" json:"environment,omitempty"`
-	HealthPath  string            `yaml:"healthPath" json:"healthPath"`
-	PublicPort  int               `yaml:"publicPort" json:"publicPort"`
+	Artifact       string            `yaml:"artifact,omitempty" json:"artifact,omitempty"`
+	ArtifactSHA256 string            `yaml:"artifactSha256,omitempty" json:"artifactSha256,omitempty"`
+	Command        []string          `yaml:"command" json:"command"`
+	Environment    map[string]string `yaml:"environment,omitempty" json:"environment,omitempty"`
+	HealthPath     string            `yaml:"healthPath" json:"healthPath"`
+	PublicPort     int               `yaml:"publicPort" json:"publicPort"`
 }
 
 type ChangeRequestMigration struct {
@@ -92,8 +93,21 @@ func (r ChangeRequest) Validate() error {
 		return fmt.Errorf("change request requires exactly one of spec.release or spec.scale")
 	}
 	if release := r.Spec.Release; release != nil {
-		if strings.TrimSpace(release.Artifact) == "" || len(release.Command) == 0 || !strings.HasPrefix(release.HealthPath, "/") || release.PublicPort < 1 || release.PublicPort > 65535 {
-			return fmt.Errorf("change request release requires artifact, command, absolute healthPath, and valid publicPort")
+		hasPath := strings.TrimSpace(release.Artifact) != ""
+		hasDigest := release.ArtifactSHA256 != ""
+		if hasPath == hasDigest {
+			return fmt.Errorf("change request release requires exactly one of artifact or artifactSha256")
+		}
+		if hasDigest {
+			if _, err := ControlPlaneArtifactKey(release.ArtifactSHA256); err != nil {
+				return err
+			}
+			if r.Spec.Migration != nil {
+				return fmt.Errorf("migrations are not supported with a staged release")
+			}
+		}
+		if len(release.Command) == 0 || !strings.HasPrefix(release.HealthPath, "/") || release.PublicPort < 1 || release.PublicPort > 65535 {
+			return fmt.Errorf("change request release requires command, absolute healthPath, and valid publicPort")
 		}
 		for key := range release.Environment {
 			if !environmentName.MatchString(key) {
@@ -127,6 +141,17 @@ func (r ChangeRequest) Validate() error {
 }
 
 func (r ChangeRequest) DraftInput(system System) (DraftChangeInput, error) {
+	input, err := r.draftReleaseInput(system)
+	if err != nil {
+		return DraftChangeInput{}, err
+	}
+	if r.Spec.Release.ArtifactSHA256 != "" {
+		return DraftChangeInput{}, fmt.Errorf("change request release artifactSha256 requires a staged workspace artifact")
+	}
+	return input, nil
+}
+
+func (r ChangeRequest) draftReleaseInput(system System) (DraftChangeInput, error) {
 	if err := r.Validate(); err != nil {
 		return DraftChangeInput{}, err
 	}
@@ -187,6 +212,21 @@ func (c *Client) DraftChangeRequest(ctx context.Context, system System, request 
 		return Change{}, err
 	}
 	return c.DraftChange(ctx, system, input)
+}
+
+// DraftStagedChangeRequest compiles a release request bound to an artifact the
+// control plane already uploaded and verified. The request must name that
+// exact digest and no local path; only the server-side engine may call this.
+func (c *Client) DraftStagedChangeRequest(ctx context.Context, system System, request ChangeRequest, artifact StagedArtifact) (Change, error) {
+	input, err := request.draftReleaseInput(system)
+	if err != nil {
+		return Change{}, err
+	}
+	release := request.Spec.Release
+	if release == nil || release.ArtifactSHA256 == "" || release.ArtifactSHA256 != artifact.SHA256 || release.Artifact != "" {
+		return Change{}, fmt.Errorf("staged change request requires the uploaded artifact digest")
+	}
+	return c.draftChange(ctx, system, input, &artifact)
 }
 
 func cloneStrings(source map[string]string) map[string]string {

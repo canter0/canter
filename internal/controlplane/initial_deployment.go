@@ -233,6 +233,30 @@ func validateApplicationArtifact(data []byte) ([]DeploymentArtifactEntry, error)
 
 var deploymentEnvironmentName = regexp.MustCompile(`^[A-Z][A-Z0-9_]{0,127}$`)
 
+// validateArtifactCommand binds a release argv to the uploaded immutable
+// bundle: command[0] must name a ./-prefixed executable regular file inside
+// the artifact. Shared by first-deployment and staged release drafting.
+func validateArtifactCommand(command []string, artifact DeploymentArtifact) error {
+	if len(command) == 0 || !strings.HasPrefix(command[0], "./") {
+		return fmt.Errorf("release command must start with ./ and name an executable file inside the artifact")
+	}
+	commandPath := strings.TrimPrefix(command[0], "./")
+	if path.Clean(commandPath) != commandPath || commandPath == "." {
+		return fmt.Errorf("release command must start with ./ and name an executable file inside the artifact")
+	}
+	executable := false
+	for _, entry := range artifact.Entries {
+		if entry.Path == commandPath && entry.Mode&0o100 != 0 {
+			executable = true
+			break
+		}
+	}
+	if !executable {
+		return fmt.Errorf("release command %q is not an executable file in artifact %s", command[0], artifact.SHA256)
+	}
+	return nil
+}
+
 func (s *Service) DraftInitialDeployment(ctx context.Context, workspaceID string, input DraftInitialDeploymentInput, actor sdk.ActorRef) (InitialDeployment, error) {
 	canonical, err := canonicalizeSystemForWorkspace(workspaceID, input.System)
 	if err != nil {
@@ -305,22 +329,8 @@ func (s *Service) DraftInitialDeployment(ctx context.Context, workspaceID string
 	if err != nil {
 		return InitialDeployment{}, err
 	}
-	if !strings.HasPrefix(input.Release.Command[0], "./") {
-		return InitialDeployment{}, fmt.Errorf("release command must start with ./ and name an executable file inside the artifact")
-	}
-	commandPath := strings.TrimPrefix(input.Release.Command[0], "./")
-	if path.Clean(commandPath) != commandPath || commandPath == "." {
-		return InitialDeployment{}, fmt.Errorf("release command must start with ./ and name an executable file inside the artifact")
-	}
-	executable := false
-	for _, entry := range artifact.Entries {
-		if entry.Path == commandPath && entry.Mode&0o100 != 0 {
-			executable = true
-			break
-		}
-	}
-	if !executable {
-		return InitialDeployment{}, fmt.Errorf("release command %q is not an executable file in artifact %s", input.Release.Command[0], artifact.SHA256)
+	if err := validateArtifactCommand(input.Release.Command, artifact); err != nil {
+		return InitialDeployment{}, err
 	}
 	workspace, err := s.Store.Workspace(ctx, workspaceID)
 	if err != nil {

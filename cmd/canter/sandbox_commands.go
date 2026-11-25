@@ -55,16 +55,19 @@ reported sensitive filenames. Git and platform metadata are always excluded.
 
 Shared flags:
   --api-url        Canter control-plane URL (default CANTER_API_URL or http://127.0.0.1:8081)
-  --env-file       file holding CANTER_AGENT_ACCESS_TOKEN / CANTER_WORKSPACE_ID
-  --workspace      workspace ID (default CANTER_WORKSPACE_ID or the token's installation)
+  --env-file       file holding CANTER_API_KEY / CANTER_AGENT_ACCESS_TOKEN / CANTER_WORKSPACE_ID
+  --workspace      workspace ID (default CANTER_WORKSPACE_ID; required for
+                   CANTER_API_KEY, otherwise the agent token's installation)
   --timeout        operation timeout (default 15m)
 
-Access: connect an agent with "canter agent connect"; refresh with
-"canter agent refresh". Never pass a token on the command line — use
-CANTER_AGENT_ACCESS_TOKEN or --env-file. create requires a stable caller
-idempotencyKey so interrupted requests replay the exact same body; a changed
-body under the same key conflicts. All commands use this token's workspace
-and permission scope only.
+Access: create a personal API key in Settings > API keys and export it as
+CANTER_API_KEY, or connect an agent with "canter agent connect" and refresh
+with "canter agent refresh" for CANTER_AGENT_ACCESS_TOKEN. Never pass a
+token on the command line; use the environment or --env-file. A personal
+key acts with your current role in the chosen workspace; an agent token
+acts with the installation's granted authority. create requires a stable
+caller idempotencyKey so interrupted requests replay the exact same body; a
+changed body under the same key conflicts.
 `
 
 // sandboxCommand routes `canter sandbox <subcommand>` — it runs before
@@ -109,7 +112,7 @@ func newSandboxFlags(name string) *sandboxFlags {
 	fs := flag.NewFlagSet("sandbox "+name, flag.ContinueOnError)
 	f := &sandboxFlags{fs: fs}
 	f.apiURL = fs.String("api-url", defaultAPIURL(), "Canter control-plane URL")
-	f.envFile = fs.String("env-file", "", "file with CANTER_AGENT_ACCESS_TOKEN / CANTER_WORKSPACE_ID")
+	f.envFile = fs.String("env-file", "", "file with CANTER_API_KEY / CANTER_AGENT_ACCESS_TOKEN / CANTER_WORKSPACE_ID")
 	f.workspace = fs.String("workspace", "", "workspace ID")
 	f.timeout = fs.Duration("timeout", 15*time.Minute, "operation timeout")
 	return f
@@ -135,12 +138,9 @@ func (f *sandboxFlags) client(ctx context.Context) (*remote.SandboxClient, error
 	if !flagWasSet(f.fs, "api-url") && values["CANTER_API_URL"] != "" {
 		apiURL = values["CANTER_API_URL"]
 	}
-	token := strings.TrimSpace(os.Getenv("CANTER_AGENT_ACCESS_TOKEN"))
-	if token == "" {
-		token = strings.TrimSpace(values["CANTER_AGENT_ACCESS_TOKEN"])
-	}
-	if token == "" {
-		return nil, errors.New("no Canter access token: set CANTER_AGENT_ACCESS_TOKEN or use --env-file (see canter agent connect)")
+	token, personal, err := resolveAPICredential(values)
+	if err != nil {
+		return nil, err
 	}
 	base, err := remote.New(apiURL, nil)
 	if err != nil {
@@ -154,6 +154,11 @@ func (f *sandboxFlags) client(ctx context.Context) (*remote.SandboxClient, error
 		workspace = strings.TrimSpace(values["CANTER_WORKSPACE_ID"])
 	}
 	if workspace == "" {
+		if personal {
+			// A personal key spans every workspace the account can reach; the
+			// caller must name the target rather than guessing a membership.
+			return nil, errors.New("--workspace or CANTER_WORKSPACE_ID is required with a personal API key")
+		}
 		identity, err := base.WhoAmI(ctx, token)
 		if err != nil {
 			return nil, fmt.Errorf("resolve workspace from token: %w", err)

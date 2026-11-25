@@ -47,6 +47,15 @@ leased action. Node request bodies are capped at 256 KiB, provider keys are not
 generic gateway operations, and a forwarded HTTPS scheme is trusted only from a
 loopback reverse proxy.
 
+To update an existing System through the API, upload the application bundle
+with `POST /v1/workspaces/{workspace}/artifacts` and use the returned
+`artifactSha256` as `spec.release.artifactSha256` in
+`POST /v1/workspaces/{workspace}/systems/{system}/changes`. The release
+command must name an executable inside the bundle, and the public port must
+match the existing System. The draft binds the artifact digest and size.
+Existing approval and policy requirements apply before the desired release
+can change.
+
 `sdk.Client.BootstrapSystemHostViaGateway` is the secure host bootstrap entry
 point. The legacy `BootstrapSystemHost` deliberately fails closed; the initial
 deployment dispatcher must create the enrollment and call the gateway method in
