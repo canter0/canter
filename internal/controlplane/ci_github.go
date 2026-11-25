@@ -267,6 +267,18 @@ func (c *ciGitHubClient) appInstallation(ctx context.Context, installationID int
 	return out, nil
 }
 
+func (c *ciGitHubClient) personalInstallation(ctx context.Context, user ciGitHubUser) (ciAppInstallation, error) {
+	var out ciAppInstallation
+	path := "/users/" + url.PathEscape(user.Login) + "/installation"
+	if err := c.call(ctx, http.MethodGet, path, "app", nil, &out); err != nil {
+		return out, err
+	}
+	if out.ID <= 0 || out.AppID != c.appID || out.Account.Type != "User" || out.Account.ID != user.ID || out.Account.Login == "" {
+		return out, errors.New("invalid personal GitHub App installation")
+	}
+	return out, nil
+}
+
 func (c *ciGitHubClient) userIdentity(ctx context.Context, userToken string) (ciGitHubUser, error) {
 	var out ciGitHubUser
 	if err := c.call(ctx, http.MethodGet, "/user", userToken, nil, &out); err != nil {
@@ -319,7 +331,7 @@ func (c *ciGitHubClient) installationRepositories(ctx context.Context, installat
 	return all, nil
 }
 
-func (h *HTTPServer) ciConnect(w http.ResponseWriter, r *http.Request, p Principal, workspaceID string) {
+func (h *HTTPServer) ciConnect(w http.ResponseWriter, r *http.Request, p Principal, workspaceID string, linkPersonal bool) {
 	if p.Account == nil || p.Installation != nil {
 		writeStoreError(w, ErrForbidden)
 		return
@@ -338,14 +350,36 @@ func (h *HTTPServer) ciConnect(w http.ResponseWriter, r *http.Request, p Princip
 		writeError(w, http.StatusServiceUnavailable, errCINotConfigured)
 		return
 	}
-	_ = client
-	state, _, err := h.githubAccess(r.Context(), p.Account.ID, workspaceID)
+	_, userToken, err := h.githubAccess(r.Context(), p.Account.ID, workspaceID)
 	if err != nil {
 		writeStoreError(w, err)
 		return
 	}
-	if !state.Connected {
-		writeError(w, http.StatusConflict, errCINoGitHub)
+	if userToken == "" {
+		writeJSON(w, http.StatusConflict, map[string]any{"error": map[string]string{
+			"code": "ci_github_repository_connection_required", "message": errCINoGitHub.Error(),
+		}})
+		return
+	}
+	if linkPersonal {
+		user, err := client.userIdentity(r.Context(), userToken)
+		if err != nil {
+			writeError(w, http.StatusBadGateway, errors.New("GitHub user identity could not be verified."))
+			return
+		}
+		installation, err := client.personalInstallation(r.Context(), user)
+		if err != nil {
+			var apiError *ciGitHubError
+			if errors.As(err, &apiError) && apiError.status == http.StatusNotFound {
+				writeError(w, http.StatusNotFound, errors.New("Canter CI is not installed on your personal GitHub account."))
+				return
+			}
+			writeError(w, http.StatusBadGateway, errors.New("The personal GitHub App installation could not be verified."))
+			return
+		}
+		if h.ciBindGitHubInstallation(w, r, client, workspaceID, p.Account.ID, "", installation, user) {
+			writeJSON(w, http.StatusOK, map[string]bool{"linked": true})
+		}
 		return
 	}
 	raw := make([]byte, 32)
@@ -355,7 +389,8 @@ func (h *HTTPServer) ciConnect(w http.ResponseWriter, r *http.Request, p Princip
 	}
 	stateValue := hex.EncodeToString(raw)
 	sum := sha256.Sum256([]byte(stateValue))
-	if err = h.service.Store.CreateCIConnectState(r.Context(), workspaceID, p.Account.ID, hex.EncodeToString(sum[:]), time.Now().Add(10*time.Minute)); err != nil {
+	stateHash := hex.EncodeToString(sum[:])
+	if err = h.service.Store.CreateCIConnectState(r.Context(), workspaceID, p.Account.ID, stateHash, time.Now().Add(10*time.Minute)); err != nil {
 		writeStoreError(w, err)
 		return
 	}
@@ -410,50 +445,57 @@ func (h *HTTPServer) ciGitHubCallback(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("GitHub App installation could not be verified."))
 		return
 	}
-	if installation.SuspendedAt != nil {
-		writeError(w, http.StatusConflict, errors.New("GitHub App installation is suspended."))
-		return
-	}
-	instToken, err := client.installationToken(r.Context(), installationID)
-	if err != nil {
-		writeError(w, http.StatusBadGateway, errors.New("GitHub App installation token could not be created."))
-		return
-	}
 	user, err := client.userIdentity(r.Context(), userToken)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, errors.New("GitHub user identity could not be verified."))
 		return
 	}
+	if h.ciBindGitHubInstallation(w, r, client, workspaceID, accountID, stateHash, installation, user) {
+		http.Redirect(w, r, strings.TrimRight(h.config.PublicURL, "/")+"/app/ci", http.StatusSeeOther)
+	}
+}
+
+func (h *HTTPServer) ciBindGitHubInstallation(w http.ResponseWriter, r *http.Request, client *ciGitHubClient, workspaceID, accountID, stateHash string, installation ciAppInstallation, user ciGitHubUser) bool {
+	if installation.SuspendedAt != nil {
+		writeError(w, http.StatusConflict, errors.New("GitHub App installation is suspended."))
+		return false
+	}
+	installationID := installation.ID
+	instToken, err := client.installationToken(r.Context(), installationID)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, errors.New("GitHub App installation token could not be created."))
+		return false
+	}
 	switch installation.Account.Type {
 	case "User":
 		if installation.Account.ID != user.ID {
 			writeError(w, http.StatusForbidden, errors.New("The GitHub App installation does not belong to your GitHub account."))
-			return
+			return false
 		}
 	case "Organization":
 		membership, err := client.orgMembership(r.Context(), instToken, installation.Account.Login, user.Login)
 		if err != nil {
 			writeError(w, http.StatusForbidden, errors.New("GitHub organization membership could not be verified."))
-			return
+			return false
 		}
 		if membership.Role != "admin" || membership.State != "active" {
 			writeError(w, http.StatusForbidden, errors.New("Organization GitHub App installations require an active organization admin."))
-			return
+			return false
 		}
 	default:
 		writeError(w, http.StatusBadRequest, errors.New("Unsupported GitHub installation account type."))
-		return
+		return false
 	}
 	repos, err := client.installationRepositories(r.Context(), instToken)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, errors.New("GitHub App installation repositories could not be listed."))
-		return
+		return false
 	}
 	if len(repos) == 0 {
 		writeError(w, http.StatusBadRequest, errors.New("Select at least one repository for the GitHub App installation."))
-		return
+		return false
 	}
-	_, err = h.service.Store.BindCIInstallation(r.Context(), workspaceID, accountID, stateHash, installationID, installation.Account.ID, installation.Account.Login, installation.Account.Type, repos)
+	_, err = h.service.Store.bindCIInstallation(r.Context(), workspaceID, accountID, stateHash, installationID, installation.Account.ID, installation.Account.Login, installation.Account.Type, repos)
 	if err != nil {
 		switch {
 		case errors.Is(err, errCIConnectState):
@@ -467,10 +509,10 @@ func (h *HTTPServer) ciGitHubCallback(w http.ResponseWriter, r *http.Request) {
 		default:
 			writeStoreError(w, err)
 		}
-		return
+		return false
 	}
 	_ = h.service.Store.Audit(r.Context(), workspaceID, sdkActorForAccount(accountID), "ci.github.connected", installation.Account.Login, map[string]any{"installationId": installationID, "repositories": len(repos)})
-	http.Redirect(w, r, strings.TrimRight(h.config.PublicURL, "/")+"/app/ci", http.StatusSeeOther)
+	return true
 }
 
 var errCIInstallationBound = errors.New("GitHub App installation is already bound")
