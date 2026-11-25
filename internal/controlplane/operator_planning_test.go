@@ -33,3 +33,35 @@ func TestOperatorResourcePlanningStaysInConversation(t *testing.T) {
 		})
 	}
 }
+
+func TestOperatorToolSchemasMarshalRequiredArrays(t *testing.T) {
+	for _, tool := range (&OperatorRuntime{}).tools() {
+		raw, err := json.Marshal(tool.InputSchema)
+		if err != nil {
+			t.Fatalf("%s schema does not marshal: %v", tool.Name, err)
+		}
+		var decoded any
+		if err := json.Unmarshal(raw, &decoded); err != nil {
+			t.Fatalf("%s schema does not round-trip: %v", tool.Name, err)
+		}
+		var inspect func(string, any)
+		inspect = func(path string, value any) {
+			switch typed := value.(type) {
+			case map[string]any:
+				if required, exists := typed["required"]; exists {
+					if _, ok := required.([]any); !ok {
+						t.Errorf("%s required is %T, not an array", path, required)
+					}
+				}
+				for key, child := range typed {
+					inspect(path+"."+key, child)
+				}
+			case []any:
+				for _, child := range typed {
+					inspect(path, child)
+				}
+			}
+		}
+		inspect(tool.Name, decoded)
+	}
+}
