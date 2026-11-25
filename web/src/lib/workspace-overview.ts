@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { canterFetch, CanterAPIError, type Me } from "./canter-api";
 import { expiredSessionDestination } from "./auth";
+import { openSelectedWorkspace } from "./workspace-selection";
 import { requiredWorkspaceResources, workspaceResources, workspaceResourcePath, type WorkspaceBootstrap, type WorkspaceOverview as Overview, type WorkspaceResource } from "./workspace-data";
 
 type ResourceState = { loaded: boolean; error: string };
@@ -49,7 +50,7 @@ export function useWorkspaceOverview(initial: WorkspaceBootstrap) {
         const me = await canterFetch<Me>("/me", options);
         if (controller.signal.aborted) return;
         const selected=me.workspaces.find(workspace=>workspace.id===workspaceId);
-        if (me.account.id !== accountId || !selected) { window.location.replace("/app/wrens"); return; }
+        if (me.account.id !== accountId || !selected) { openSelectedWorkspace({ replace: true }); return; }
         setData(current => ({ ...current, account: me.account, workspace: selected,workspaces:me.workspaces }));
       } catch (cause) { if (!controller.signal.aborted) handleAuth(cause); }
       finally { running.delete("me"); }
@@ -68,7 +69,15 @@ export function useWorkspaceOverview(initial: WorkspaceBootstrap) {
     const interval = window.setInterval(refreshVisible, 5000);
     window.addEventListener("focus", refresh);
     document.addEventListener("visibilitychange", refreshVisible);
-    const switched=(event:StorageEvent)=>{if(event.key!=="canter-workspace-change"||!event.newValue)return;try{const selected=JSON.parse(event.newValue);if(selected.accountId===accountId&&typeof selected.workspaceId==="string"&&selected.workspaceId!==workspaceId)window.location.replace("/app/wrens");}catch{/* Ignore unrelated/malformed storage values. */}};
+    const switched = (event: StorageEvent) => {
+      if (event.key !== "canter-workspace-change" || !event.newValue) return;
+      try {
+        const selected = JSON.parse(event.newValue);
+        if (selected?.accountId === accountId && typeof selected.workspaceId === "string" && selected.workspaceId !== workspaceId) {
+          openSelectedWorkspace({ replace: true });
+        }
+      } catch { /* Ignore unrelated or malformed storage values. */ }
+    };
     window.addEventListener("storage",switched);
     return () => { controller.abort(); window.clearInterval(interval); window.removeEventListener("focus", refresh); document.removeEventListener("visibilitychange", refreshVisible);window.removeEventListener("storage",switched); };
   }, [attempt, workspaceId, accountId, initial.conversationsLoaded]);

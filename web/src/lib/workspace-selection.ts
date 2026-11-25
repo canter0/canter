@@ -10,14 +10,35 @@ export function workspaceDisplayName(name:string|undefined){return name==="defau
 export async function getSelectedWorkspace(signal?:AbortSignal):Promise<WorkspaceSelection>{
  const response=await fetch("/api/workspace-selection",{credentials:"include",cache:"no-store",signal});if(!response.ok){const {CanterAPIError}=await import("./canter-api");throw new CanterAPIError(response.status,response.status===401?"Sign in to continue.":"Your selected organization could not be loaded.");}return response.json();
 }
-export async function selectWorkspace(workspaceId:string){
- const response=await fetch("/api/workspace-selection",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"include",body:JSON.stringify({workspaceId})});if(!response.ok){let message="Couldn’t select this organization.";try{const value=await response.json();if(typeof value.error==="string")message=value.error;}catch{/* Preserve the HTTP failure. */}throw new Error(message);}
- const selected:unknown=await response.json();
- if(selected&&typeof selected==="object"&&"accountId" in selected&&typeof selected.accountId==="string"){try{localStorage.setItem("canter-workspace-change",JSON.stringify({accountId:selected.accountId,workspaceId,at:Date.now()}));}catch{/* The preference cookie still works when local storage is unavailable. */}}
+export async function selectWorkspace(workspaceId: string, signal?: AbortSignal) {
+  const response = await fetch("/api/workspace-selection", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    signal,
+    body: JSON.stringify({ workspaceId }),
+  });
+  if (!response.ok) {
+    let message = "Couldn’t select this organization.";
+    try {
+      const value = await response.json();
+      if (typeof value.error === "string") message = value.error;
+    } catch { /* Preserve the HTTP failure. */ }
+    throw new Error(message);
+  }
+  const selected: unknown = await response.json();
+  signal?.throwIfAborted();
+  if (selected && typeof selected === "object" && "accountId" in selected && typeof selected.accountId === "string") {
+    try {
+      localStorage.setItem("canter-workspace-change", JSON.stringify({ accountId: selected.accountId, workspaceId, at: Date.now() }));
+    } catch { /* The preference cookie still works when local storage is unavailable. */ }
+  }
 }
 
-export function openSelectedWorkspace(){
- // A fresh document drops the prior workspace's in-memory conversations and
- // resource caches. Drafts remain under their existing workspace-scoped keys.
- window.location.assign(new URL("/app/wrens",window.location.origin).href);
+export function openSelectedWorkspace({ replace = false } = {}) {
+  // A fresh document drops the prior workspace's in-memory conversations and
+  // resource caches. Drafts remain under their existing workspace-scoped keys.
+  const home = new URL("/app", window.location.origin).href;
+  if (replace) window.location.replace(home);
+  else window.location.assign(home);
 }

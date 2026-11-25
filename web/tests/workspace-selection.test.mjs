@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {workspacePreference,workspaceFromPreference,workspaceDisplayName} from '../src/lib/workspace-selection.ts';
+import {workspacePreference,workspaceFromPreference,workspaceDisplayName,openSelectedWorkspace} from '../src/lib/workspace-selection.ts';
 const me={account:{id:'person',email:'person@example.test'},workspaces:[{id:'personal',name:'Personal',role:'owner'},{id:'team',name:'Team',role:'viewer'}]};
 test('a selected second workspace remains selected using its actual current membership role',()=>{
  const selected=workspaceFromPreference(me,workspacePreference('person','team'));
@@ -18,4 +18,21 @@ test('a workspace named default displays as Personal while other names pass thro
  assert.equal(workspaceDisplayName('Team Org'),'Team Org');
  assert.equal(workspaceDisplayName('Defaults'),'Defaults');
  assert.equal(workspaceDisplayName(undefined),'');
+});
+
+test('organization changes open Canter home with a fresh document', t => {
+  const calls = [];
+  const original = Object.getOwnPropertyDescriptor(globalThis, 'window');
+  Object.defineProperty(globalThis, 'window', { configurable: true, value: { location: {
+    origin: 'https://canter.test',
+    assign: href => calls.push(['assign', href]),
+    replace: href => calls.push(['replace', href]),
+  } } });
+  t.after(() => {
+    if (original) Object.defineProperty(globalThis, 'window', original);
+    else delete globalThis.window;
+  });
+  openSelectedWorkspace();
+  openSelectedWorkspace({ replace: true });
+  assert.deepEqual(calls, [['assign', 'https://canter.test/app'], ['replace', 'https://canter.test/app']]);
 });
