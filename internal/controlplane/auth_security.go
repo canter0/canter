@@ -211,6 +211,10 @@ func (h *HTTPServer) invalidateAuthTx(ctx context.Context, tx pgx.Tx, account, k
 	if err != nil {
 		return err
 	}
+	_, err = tx.Exec(ctx, `UPDATE personal_api_keys SET revoked_at=$2 WHERE account_id=$1 AND revoked_at IS NULL`, account, h.service.Store.now())
+	if err != nil {
+		return err
+	}
 	_, err = tx.Exec(ctx, `UPDATE human_sessions SET revoked_at=CASE WHEN id=$2 THEN revoked_at ELSE $3 END,auth_version=CASE WHEN id=$2 THEN (SELECT auth_version FROM accounts WHERE id=$1) ELSE auth_version END WHERE account_id=$1`, account, keepSession, h.service.Store.now())
 	if err != nil {
 		return err

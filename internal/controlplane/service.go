@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -93,6 +94,15 @@ func initialDeploymentCapabilities(workspaceID string) map[string]any {
 			"request":   map[string]any{"kind": "Change", "spec.scale": map[string]any{"service": "exact System service name", "replicas": "positive integer bounded by current host capacity", "forSeconds": "optional 60 to 86400 second lease"}},
 			"limits":    []string{"one existing host only", "no implicit VM provisioning", "process-isolated public HTTP applications only", "lease expiry is visible in System observed state; a separate child execution record is not yet emitted"},
 			"mcp":       map[string]string{"tool": "canter_draft_change"},
+		},
+		"stagedRelease": map[string]any{
+			"semantics": "Upload a tar.gz artifact, then draft a release Change for an existing System using the returned artifactSha256. The Change requires existing approval or policy authorization.",
+			"artifact":  "spec.release.artifactSha256",
+			"http": map[string]map[string]string{
+				"upload": {"method": "POST", "path": prefix + "/artifacts"},
+				"draft":  {"method": "POST", "path": prefix + "/systems/{system}/changes"},
+			},
+			"mcp": map[string]string{"upload": "canter_upload_artifact", "draft": "canter_draft_change"},
 		},
 		"changeApproval": map[string]any{
 			"semantics":        "agent requests a short-lived route bound to one drafted Change digest; a signed-in human consumes it once to authorize and enqueue only that exact Change",
@@ -224,6 +234,15 @@ func (s *Service) DraftChange(ctx context.Context, workspaceID, systemName strin
 	if s.Engine == nil {
 		return sdk.Change{}, fmt.Errorf("execution engine is unavailable")
 	}
+	if err := request.Validate(); err != nil {
+		return sdk.Change{}, err
+	}
+	if request.Spec.System != systemName {
+		return sdk.Change{}, fmt.Errorf("change request targets a different System")
+	}
+	if release := request.Spec.Release; release != nil && (release.Artifact != "" || release.ArtifactSHA256 == "" || request.Spec.Migration != nil) {
+		return sdk.Change{}, fmt.Errorf("remote releases require a workspace artifactSha256 and do not support file paths or migrations")
+	}
 	record, err := s.Store.GetSystem(ctx, workspaceID, systemName)
 	if err != nil {
 		return sdk.Change{}, err
@@ -234,7 +253,30 @@ func (s *Service) DraftChange(ctx context.Context, workspaceID, systemName strin
 	}
 	engineCtx := sdk.WithActor(ctx, actor)
 	engineCtx = sdk.WithChangeBaseRevision(engineCtx, sdk.ChangeBaseRevision{WorkspaceID: workspaceID, WorkspaceRevision: workspace.Revision, SystemRevision: record.Revision})
-	change, err := s.Engine.DraftChangeRequest(engineCtx, record.Contract, request)
+	var change sdk.Change
+	if release := request.Spec.Release; release != nil {
+		engine, ok := s.Engine.(interface {
+			DraftStagedChangeRequest(context.Context, sdk.System, sdk.ChangeRequest, sdk.StagedArtifact) (sdk.Change, error)
+		})
+		if !ok {
+			return sdk.Change{}, fmt.Errorf("staged release planning is unavailable")
+		}
+		artifact, staged, lookupErr := s.Store.DeploymentArtifact(ctx, workspaceID, release.ArtifactSHA256)
+		if lookupErr != nil {
+			return sdk.Change{}, lookupErr
+		}
+		if err := validateArtifactCommand(release.Command, artifact); err != nil {
+			return sdk.Change{}, err
+		}
+		for name := range release.Environment {
+			if strings.HasPrefix(name, "CANTER_") {
+				return sdk.Change{}, fmt.Errorf("environment name %q is reserved or invalid", name)
+			}
+		}
+		change, err = engine.DraftStagedChangeRequest(engineCtx, record.Contract, request, staged)
+	} else {
+		change, err = s.Engine.DraftChangeRequest(engineCtx, record.Contract, request)
+	}
 	if err != nil {
 		return sdk.Change{}, err
 	}

@@ -336,7 +336,7 @@ func main() {
 	default:
 		log.Fatal("CANTER_SUPER_SANDBOX_RECONCILE_PAUSED must be true or false")
 	}
-	handler := controlplane.NewHTTPServer(service, controlplane.HTTPConfig{AIUsage: aiUsage, Media: controlplane.WrenMediaConfig{Model: os.Getenv("CANTER_WREN_IMAGE_MODEL")}, Audio: controlplane.WrenAudioConfigFromEnv(), Harnesses: harnesses, Computers: computers, Sandboxes: sandboxes, Auth: auth, PublicURL: publicURL, CookieSecure: cookieSecure, RequireInvite: strings.EqualFold(os.Getenv("CANTER_REQUIRE_INVITE"), "true"), GoogleOAuth: googleOAuth, GitHubOAuth: githubOAuth, GitHubApp: githubApp, GitHubAppSlug: os.Getenv("CANTER_GITHUB_APP_SLUG"), CI: ciConfig, Billing: billing, Operator: operator, Secrets: vault})
+	handler := controlplane.NewHTTPServer(service, controlplane.HTTPConfig{AIUsage: aiUsage, Media: controlplane.WrenMediaConfig{Model: os.Getenv("CANTER_WREN_IMAGE_MODEL")}, Audio: controlplane.WrenAudioConfigFromEnv(), Harnesses: harnesses, Computers: computers, Sandboxes: sandboxes, Auth: auth, PublicURL: publicURL, CookieSecure: cookieSecure, RequireInvite: strings.EqualFold(os.Getenv("CANTER_REQUIRE_INVITE"), "true"), GoogleOAuth: googleOAuth, GitHubOAuth: githubOAuth, GitHubApp: githubApp, GitHubAppSlug: os.Getenv("CANTER_GITHUB_APP_SLUG"), CI: ciConfig, Billing: billing, Operator: operator, FAQModel: strings.TrimSpace(os.Getenv("CANTER_FAQ_MODEL")), Secrets: vault})
 	go func() { _ = handler.(*controlplane.HTTPServer).RunAuthMaintenance(ctx) }()
 	go func() { _ = handler.(*controlplane.HTTPServer).RunWrenMessagingMaintenance(ctx) }()
 	go func() {

@@ -1,6 +1,8 @@
 import type { MetadataRoute } from "next";
+import { publicProducts } from "@/lib/public-products";
 import { siteOrigin } from "@/lib/seo";
 
 export default function sitemap(): MetadataRoute.Sitemap {
-  return [{ url: `${siteOrigin}/` }, { url: `${siteOrigin}/pricing` }];
+  const productPaths = Object.values(publicProducts).map(product => product.path);
+  return ["/", "/pricing", "/pricing/infra", "/terms", "/privacy", ...productPaths].map(path => ({ url: `${siteOrigin}${path}` }));
 }

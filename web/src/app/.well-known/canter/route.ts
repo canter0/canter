@@ -89,6 +89,13 @@ export function GET(request: NextRequest) {
         lifetimeSeconds: 600,
         semantics: "The URL is human-gated and single-use. It does not let the proposing agent approve its own Change.",
       },
+      stagedRelease: {
+        upload: "POST /v1/workspaces/{workspace}/artifacts",
+        draft: "POST /v1/workspaces/{workspace}/systems/{system}/changes",
+        artifactField: "spec.release.artifactSha256",
+        agentTools: ["canter_upload_artifact", "canter_draft_change"],
+        semantics: "Updates an existing System after the resulting Change is approved or authorized under policy.",
+      },
       initialDeployment: {
         computeClasses: ["c1", "c2", "c3"],
         defaultComputeClass: "c1",

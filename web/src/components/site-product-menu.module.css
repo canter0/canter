@@ -1,0 +1,154 @@
+.navigation {
+  position: relative;
+  display: flex;
+  align-self: stretch;
+  align-items: center;
+  gap: 20px;
+  white-space: nowrap;
+}
+
+.trigger,
+.pricing {
+  color: #5d6258;
+  transition: color 160ms, background-color 160ms;
+}
+
+.trigger {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  gap: 7px;
+  padding: 0 12px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.trigger:hover, .trigger[aria-expanded="true"] { background: #e5efd8; color: #25471e; }
+.trigger[aria-expanded="true"] .caret { transform: rotate(180deg); }
+.pricing:hover { color: #11180e; }
+.mobileTrigger, .mobileLinks { display: none; }
+
+.panel {
+  position: absolute;
+  z-index: 30;
+  inset: calc(50% + 29px) auto auto 0;
+  display: grid;
+  grid-template-columns: minmax(0, .4fr) minmax(0, .6fr);
+  width: min(512px, 64vw);
+  max-height: calc(100dvh - var(--site-menu-top) - 12px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  border: 1px solid #d5dfca;
+  border-radius: 14px;
+  background: #f8f8f0;
+  color: #192b16;
+  box-shadow: 0 8px 24px #172b161c, 0 2px 4px #172b1612;
+  white-space: normal;
+  transform-origin: top left;
+}
+
+.choices {
+  display: grid;
+  align-content: start;
+  gap: 9px;
+  padding: 16px 13px;
+  border-radius: 12px;
+  background: #e7efde;
+}
+
+.choice,
+.detailLink {
+  position: relative;
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  text-align: start;
+  transition: background-color 150ms ease-out, color 150ms ease-out;
+}
+
+.choice {
+  isolation: isolate;
+  overflow: clip;
+  min-height: 47px;
+  gap: 12px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.choice[aria-selected="true"] { background: #d4e5c8; color: #254b1e; }
+.choice[aria-selected="true"]::before {
+  position: absolute;
+  z-index: -1;
+  inset: 0 0 0 auto;
+  width: 42px;
+  background: #649249;
+  mask: url("/landing/bento-dither.png") center / 100% 100% no-repeat;
+  opacity: .48;
+  pointer-events: none;
+  content: "";
+}
+
+.productIcon, .detailIcon { flex: none; width: 24px; height: 24px; color: #285123; }
+
+.details { padding: 13px 15px; }
+.detailRows { margin: 0; padding: 0; list-style: none; }
+.detailRows li + li { margin-top: 3px; }
+
+.detailLink {
+  min-height: 55px;
+  gap: 13px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.3;
+}
+
+.detailCopy { display: grid; gap: 2px; }
+.description { color: #596652; font-size: 12px; font-weight: 400; }
+.detailLink:hover, .detailLink:focus-visible { background: #e7eedb; color: #1f421a; }
+.panel .choice:focus-visible, .panel .detailLink:focus-visible { outline: 2px solid #436b33; outline-offset: -3px; }
+
+@media (max-width: 760px) {
+  .navigation { gap: 12px; }
+  .trigger { padding-inline: 8px; }
+  .choices { padding-inline: 8px; }
+  .choice { gap: 8px; padding-inline: 8px; font-size: 14px; }
+  .details { padding-inline: 8px; }
+}
+
+@media (max-width: 680px) {
+  .navigation { position: static; margin-inline-start: auto; }
+  .trigger, .pricing { display: none; }
+  .mobileTrigger {
+    display: grid;
+    width: 40px;
+    height: 40px;
+    place-items: center;
+    border: 1px solid #d5d9cf;
+    border-radius: 8px;
+    color: #34422d;
+    cursor: pointer;
+  }
+  .mobileTrigger:hover, .mobileTrigger[aria-expanded="true"] { background: #e8ebdf; }
+  .panel { inset: var(--site-menu-top) var(--site-menu-inset) auto; grid-template-columns: minmax(0, 1fr); width: auto; padding: 8px; }
+  .choices { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; padding: 4px; border-radius: 9px; }
+  .choice { flex-direction: column; justify-content: center; gap: 4px; padding: 7px 3px; border-radius: 7px; font-size: 13px; letter-spacing: -.02em; }
+  .details { padding: 5px 0 0; }
+  .mobileLinks { display: flex; gap: 4px; border-top: 1px solid #dbe2d2; padding-top: 5px; }
+  .mobileLinks a { display: flex; flex: 1; align-items: center; min-height: 44px; padding-inline: 10px; border-radius: 7px; }
+  .mobileLinks a:hover, .mobileLinks a:focus-visible { background: #e7eedb; outline-offset: -2px; }
+  .mobileLinks .mobileBooking { display: none; }
+}
+
+@media (max-width: 420px) {
+  .mobileLinks .mobileBooking { display: flex; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .trigger, .pricing, .choice, .detailLink { transition: none; }
+}

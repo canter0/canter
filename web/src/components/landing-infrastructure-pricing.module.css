@@ -1,0 +1,303 @@
+.section {
+  --pricing-green: #315928;
+  --pricing-pale: #eaf3e2;
+  --pricing-line: #ccd9c4;
+  --pricing-muted: #525f4d;
+  max-width: 1220px;
+  margin-inline: auto;
+  padding: 0 12px clamp(70px, 8vw, 112px);
+  scroll-margin-top: 28px;
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .bar { transition: width 240ms ease; }
+}
+
+.section h2 {
+  margin: 0 0 clamp(25px, 3.7vw, 45px);
+  font: 400 clamp(38px, 4.8vw, 66px) / 1.03 "Canter Display", Arial, sans-serif;
+  letter-spacing: -.062em;
+  text-wrap: balance;
+}
+
+.tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  overflow: hidden;
+  margin-bottom: clamp(24px, 4.2vw, 52px);
+  border: 1px solid #bacdb1;
+  border-radius: 12px;
+  background: var(--pricing-pale);
+}
+
+.tabs button,
+.choices button {
+  min-width: 0;
+  border: 0;
+  cursor: pointer;
+}
+
+.tabs button {
+  min-height: clamp(46px, 5.2vw, 63px);
+  padding: 6px 8px;
+  background: transparent;
+  color: #182916;
+  font-size: clamp(15px, 2vw, 23px);
+}
+
+.tabs button + button {
+  border-inline-start: 1px solid #bacdb1;
+}
+
+.tabs button[aria-selected="true"],
+.choices button[aria-pressed="true"] {
+  background: var(--pricing-green);
+  color: #fafbf7;
+}
+
+.tabs button:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: -5px;
+}
+
+.calculator {
+  display: grid;
+  grid-template-columns: minmax(0, .72fr) minmax(0, 1.28fr);
+  gap: clamp(16px, 2vw, 28px);
+  font: 14px/1.45 "Canter Mono", ui-monospace, monospace;
+}
+
+.configuration {
+  min-width: 0;
+  padding-inline-end: clamp(16px, 2vw, 24px);
+  border-inline-end: 1px solid var(--pricing-line);
+}
+
+.settings {
+  border-bottom: 1px solid var(--pricing-line);
+}
+
+.setting {
+  display: grid;
+  grid-template-columns: minmax(110px, .72fr) minmax(0, 1.28fr);
+  align-items: center;
+  gap: 8px;
+  padding-block: 9px;
+  font-size: 13px;
+}
+
+.setting + .setting {
+  border-top: 1px solid var(--pricing-line);
+}
+
+.slider {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(33px, auto);
+  align-items: center;
+  gap: 10px;
+  text-align: end;
+}
+
+.slider input {
+  width: 100%;
+  height: 29px;
+  margin: 0;
+  accent-color: var(--pricing-green);
+  cursor: pointer;
+}
+
+.choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.choices button {
+  min-height: 31px;
+  padding: 5px 9px;
+  border-radius: 5px;
+  background: var(--pricing-pale);
+  color: #22381d;
+  font-size: 12px;
+  text-align: start;
+}
+
+.tabs button[aria-selected="false"]:hover,
+.choices button[aria-pressed="false"]:hover {
+  background: #deecd4;
+}
+
+.estimate {
+  padding: 19px 0 17px;
+  border-bottom: 1px solid var(--pricing-line);
+}
+
+.price {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 10px;
+  margin: 0;
+  color: #162112;
+  font: 400 clamp(39px, 4.7vw, 64px) / 1.07 "Canter Display", Arial, sans-serif;
+  letter-spacing: -.065em;
+  font-variant-numeric: tabular-nums;
+}
+
+.price[data-long="true"] {
+  font-size: clamp(28px, 3.8vw, 46px);
+}
+
+.period {
+  font: 400 18px/1.35 Arial, Helvetica, sans-serif;
+  letter-spacing: -.035em;
+}
+
+.detail {
+  margin: 6px 0 0;
+  color: var(--pricing-muted);
+  font-size: 13px;
+}
+
+.rateTable,
+.providers {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  text-align: start;
+  font-variant-numeric: tabular-nums;
+}
+
+.rateTable {
+  margin-top: 13px;
+  font-size: 12px;
+}
+
+.rateTable caption {
+  margin-bottom: 5px;
+  color: #24361f;
+  font-size: 14px;
+  text-align: start;
+}
+
+.rateTable td,
+.rateTable th {
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--pricing-line);
+  font-weight: 400;
+  text-align: start;
+}
+
+.rateTable thead th {
+  color: var(--pricing-muted);
+}
+
+.rateTable tr > :last-child {
+  text-align: end;
+}
+
+.rateTable tr[data-selected="true"] {
+  background: var(--pricing-pale);
+}
+
+.comparison {
+  min-width: 0;
+}
+
+.providers {
+  table-layout: fixed;
+}
+
+.providers th,
+.providers td {
+  padding: 7px 9px;
+}
+
+.providers th {
+  font-weight: 400;
+  text-align: start;
+  overflow-wrap: anywhere;
+}
+
+.providers a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.providers a:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.providerName { width: 26%; }
+.providerPrice { width: 22%; }
+
+.providerCost {
+  text-align: end;
+  overflow-wrap: anywhere;
+}
+
+.providers tr[data-canter="true"] td,
+.providers tr[data-canter="true"] th {
+  background: var(--pricing-pale);
+}
+
+.providers tr[data-canter="true"] th {
+  border-start-start-radius: 8px;
+  border-end-start-radius: 8px;
+}
+
+.providers tr[data-canter="true"] td:last-child {
+  border-start-end-radius: 8px;
+  border-end-end-radius: 8px;
+}
+
+.bar {
+  display: block;
+  height: 15px;
+  background: #cfdfc4;
+}
+
+.providers tr[data-canter="true"] .bar {
+  background: var(--pricing-green);
+}
+
+.notes {
+  margin-top: 15px;
+  padding-top: 10px;
+  border-top: 1px solid var(--pricing-line);
+  color: var(--pricing-muted);
+  font-size: 12px;
+}
+
+.notes p { margin: 0; }
+.notes p + p { margin-top: 5px; }
+
+@media (max-width: 760px) {
+  .calculator {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 25px;
+  }
+
+  .configuration {
+    padding-inline-end: 0;
+    border-inline-end: 0;
+  }
+
+  .setting {
+    grid-template-columns: minmax(112px, .6fr) minmax(0, 1.4fr);
+  }
+}
+
+@media (max-width: 480px) {
+  .section { padding-inline: 6px; }
+  .providers th, .providers td { padding-inline: 5px; }
+  .providerName { width: 33%; }
+  .providerPrice { width: 33%; }
+  .calculator { font-size: 12px; }
+}
+
+@media (pointer: coarse) {
+  .choices button { min-height: 44px; }
+}

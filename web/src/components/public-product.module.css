@@ -1,0 +1,285 @@
+.main {
+  --product-green: #254b1d;
+  --product-line: #dce6d5;
+  --product-paper: #f9fbf6;
+  --product-inset: clamp(22px, 4.4vw, 70px);
+  display: grid;
+  gap: 18px;
+  margin-bottom: clamp(24px, 4vw, 62px);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+.hero,
+.section {
+  border: 1px solid var(--product-line);
+  border-radius: 24px;
+  background: var(--product-paper);
+}
+
+.hero {
+  position: relative;
+  isolation: isolate;
+  background:
+    radial-gradient(ellipse at 95% 95%, #d4f3c4 0%, transparent 56%),
+    radial-gradient(ellipse at 0% 90%, #e4f3da 0%, transparent 40%),
+    #f9faf6;
+}
+
+.hero::before,
+.hero::after {
+  position: absolute;
+  z-index: -1;
+  inset: auto 0 0 auto;
+  width: min(52%, 650px);
+  height: 78%;
+  border-radius: inherit;
+  background: #8bc96e;
+  mask: url("/landing/bento-dither.png") bottom right / 100% 100% no-repeat;
+  opacity: .4;
+  pointer-events: none;
+  content: "";
+}
+
+.hero::after {
+  inset: 0 auto auto 0;
+  height: 44%;
+  transform: rotate(180deg);
+  opacity: .18;
+}
+
+.heroInner,
+.sectionInner {
+  display: grid;
+  grid-template-columns: minmax(0, 1.08fr) minmax(0, 1fr);
+  align-items: center;
+  gap: clamp(24px, 5vw, 80px);
+  max-width: 1390px;
+  margin-inline: auto;
+  padding-inline: var(--product-inset);
+}
+
+.heroInner { padding-block: clamp(64px, 8vw, 124px); }
+.sectionInner { padding-block: clamp(42px, 6vw, 86px); }
+.section:last-child { background: linear-gradient(125deg, #f0f6eb, #e7f3dc); }
+
+.productLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  margin: 0 0 20px;
+  padding: 7px 12px;
+  border: 1px solid #d4e5cb;
+  border-radius: 8px;
+  background: #eaf4e2;
+  color: var(--product-green);
+  font-size: 14px;
+  line-height: 1.15;
+}
+
+.main h1,
+.main h2 {
+  margin: 0;
+  color: var(--product-green);
+  font: 400 clamp(49px, 5.7vw, 84px) / 1.02 "Canter Display", Arial, sans-serif;
+  letter-spacing: -.062em;
+  text-wrap: balance;
+}
+
+.main h2 { font-size: clamp(37px, 4.1vw, 62px); }
+
+.description {
+  max-width: 42ch;
+  margin: 16px 0 0;
+  color: #54634f;
+  font-size: clamp(16px, 1.6vw, 19px);
+  line-height: 1.55;
+  text-wrap: pretty;
+}
+
+.heroCopy > a { margin-top: 26px; }
+
+.visual {
+  width: 100%;
+  max-width: 540px;
+  min-width: 0;
+  justify-self: center;
+}
+
+.main:is([data-product="vps"], [data-product="super-sandboxes"]) .heroInner,
+.main[data-product="saved-environments"] .section:nth-child(2) .sectionInner,
+.main[data-product="ci"] .section:last-child .sectionInner {
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: center;
+  gap: clamp(26px, 4vw, 54px);
+  text-align: center;
+}
+
+.main:is([data-product="vps"], [data-product="super-sandboxes"]) .heroInner .description,
+.main[data-product="saved-environments"] .section:nth-child(2) .description,
+.main[data-product="ci"] .section:last-child .description { margin-inline: auto; }
+
+.main:is([data-product="vps"], [data-product="super-sandboxes"]) .heroCopy { max-width: 850px; }
+.main:is([data-product="vps"], [data-product="super-sandboxes"]) .hero .visual,
+.main[data-product="saved-environments"] .section:nth-child(2) .visual,
+.main[data-product="ci"] .section:last-child .visual { max-width: 720px; }
+
+.main[data-product="apps"] .section:nth-child(2) .sectionInner {
+  grid-template-areas: "example copy";
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.08fr);
+}
+
+.main[data-product="apps"] .section:nth-child(2) .sectionCopy { grid-area: copy; }
+.main[data-product="apps"] .section:nth-child(2) .visual { grid-area: example; }
+
+.example {
+  overflow: hidden;
+  border: 1px solid #d3e0cc;
+  border-radius: 14px;
+  background: #fbfcf8;
+  color: #21331e;
+  box-shadow: 0 2px 5px #1a351b0a, 0 12px 30px -18px #1d3b1d50;
+  font-size: clamp(13px, 1.3vw, 16px);
+  line-height: 1.4;
+  text-align: left;
+}
+
+.example svg, .flow svg, .batch svg { flex: none; color: #38652d; }
+.example code { font-family: "Canter Mono", ui-monospace, monospace; }
+
+.exampleTitle,
+.exampleRow {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 52px;
+  padding: 12px clamp(12px, 1.8vw, 22px);
+}
+
+.exampleTitle {
+  border-bottom: 1px solid var(--product-line);
+  background: #eef4e8;
+  font-weight: 600;
+}
+
+.exampleRow { justify-content: space-between; }
+.exampleRow + .exampleRow { border-top: 1px solid var(--product-line); }
+.mark, .fileList li, .exampleTabs li, .fileSidebar, .searchExample {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 7px;
+  border-radius: 6px;
+  background: #e6f3dc;
+  color: #2d5324;
+  font-size: .88em;
+  white-space: nowrap;
+}
+
+.status[data-active="true"] { background: #e6edf3; color: #334d69; }
+.status[data-active="true"] svg { color: inherit; }
+
+.fileBrowser { display: grid; grid-template-columns: minmax(82px, 32%) minmax(0, 1fr); min-height: 152px; }
+.fileSidebar { align-items: flex-start; border-right: 1px solid var(--product-line); background: #f4f7f0; padding: 16px 12px; }
+.fileList { display: grid; align-content: start; gap: 12px; padding: 16px; }
+.exampleTabs { display: flex; flex-wrap: wrap; padding: 8px 12px; border-block: 1px solid var(--product-line); gap: 2px 9px; }
+.exampleTabs li { padding: 7px 9px; }
+.exampleTabs .activeTab { border-radius: 6px; background: #e7f2df; }
+
+.table { width: 100%; border-collapse: collapse; }
+.table th, .table td { padding: 12px clamp(8px, 1.8vw, 22px); text-align: left; }
+.table thead th { background: #eef4e8; color: #465740; font-size: .9em; }
+.table tbody th { font-weight: 500; }
+.table tbody tr { border-top: 1px solid var(--product-line); }
+
+.flow {
+  --flow-gap: clamp(18px, 2.4vw, 36px);
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  gap: var(--flow-gap);
+  color: #283f23;
+  font-size: clamp(13px, 1.35vw, 16px);
+  line-height: 1.35;
+}
+
+.flow li, .batch li, .batchSource, .runner {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 55px;
+  padding: 10px clamp(8px, 1.35vw, 20px);
+  border: 1px solid #cdddca;
+  border-radius: 9px;
+  background: #f8fbf5;
+}
+
+.flow li { flex: 1; min-width: 0; text-align: center; }
+.flow li + li::before {
+  position: absolute;
+  inset: 50% 100% auto auto;
+  width: var(--flow-gap);
+  height: 1px;
+  background: #7ca471;
+  content: "";
+}
+
+.batch {
+  --branch-width: clamp(40px, 9vw, 140px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #283f23;
+  text-align: left;
+}
+
+.batchSource { flex: none; background: #e6f3dc; }
+.workers { position: relative; display: grid; gap: 9px; margin-left: var(--branch-width); }
+.workers::before {
+  position: absolute;
+  top: 27px;
+  bottom: 27px;
+  left: calc(var(--branch-width) / -2);
+  width: 1px;
+  background: #7ca471;
+  content: "";
+}
+
+.workers li::before {
+  position: absolute;
+  inset: 50% 100% auto auto;
+  width: calc(var(--branch-width) / 2);
+  height: 1px;
+  background: #7ca471;
+  content: "";
+}
+
+.workers li:nth-child(2)::before { width: var(--branch-width); }
+
+.pipeline { display: grid; gap: 14px; padding: 18px; background: #f4f9ef; }
+.runner { justify-self: center; min-height: 44px; background: #e5f4db; }
+.codeExample { overflow-x: auto; margin: 0; padding: 16px; line-height: 1.75; }
+.codeExample span { display: block; border-radius: 4px; background: #e6f3dc; }
+.searchExample { margin: 10px 12px 0; padding: 9px 12px; border: 1px solid var(--product-line); border-radius: 7px; color: #52634c; }
+
+@media (max-width: 760px) {
+  .hero, .section { border-radius: 16px; }
+  .heroInner, .sectionInner,
+  .main[data-product="apps"] .section:nth-child(2) .sectionInner {
+    grid-template-areas: none;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 28px;
+  }
+  .main[data-product="apps"] .section:nth-child(2) :is(.sectionCopy, .visual) { grid-area: auto; }
+  .visual { justify-self: start; }
+  .flow { --flow-gap: 12px; }
+  .flow li { flex-direction: column; }
+}

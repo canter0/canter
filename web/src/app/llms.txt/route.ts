@@ -47,6 +47,10 @@ If policy evaluation requires human approval, the authenticated agent may call c
 
 The ordinary dashboard remains available for detailed review. Browser WebMCP tools are read/review only and cannot borrow the human cookie to bypass this boundary.
 
+## Update an existing System
+
+Use canter_upload_artifact to stage the application bundle. Pass its returned artifactSha256 as spec.release.artifactSha256 to canter_draft_change. The command must point to an executable in the bundle and the public port must match the existing System. Review and authorize the exact Change using the ordinary approval or policy workflow.
+
 ## First deployment
 
 Use only the advertised provider-neutral host classes: c1, c2, or c3. c1 is the default and smallest class. Do not invent provider or tenancy labels such as shared. The initial-deployment MCP surface available to an agent consists of canter_upload_artifact, canter_draft_initial_deployment, canter_list_initial_deployments, canter_inspect_initial_deployment, and canter_inspect_initial_deployment_execution. Agents cannot authorize or apply first deployments.

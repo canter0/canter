@@ -41,6 +41,7 @@ type HTTPConfig struct {
 	CI            CIConfig
 	Billing       *BillingGateway
 	Operator      OperatorConfig
+	FAQModel      string
 }
 
 type CIConfig struct {
@@ -197,6 +198,12 @@ func (h *HTTPServer) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch parts[1] {
+	case "faq":
+		if len(parts) != 2 || r.Method != http.MethodPost {
+			writeError(w, http.StatusNotFound, ErrNotFound)
+			return
+		}
+		h.answerFAQ(w, r)
 	case "ci":
 		h.ciGitHubPublic(w, r, parts[2:])
 	case "wren-extension-events":
@@ -234,6 +241,8 @@ func (h *HTTPServer) serveHTTP(w http.ResponseWriter, r *http.Request) {
 			h.completeOnboarding(w, r)
 		} else if len(parts) >= 3 && parts[2] == "invites" {
 			h.meInvites(w, r, parts[3:])
+		} else if len(parts) >= 3 && parts[2] == "api-keys" {
+			h.personalAPIKeys(w, r, parts[3:])
 		} else {
 			writeError(w, http.StatusNotFound, ErrNotFound)
 		}
@@ -432,9 +441,13 @@ func (h *HTTPServer) me(w http.ResponseWriter, r *http.Request) {
 		methodNotAllowed(w)
 		return
 	}
-	p, err := h.human(r)
+	p, err := h.principal(r)
 	if err != nil {
 		writeStoreError(w, err)
+		return
+	}
+	if p.Account == nil {
+		writeStoreError(w, ErrUnauthorized)
 		return
 	}
 	workspaces, err := h.service.Store.WorkspacesForAccount(r.Context(), p.Account.ID)
@@ -1399,12 +1412,20 @@ func (h *HTTPServer) initialDeploymentExecutions(w http.ResponseWriter, r *http.
 }
 
 func (h *HTTPServer) principal(r *http.Request) (Principal, error) {
-	if strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") {
+	if token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer "); ok {
+		token = strings.TrimSpace(token)
+		if strings.HasPrefix(token, personalAPIKeyPrefix) {
+			return h.service.Store.ResolvePersonalAPIKey(r.Context(), token)
+		}
 		return h.agentPrincipal(r)
 	}
 	return h.human(r)
 }
 func (h *HTTPServer) human(r *http.Request) (Principal, error) {
+	// Account-security and approval endpoints use browser sessions.
+	if r.Header.Get("Authorization") != "" {
+		return Principal{}, ErrUnauthorized
+	}
 	cookie, err := h.humanCookie(r)
 	if err != nil {
 		return Principal{}, ErrUnauthorized

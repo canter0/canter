@@ -168,7 +168,9 @@ func pollDeviceCode(ctx context.Context, client *remote.Client, deviceCode, clie
 func agentRefreshCommand(args []string) error {
 	fs := flag.NewFlagSet("agent refresh", flag.ContinueOnError)
 	apiURL := fs.String("api-url", defaultAPIURL(), "Canter control-plane URL")
-	refreshToken := fs.String("refresh-token", os.Getenv("CANTER_AGENT_REFRESH_TOKEN"), "installation refresh token")
+	// The ambient token resolves after parsing so flag usage output can never
+	// print a live credential; an explicit --refresh-token still wins.
+	refreshToken := fs.String("refresh-token", "", "installation refresh token")
 	clientInstance := fs.String("client-instance", defaultClientInstance(), "ephemeral conversation or process identifier")
 	envPath := fs.String("env-file", "", "explicit credential file to read and update")
 	if err := fs.Parse(args); err != nil {
@@ -178,6 +180,9 @@ func agentRefreshCommand(args []string) error {
 	values, err := explicitEnvValues(*envPath)
 	if err != nil {
 		return err
+	}
+	if !flagWasSet(fs, "refresh-token") {
+		*refreshToken = os.Getenv("CANTER_AGENT_REFRESH_TOKEN")
 	}
 	if *refreshToken == "" {
 		*refreshToken = values["CANTER_AGENT_REFRESH_TOKEN"]
@@ -252,7 +257,9 @@ func agentMCPCommand(args []string) error {
 func authenticatedRemote(name string, args []string) (*remote.Client, string, string, error) {
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	apiURL := fs.String("api-url", defaultAPIURL(), "Canter control-plane URL")
-	accessToken := fs.String("access-token", os.Getenv("CANTER_AGENT_ACCESS_TOKEN"), "short-lived agent access token")
+	// The ambient token resolves after parsing so flag usage output can never
+	// print a live credential; an explicit --access-token still wins.
+	accessToken := fs.String("access-token", "", "short-lived agent access token")
 	envPath := fs.String("env-file", "", "explicit credential file to read")
 	if err := fs.Parse(args); err != nil {
 		return nil, "", "", err
@@ -261,6 +268,9 @@ func authenticatedRemote(name string, args []string) (*remote.Client, string, st
 	values, err := explicitEnvValues(*envPath)
 	if err != nil {
 		return nil, "", "", err
+	}
+	if !flagWasSet(fs, "access-token") {
+		*accessToken = os.Getenv("CANTER_AGENT_ACCESS_TOKEN")
 	}
 	if *accessToken == "" {
 		*accessToken = values["CANTER_AGENT_ACCESS_TOKEN"]

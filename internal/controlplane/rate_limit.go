@@ -57,6 +57,8 @@ func limitForRequest(r *http.Request) (requestLimit, bool) {
 		return requestLimit{}, false
 	}
 	switch {
+	case r.URL.Path == "/v1/faq":
+		return requestLimit{bucket: "faq", max: 6, window: 10 * time.Minute}, true
 	case r.URL.Path == "/v1/acquisition":
 		return requestLimit{bucket: "acquisition", max: 30, window: time.Minute}, true
 	case strings.HasPrefix(r.URL.Path, "/v1/auth/") && r.URL.Path != "/v1/auth/email-webhook":

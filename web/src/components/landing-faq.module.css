@@ -1,0 +1,193 @@
+.section {
+  max-width: 1000px;
+  margin-inline: auto;
+  padding: 0 20px clamp(72px, 9vw, 124px);
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 16px;
+}
+
+.section h2,
+.chat h3 {
+  font-family: "Canter Display", Arial, sans-serif;
+  font-weight: 400;
+  line-height: 1.04;
+  letter-spacing: -.06em;
+  text-wrap: balance;
+}
+
+.section h2 {
+  margin: 0 0 clamp(28px, 4vw, 56px);
+  font-size: clamp(39px, 4.8vw, 66px);
+}
+
+.questions {
+  border-top: 1px solid #c6d4bd;
+}
+
+.questions details {
+  border-bottom: 1px solid #c6d4bd;
+}
+
+.questions summary {
+  display: flex;
+  min-height: 62px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding-block: 14px;
+  list-style: none;
+  font-size: clamp(17px, 1.85vw, 23px);
+  line-height: 1.3;
+  cursor: pointer;
+}
+
+.questions summary::-webkit-details-marker { display: none; }
+.questions summary:hover { color: #3d692d; }
+.questions summary svg { flex: none; }
+.questions details[open] summary svg { transform: rotate(45deg); }
+
+.expanded {
+  max-width: 67ch;
+  padding: 0 0 20px;
+  color: #4d5948;
+  line-height: 1.6;
+}
+
+.source {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 10px;
+  color: #4a623f;
+  font-size: 14px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.source:hover { color: #294c21; }
+
+.chat {
+  --chat-inset: clamp(16px, 2.6vw, 36px);
+  position: relative;
+  isolation: isolate;
+  margin: clamp(36px, 5vw, 65px) calc(-1 * var(--chat-inset)) 0;
+  padding: clamp(20px, 3vw, 36px) var(--chat-inset);
+  border-radius: 24px;
+  background: #eef4e7;
+}
+
+.chat::before {
+  position: absolute;
+  z-index: -1;
+  inset: auto 0 0 auto;
+  width: min(260px, 35%);
+  height: 155px;
+  border-end-end-radius: inherit;
+  background: #9cc276;
+  mask: url("/landing/bento-dither.png") bottom right / 100% 100% no-repeat;
+  opacity: .32;
+  pointer-events: none;
+  content: "";
+}
+
+.chat h3 {
+  margin: 0 0 20px;
+  font-size: clamp(30px, 3.55vw, 48px);
+}
+
+.transcript {
+  max-height: min(440px, 58svh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  overflow-wrap: anywhere;
+}
+
+.transcript:not(:empty) { margin-bottom: 20px; }
+.turn + .turn { margin-top: 24px; }
+
+.question {
+  width: fit-content;
+  max-width: min(90%, 62ch);
+  margin: 0 0 16px auto;
+  padding: 10px 15px;
+  border-radius: 18px;
+  background: #dde8d1;
+  white-space: pre-wrap;
+  line-height: 1.5;
+}
+
+.answer {
+  max-width: 72ch;
+  white-space: pre-wrap;
+  line-height: 1.6;
+}
+
+.pending,
+.error {
+  color: #4d5948;
+  line-height: 1.5;
+}
+
+.error { margin-bottom: 12px; }
+
+.composer {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  width: min(100%, 800px);
+  padding: 5px 5px 5px 17px;
+  border: 1px solid #b5c6a9;
+  border-radius: 28px;
+  background: #fdfefb;
+}
+
+.composer:focus-within {
+  border-color: #527648;
+  box-shadow: 0 0 0 2px #52764825;
+}
+
+.composer textarea {
+  field-sizing: content;
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  max-height: 104px;
+  padding: 11px 0;
+  resize: none;
+  border: 0;
+  outline: none;
+  background: transparent;
+  font: inherit;
+  line-height: 22px;
+}
+
+.composer textarea::placeholder { color: #53634d; }
+
+.composer button {
+  display: grid;
+  flex: 0 0 44px;
+  height: 44px;
+  place-items: center;
+  border-radius: 50%;
+  background: #365c29;
+  color: white;
+  cursor: pointer;
+}
+
+.composer button:hover:not(:disabled) { background: #26481c; }
+.composer button:disabled { opacity: .72; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .chat::before { animation: faq-dither-pulse 4s ease-in-out infinite alternate; }
+  .answer { animation: faq-answer-arrive 220ms ease-out both; }
+  .questions summary svg { transition: transform 160ms ease-out; }
+}
+
+@keyframes faq-dither-pulse { to { opacity: .2; } }
+@keyframes faq-answer-arrive { from { opacity: 0; transform: translateY(4px); } }
+
+@media (max-width: 560px) {
+  .section { padding-inline: 12px; }
+  .chat { --chat-inset: 20px; margin-inline: 0; border-radius: 18px; }
+  .chat h3 { margin-bottom: 16px; }
+}

@@ -9,7 +9,7 @@ import { MotionNav } from "./motion-nav";
 import styles from "./settings.module.css";
 
 const groups: { title: string; items: { label: string; href: string; icon: WorkspaceIconName }[] }[] = [
-  { title: "Personal", items: [{ label: "Profile", href: "/app/account", icon: "profile" }, { label: "Security", href: "/app/account/security", icon: "lock" }, { label: "Connections", href: "/app/account/connections", icon: "apps" }] },
+  { title: "Personal", items: [{ label: "Profile", href: "/app/account", icon: "profile" }, { label: "Security", href: "/app/account/security", icon: "lock" }, { label: "API", href: "/app/account/api", icon: "terminal" }, { label: "Connections", href: "/app/account/connections", icon: "apps" }] },
   { title: "Organization", items: [{ label: "General", href: "/app/settings", icon: "settings" }, { label: "People", href: "/app/settings/people", icon: "profile" }, { label: "Products", href: "/app/settings/products", icon: "apps" }, { label: "Memory", href: "/app/settings/memory", icon: "agent" }, { label: "Audit log", href: "/app/settings/audit", icon: "activity" }, { label: "Plans", href: "/app/billing?view=plans", icon: "plans" }, { label: "Invoices", href: "/app/billing?view=invoices", icon: "invoice" }, { label: "Usage", href: "/app/billing", icon: "usage" }] },
   { title: "Resources & access", items: [{ label: "Secrets", href: "/app/settings/secrets", icon: "lock" }, { label: "Agents", href: "/app/settings/agent", icon: "agent" }] },
 ];

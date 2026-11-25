@@ -6,7 +6,10 @@
  * uploads, streamed downloads, lifecycle, saved environments and templates.
  * The access token is resolved per request through the supplied callback and
  * is never persisted or echoed into errors. Redirects are never followed —
- * a bearer token is only ever sent to the configured origin.
+ * a bearer token is only ever sent to the configured origin. Either a
+ * personal API key (`canter_pk_…`, for example `process.env.CANTER_API_KEY`)
+ * acting with the account's current workspace role, or an agent installation
+ * access token acting with its granted authority, is accepted.
  */
 
 export class CanterAPIError extends Error {
@@ -220,9 +223,28 @@ export interface SandboxList {
 export interface SandboxClientOptions {
   baseUrl: string;
   workspaceId: string;
+  /** Personal API key or agent installation token, e.g. `process.env.CANTER_API_KEY`. */
   accessToken: string | (() => string | Promise<string>);
   requestTimeoutMs?: number;
   fetch?: typeof fetch;
+}
+
+/** Public account identity returned by GET /v1/me. */
+export interface AccountIdentity {
+  account: {
+    id: string;
+    email: string;
+    createdAt: string;
+    profile?: unknown;
+  };
+  workspaces: {
+    id: string;
+    name: string;
+    revision: number;
+    role?: string;
+    agentAuthority: { inspect: boolean; draft: boolean; applyMode: string };
+  }[];
+  onboardingComplete: boolean;
 }
 
 export interface RequestOptions {
@@ -545,6 +567,18 @@ export class SandboxClient {
 
   private async requestJson<T>(method: string, path: string, body: BodyInit | null, contentType: string, options?: RequestOptions): Promise<T> {
     return parseJson<T>(await this.requestRaw(method, path, body, contentType, options));
+  }
+
+  /**
+   * Return the account identity (GET /v1/me) for a personal API key.
+   * Agent installation tokens are not accepted by this endpoint.
+   */
+  async me(options?: RequestOptions): Promise<AccountIdentity> {
+    const result = await this.request<AccountIdentity>("GET", "/v1/me", undefined, options);
+    if (!result || typeof result.account !== "object" || result.account === null || typeof result.account.id !== "string") {
+      throw new SandboxProtocolError("invalid account identity receipt");
+    }
+    return result;
   }
 
   transferLimits(id: string, options?: RequestOptions): Promise<SandboxTransferLimits> {

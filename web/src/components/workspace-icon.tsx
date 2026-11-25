@@ -3,6 +3,24 @@ import type { SVGProps } from "react";
 // Selected Hugeicons Stroke Rounded (MIT) and Solar Linear (CC BY 4.0) artwork.
 // Sources and license notices: /icon-licenses.txt. Geometry is unchanged.
 const icons = {
+  // Canter product navigation artwork.
+  sandboxTerminal: <g stroke="currentColor" strokeWidth="1.12" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M2.5 7.1 12 2.1l9.5 5v10.1L12 22l-9.5-4.8Z" />
+    <path d="M12 12 21.5 7.1v10.1L12 22Z" fill="#dbedcc" />
+    <path d="M2.5 7.1 12 12m-6.9-.6 2.3 2.4-2.3.5m4.1 1.5 1.3.65" />
+  </g>,
+  sandboxCollection: <g stroke="currentColor" strokeWidth="1.15" strokeLinecap="round" strokeLinejoin="round">
+    <path d="m12 2 4 2.25v4.5l-4 2.2-4-2.2v-4.5Zm-4 2.25 4 2.25 4-2.25M12 6.5v4.45" />
+    <path d="m6.3 11.2 4 2.25v4.5l-4 2.25-4-2.25v-4.5Zm-4 2.25 4 2.25 4-2.25m-4 2.25v4.5" />
+    <path d="m17.7 11.2 4 2.25v4.5l-4 2.25-4-2.25v-4.5Zm-4 2.25 4 2.25 4-2.25m-4 2.25v4.5" />
+  </g>,
+  workflowCheck: <g stroke="currentColor" strokeWidth="1.12" strokeLinecap="round" strokeLinejoin="round">
+    <path d="m10.2 7.1-5 7m8.7-7.1 4.1 6.3" />
+    <circle cx="12" cy="4.7" r="2.9" fill="#eef5e6" />
+    <circle cx="4.1" cy="16.6" r="2.8" fill="#eef5e6" />
+    <circle cx="18.1" cy="17.4" r="4.5" fill="#dbedcc" />
+    <path d="m16 17.4 1.4 1.4 2.7-3" />
+  </g>,
   reply: <path d="M9 5 3 11l6 6M3 11h9a9 9 0 0 1 9 9" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>,
   // hugeicons: home-03
   home: <><g fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5"><path d="M3 11.99v2.51c0 3.3 0 4.95 1.025 5.975S6.7 21.5 10 21.5h4c3.3 0 4.95 0 5.975-1.025S21 17.8 21 14.5v-2.51c0-1.682 0-2.522-.356-3.25s-1.02-1.244-2.346-2.276l-2-1.555C14.233 3.303 13.2 2.5 12 2.5s-2.233.803-4.298 2.409l-2 1.555C4.375 7.496 3.712 8.012 3.356 8.74S3 10.308 3 11.99"/><path d="M15 21.5v-5c0-1.414 0-2.121-.44-2.56c-.439-.44-1.146-.44-2.56-.44s-2.121 0-2.56.44C9 14.378 9 15.085 9 16.5v5"/></g></>,

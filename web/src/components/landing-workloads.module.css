@@ -1,0 +1,349 @@
+.section {
+  --index-width: clamp(120px, 14vw, 188px);
+  --row-border: #bdcfb4;
+  max-width: 1220px;
+  margin-inline: auto;
+  padding: 0 12px clamp(70px, 8vw, 112px);
+  scroll-margin-top: 28px;
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+.section h2,
+.section h3 {
+  font-family: "Canter Display", Arial, Helvetica, sans-serif;
+  font-weight: 400;
+}
+
+.section h2 {
+  margin: 0 0 clamp(36px, 5vw, 70px) var(--index-width);
+  font-size: clamp(38px, 4.8vw, 66px);
+  line-height: 1.03;
+  letter-spacing: -.062em;
+  text-wrap: balance;
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: var(--index-width) minmax(0, 1fr);
+  align-items: start;
+}
+
+.index {
+  position: sticky;
+  top: var(--landing-anchor-offset, 32px);
+  display: grid;
+  justify-items: start;
+  gap: 6px;
+  padding: 17px 10px 0 0;
+}
+
+.index a {
+  display: inline-flex;
+  align-items: center;
+  gap: 11px;
+  min-height: 36px;
+  padding: 4px;
+  border-radius: 4px;
+  color: #51594b;
+  font-size: 15px;
+  text-decoration: none;
+}
+
+.index a::before {
+  width: 10px;
+  height: 10px;
+  flex: none;
+  background: #b9d3a9;
+  content: "";
+}
+
+.index a[aria-current="location"] {
+  color: #24471c;
+}
+
+.index a[aria-current="location"]::before {
+  background: #81cf23;
+}
+
+.index a:hover {
+  color: #24471c;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
+.rows {
+  border-top: 1px solid var(--row-border);
+}
+
+.row {
+  display: grid;
+  grid-template-columns: minmax(0, .75fr) minmax(0, 1.25fr);
+  min-height: clamp(252px, 31vw, 365px);
+  scroll-margin-top: 84px;
+}
+
+.row + .row {
+  border-top: 1px solid var(--row-border);
+}
+
+.copy {
+  padding: clamp(28px, 4.5vw, 64px) clamp(22px, 4vw, 48px) clamp(28px, 4.5vw, 64px) 8px;
+}
+
+.copy h3 {
+  max-width: 11ch;
+  margin: 0;
+  font-size: clamp(27px, 3.3vw, 43px);
+  line-height: 1.08;
+  letter-spacing: -.055em;
+  text-wrap: balance;
+}
+
+.description {
+  max-width: 25ch;
+  margin: 19px 0 0;
+  color: #51594b;
+  font-size: clamp(16px, 1.48vw, 20px);
+  letter-spacing: -.021em;
+  line-height: 1.5;
+}
+
+.mobileLabel {
+  display: none;
+}
+
+.preview {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  place-items: center;
+  min-width: 0;
+  overflow: hidden;
+  padding: clamp(24px, 4.2vw, 52px);
+  background: #ebf5e2;
+}
+
+.row:first-child .preview {
+  border-start-end-radius: 17px;
+}
+
+.row:last-child .preview {
+  border-end-end-radius: 17px;
+}
+
+.preview::after,
+.sandbox::after {
+  position: absolute;
+  z-index: -1;
+  right: 0;
+  bottom: 0;
+  width: min(72%, 345px);
+  aspect-ratio: 16 / 9;
+  background: #86cf49;
+  mask: url("/landing/bento-dither.png") center / 100% 100% no-repeat;
+  opacity: var(--dither-opacity);
+  pointer-events: none;
+  content: "";
+}
+
+.row:first-child .preview::after {
+  --dither-opacity: .48;
+  --dither-delay: -.5s;
+  top: 0;
+  bottom: auto;
+  transform: scaleY(-1);
+}
+
+.row:nth-child(2) .preview::after {
+  content: none;
+}
+
+.row:last-child .preview::after {
+  --dither-opacity: .54;
+  --dither-delay: -5.5s;
+}
+
+@keyframes workload-dither-pulse {
+  to { opacity: calc(var(--dither-opacity) * .68); }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .preview::after,
+  .sandbox::after {
+    animation: workload-dither-pulse 4s ease-in-out var(--dither-delay) infinite alternate;
+  }
+}
+
+.preview .system,
+.sandbox,
+.ci {
+  width: min(100%, 460px);
+  border-radius: 17px;
+}
+
+.preview .system {
+  --system-preview-text: 16px;
+  --system-root-text: 14px;
+  --system-resource-height: 42px;
+  grid-area: auto;
+  padding: clamp(14px, 2.4vw, 27px);
+  border-color: #d1dfc8;
+  box-shadow: none;
+}
+
+.sandbox {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  padding: clamp(18px, 3vw, 32px);
+  background: linear-gradient(122deg, #b9f961, #a7ef4d);
+  color: #223d16;
+  font: 16px/1.4 "Canter Mono", ui-monospace, monospace;
+}
+
+.sandbox::after {
+  --dither-opacity: .55;
+  --dither-delay: -3s;
+  width: min(56%, 230px);
+  aspect-ratio: 2.35;
+  background: #56a915;
+}
+
+.command,
+.result {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.command {
+  padding: 15px;
+  border-radius: 10px;
+  background: #edfadf;
+}
+
+.command code {
+  font: inherit;
+}
+
+.result {
+  margin: 20px 0 0 3px;
+}
+
+.result span {
+  display: grid;
+  width: 23px;
+  height: 23px;
+  flex: none;
+  place-items: center;
+  border: 1px solid #3a671e;
+  border-radius: 50%;
+}
+
+.ci {
+  --pipeline-node-height: 54px;
+  --pipeline-text: 16px;
+  padding: clamp(17px, 2.7vw, 30px);
+  border: 1px solid #d1dfc8;
+  background: #f9faf6;
+}
+
+.ciDetails {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 9px 17px;
+  margin-top: 22px;
+  font-size: 15px;
+}
+
+.passed,
+.runner {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.passed {
+  padding: 5px 9px;
+  border-radius: 8px;
+  background: #e0f4cd;
+  color: #26451c;
+}
+
+.runner {
+  padding-left: 15px;
+  border-left: 1px solid #cdddc3;
+}
+
+.runner svg {
+  flex: none;
+  color: #386e23;
+}
+
+@media (max-width: 825px) {
+  .section h2 {
+    margin: 0 0 18px;
+  }
+
+  .layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .index {
+    position: static;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 18px;
+    margin-bottom: 14px;
+    padding: 0;
+  }
+}
+
+@media (max-width: 620px) {
+  .row {
+    grid-template-columns: minmax(0, 1fr);
+    padding-bottom: 18px;
+    scroll-margin-top: 22px;
+  }
+
+  .copy {
+    padding: 24px 0 20px;
+  }
+
+  .copy h3,
+  .description {
+    max-width: none;
+  }
+
+  .copy h3 {
+    text-wrap: pretty;
+  }
+
+  .description {
+    margin-top: 9px;
+  }
+
+  .mobileLabel {
+    display: block;
+    margin: 0 0 8px;
+    color: #416839;
+    font-size: 13px;
+  }
+
+  .row .preview {
+    padding: 22px 13px;
+    border-radius: 14px;
+  }
+
+  .runner {
+    padding-left: 0;
+    border-left: 0;
+  }
+}
+
+@media (max-width: 480px) {
+  .section {
+    padding-inline: 6px;
+  }
+}

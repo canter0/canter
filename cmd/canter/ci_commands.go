@@ -5,7 +5,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"os"
 	"time"
 
 	"github.com/canter0/canter/sdk/remote"
@@ -21,7 +20,8 @@ commands:
 
 common environment inputs (never written automatically):
   CANTER_API_URL
-  CANTER_AGENT_ACCESS_TOKEN`
+  CANTER_API_KEY                 personal API key acting as your account role
+  CANTER_AGENT_ACCESS_TOKEN      agent installation token acting with granted authority`
 
 func ciCommand(args []string) error {
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
@@ -126,9 +126,11 @@ func ciHelpRequested(args []string) bool {
 // holding a live credential in a flag default (flag usage output must never
 // print one): an explicit --api-url beats an explicit env-file CANTER_API_URL,
 // which beats the ambient CANTER_API_URL default; an explicit --access-token
-// beats the ambient CANTER_AGENT_ACCESS_TOKEN (resolved only when the flag
-// was not supplied, so an explicit empty value cannot fall back to ambient),
-// and an empty result falls back to the explicit env-file. Nothing is
+// beats the environment entirely (resolved only when the flag was not
+// supplied, so an explicit empty value cannot fall back to ambient). Without
+// the flag, credentials come from resolveAPICredential: ambient
+// CANTER_API_KEY, ambient CANTER_AGENT_ACCESS_TOKEN, then env-file values of
+// each. Both personal keys and agent tokens are accepted. Nothing is
 // persisted, refreshed, or logged.
 func ciRemote(fs *flag.FlagSet, apiURL, accessToken, envPath *string) (*remote.Client, string, error) {
 	apiURLExplicit := flagWasSet(fs, "api-url")
@@ -138,16 +140,21 @@ func ciRemote(fs *flag.FlagSet, apiURL, accessToken, envPath *string) (*remote.C
 		return nil, "", err
 	}
 	if !accessTokenExplicit {
-		*accessToken = os.Getenv("CANTER_AGENT_ACCESS_TOKEN")
-	}
-	if *accessToken == "" {
+		token, _, err := resolveAPICredential(values)
+		if err != nil && !errors.Is(err, errNoAPICredential) {
+			return nil, "", err
+		}
+		*accessToken = token
+	} else if *accessToken == "" {
+		// An explicit empty flag keeps the historical file-only fallback and
+		// never reads ambient credentials.
 		*accessToken = values["CANTER_AGENT_ACCESS_TOKEN"]
 	}
 	if !apiURLExplicit && values["CANTER_API_URL"] != "" {
 		*apiURL = values["CANTER_API_URL"]
 	}
 	if *accessToken == "" {
-		return nil, "", errors.New("command requires --access-token, CANTER_AGENT_ACCESS_TOKEN, or an explicit --env-file containing it")
+		return nil, "", errors.New("command requires --access-token, CANTER_API_KEY or CANTER_AGENT_ACCESS_TOKEN, or an explicit --env-file containing one")
 	}
 	client, err := remote.New(*apiURL, nil)
 	if err != nil {

@@ -3,6 +3,11 @@ import { AgentCarousel } from "@/components/agent-carousel";
 import { AgentOnboardingPrompt } from "@/components/agent-onboarding-prompt";
 import { DitherBackground } from "@/components/dither-background";
 import { HeroProducts } from "@/components/hero-products";
+import { LandingCapabilities } from "@/components/landing-capabilities";
+import { LandingFooter, LandingGetStarted } from "@/components/landing-closing";
+import { LandingFAQ } from "@/components/landing-faq";
+import { LandingInfrastructurePricing } from "@/components/landing-infrastructure-pricing";
+import { LandingWorkloads } from "@/components/landing-workloads";
 import { SiteHeader } from "@/components/site-header";
 import { AcquisitionVisit } from "@/components/acquisition-visit";
 import { publicPageMetadata, siteDescription, siteTitle } from "@/lib/seo";
@@ -15,7 +20,7 @@ export default function Home() {
     <div className={styles.landing}>
       <AcquisitionVisit landingPath="/" />
       <div className={styles.frame}>
-        <SiteHeader />
+        <SiteHeader sticky />
         <main>
           <section className={styles.hero} aria-labelledby="home-headline">
             <DitherBackground className={styles.background} />
@@ -39,7 +44,13 @@ export default function Home() {
             <AgentOnboardingPrompt />
           </section>
           <AgentCarousel />
+          <LandingCapabilities />
+          <LandingWorkloads />
+          <LandingInfrastructurePricing />
+          <LandingFAQ />
+          <LandingGetStarted />
         </main>
+        <LandingFooter />
       </div>
     </div>
   );

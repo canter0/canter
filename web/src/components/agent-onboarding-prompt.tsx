@@ -6,7 +6,7 @@ import styles from "@/app/home.module.css";
 
 const onboardingPrompt = "Read https://canter.dev/llms.txt and help me connect you to Canter. Show me the authorization link and wait for my approval.";
 
-export function AgentOnboardingPrompt() {
+export function AgentOnboardingPrompt({ className }: { className?: string }) {
   const [status, setStatus] = useState<"idle" | "copied" | "manual">("idle");
   const promptRef = useRef<HTMLTextAreaElement>(null);
   const resetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -29,9 +29,9 @@ export function AgentOnboardingPrompt() {
   }
 
   return (
-    <div className={styles.onboarding} data-motion="fade" data-motion-delay="200">
+    <div className={className ? `${styles.onboarding} ${className}` : styles.onboarding} data-motion="fade" data-motion-delay="200">
       <div className={styles.promptField}>
-        <textarea id="agent-onboarding-prompt" ref={promptRef} className={styles.prompt} readOnly rows={2} value={onboardingPrompt} spellCheck={false} aria-label="Prompt to connect your agent" />
+        <textarea ref={promptRef} className={styles.prompt} readOnly rows={2} value={onboardingPrompt} spellCheck={false} aria-label="Prompt to connect your agent" />
       </div>
       <button type="button" className={styles.copyButton} onClick={copyPrompt}>
         <MorphLabel text={status === "copied" ? "Prompt copied" : status === "manual" ? "Prompt selected. Press ⌘C or Ctrl+C" : "Copy prompt to onboard your agent"} />

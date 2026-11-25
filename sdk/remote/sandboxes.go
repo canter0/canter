@@ -35,8 +35,11 @@ var sandboxIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
 var sandboxTokenPattern = regexp.MustCompile(`^[\x21-\x7e]+$`)
 
 // Sandboxes returns a workspace-scoped sandbox client. The access token must
-// be a non-empty caller token or installation credential; it is validated but
-// never persisted or echoed into errors.
+// be a non-empty caller credential — either a personal API key (canter_pk_...,
+// for example exported as CANTER_API_KEY) acting with the account's current
+// workspace role, or an agent installation access token acting with the
+// installation's granted authority. It is validated but never persisted or
+// echoed into errors.
 func (c *Client) Sandboxes(workspaceID, accessToken string) (*SandboxClient, error) {
 	if !sandboxTokenPattern.MatchString(accessToken) {
 		return nil, errors.New("a nonempty printable Canter access token without whitespace is required")
