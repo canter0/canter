@@ -114,4 +114,4 @@ wait_for_url prometheus http://127.0.0.1:9090/-/ready 30
 wait_for_url node-exporter http://127.0.0.1:9100/metrics 30
 wait_for_url grafana http://127.0.0.1:3001/api/health 120
 
-echo "Monitoring is active. Grafana listens only on 127.0.0.1:3001; credentials remain in root-only /etc/canter-monitoring/grafana.env."
+echo "Monitoring is active. Grafana listens only on 127.0.0.1:3001; credentials remain in protected /etc/canter-monitoring/grafana.env."

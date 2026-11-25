@@ -93,8 +93,8 @@ and the sibling `deploy/monitoring/` directory to a private temporary directory
 on `canter-production` over the approved Tailscale SSH path, then run the script
 as root. The script preserves an existing `/etc/canter-monitoring/grafana.env`;
 on first installation it generates a random admin password and Grafana secret
-key there with root-only access. Do not copy that file into the repository or
-print it in automation logs.
+key there with root ownership and no world-readable access. Do not copy that
+file into the repository or print it in automation logs.
 
 For dashboard access, forward the loopback port through the existing private
 SSH connection:
@@ -103,8 +103,9 @@ SSH connection:
 ssh -N -L 3001:127.0.0.1:3001 canter-production
 ```
 
-Then open `http://127.0.0.1:3001` and sign in as `admin` using the root-only
-password file. The monitoring installation does not open firewall rules, enable
+Then open `http://127.0.0.1:3001` and sign in as `admin` using the protected
+password file. Grafana usage reporting and update checks are disabled. The
+monitoring installation does not open firewall rules, enable
 Tailscale Funnel, or expose Grafana publicly. Prometheus scrapes the control
 plane directly on `127.0.0.1:8081`; application metrics become available after
 the release containing the `/metrics` endpoint is activated.
