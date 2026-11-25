@@ -41,6 +41,7 @@ type HTTPConfig struct {
 	CI            CIConfig
 	Billing       *BillingGateway
 	Operator      OperatorConfig
+	FAQModel      string
 }
 
 type CIConfig struct {
@@ -197,6 +198,12 @@ func (h *HTTPServer) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch parts[1] {
+	case "faq":
+		if len(parts) != 2 || r.Method != http.MethodPost {
+			writeError(w, http.StatusNotFound, ErrNotFound)
+			return
+		}
+		h.answerFAQ(w, r)
 	case "ci":
 		h.ciGitHubPublic(w, r, parts[2:])
 	case "wren-extension-events":

@@ -1,14 +1,20 @@
 .landing {
+  --landing-gutter: 16px;
+  --landing-paper: #fafbf7;
   min-height: 100svh;
-  padding: 0 16px 16px;
-  background: #fafbf7;
+  padding-inline: var(--landing-gutter);
+  background: var(--landing-paper);
   color: #162112;
 }
 .frame {
+  --landing-navbar-top: 24px;
+  --landing-navbar-height: 56px;
+  --landing-anchor-offset: calc(var(--landing-navbar-top) + var(--landing-navbar-height) + 24px);
   position: relative;
   min-height: 100svh;
   margin: 0 auto;
 }
+.frame main :is(section, article)[id] { scroll-margin-top: var(--landing-anchor-offset); }
 .background {
   position: absolute;
   z-index: -1;
@@ -178,7 +184,7 @@
   .onboarding { margin-top: 40px; }
 }
 @media (max-width: 760px) {
-  .landing { padding-inline: 12px; }
+  .landing { --landing-gutter: 12px; }
   .hero { --hero-radius: 20px; min-height: calc(100svh - 96px); padding: 64px 24px; }
   .headline { font-size: clamp(49px, 8.8vw, 66px); }
   .description { font-size: 17px; margin-top: 25px; }
@@ -188,7 +194,7 @@
   .prompt { height: 3lh; }
 }
 @media (max-width: 480px) {
-  .landing { padding: 0 10px 10px; }
+  .landing { --landing-gutter: 10px; }
   .hero { --hero-radius: 18px; min-height: calc(100svh - 90px); padding: 56px 18px 44px; }
   .headline { font-size: clamp(36px, 10.4vw, 52px); }
   .description { font-size: 16px; line-height: 1.6; margin-top: 24px; }

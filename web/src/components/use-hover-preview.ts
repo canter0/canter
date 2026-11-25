@@ -4,7 +4,13 @@ import { useCallback, useEffect, useRef, useState, type RefObject } from "react"
 import { movingThroughHoverTriangle, pointInHoverRect, type PointerPoint } from "@/lib/hover-intent";
 
 /** Keeps an interactive preview reachable across other rows and the menu gap. */
-export function useHoverPreview(open: boolean, stacked: boolean, panel: RefObject<HTMLElement | null>, card: RefObject<HTMLElement | null>) {
+export function useHoverPreview(
+  open: boolean,
+  stacked: boolean,
+  panel: RefObject<HTMLElement | null>,
+  card: RefObject<HTMLElement | null>,
+  { optionAttribute = "data-model-option", retainOnLeave = false } = {},
+) {
   const [preview, setPreview] = useState<string | null>(null);
   const active = useRef<string | null>(null);
   const last = useRef<PointerPoint | null>(null);
@@ -29,9 +35,14 @@ export function useHoverPreview(open: boolean, stacked: boolean, panel: RefObjec
       const previous = last.current;
       last.current = point;
       const target = event.target instanceof Element ? event.target : null;
-      const row = target?.closest<HTMLElement>("[data-model-option]");
-      const candidate = row && panel.current?.contains(row) ? row.dataset.modelOption ?? null : null;
+      const row = target?.closest<HTMLElement>(`[${optionAttribute}]`);
+      const candidate = row && panel.current?.contains(row) ? row.getAttribute(optionAttribute) : null;
       const cardRect = card.current?.getBoundingClientRect();
+      const focused = document.activeElement;
+      if (retainOnLeave && card.current?.contains(focused) && focused?.matches(":focus-visible")) {
+        cancelPending();
+        return;
+      }
       if (cardRect && pointInHoverRect(point, cardRect)) {
         cancelPending();
         origin.current = null;
@@ -60,7 +71,8 @@ export function useHoverPreview(open: boolean, stacked: boolean, panel: RefObjec
       }
       // A small close grace also covers moving back across the physical gap.
       // Keyboard focus never goes through this pointer-only path.
-      if (active.current && pending.current === null) pending.current = setTimeout(() => showPreview(null), 100);
+      if (!retainOnLeave && active.current && pending.current === null) pending.current = setTimeout(() => showPreview(null), 100);
+      else if (retainOnLeave) cancelPending();
     }
     function keyboard() {
       cancelPending();
@@ -69,7 +81,7 @@ export function useHoverPreview(open: boolean, stacked: boolean, panel: RefObjec
     }
     function pointerDown() { cancelPending(); }
     function leaveWindow(event: PointerEvent) {
-      if (event.relatedTarget === null && !card.current?.contains(document.activeElement)) showPreview(null);
+      if (!retainOnLeave && event.relatedTarget === null && !card.current?.contains(document.activeElement)) showPreview(null);
     }
     document.addEventListener("pointermove", move);
     document.addEventListener("keydown", keyboard, true);
@@ -84,7 +96,7 @@ export function useHoverPreview(open: boolean, stacked: boolean, panel: RefObjec
       document.removeEventListener("pointerdown", pointerDown, true);
       document.removeEventListener("pointerout", leaveWindow);
     };
-  }, [open, stacked, panel, card, cancelPending, showPreview]);
+  }, [open, stacked, panel, card, optionAttribute, retainOnLeave, cancelPending, showPreview]);
 
   return [preview, showPreview] as const;
 }

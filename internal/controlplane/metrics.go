@@ -128,6 +128,7 @@ func metricsStatusClass(status int) string {
 }
 
 var metricsV1Routes = map[string]struct{}{
+	"faq":                           {},
 	"acquisition":                   {},
 	"agent":                         {},
 	"agent-pairings":                {},

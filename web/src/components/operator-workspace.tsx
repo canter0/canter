@@ -85,6 +85,11 @@ export function OperatorWorkspace({ id: initialId, githubResult, focusComposer, 
   useEffect(() => {
     if (!prefillPrompt || prefillApplied.current) return;
     prefillApplied.current = true;
+    if (draftTab && storageKey) {
+      try {
+        if (sessionStorage.getItem(storageKey) !== null) return;
+      } catch { /* A draft can still be edited when storage is unavailable. */ }
+    }
     editDraft(prefillPrompt);
     requestAnimationFrame(() => composer.current?.focus());
   }, [prefillPrompt]); // eslint-disable-line react-hooks/exhaustive-deps -- prefill runs once per mount

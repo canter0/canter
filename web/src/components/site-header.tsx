@@ -1,12 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useId, useRef, useState } from "react";
-import { usePopover } from "./use-popover";
-import { moveMenuFocus } from "@/lib/interaction";
-import { ViewTransition } from "react";
-import { MotionPresence } from "./motion-presence";
+import { useEffect, useRef, ViewTransition } from "react";
+import { SiteProductMenu } from "./site-product-menu";
 import styles from "./site-header.module.css";
+
+const bookingURL = "https://cal.com/y9090";
 
 function LinkArrow() {
   return (
@@ -16,25 +15,31 @@ function LinkArrow() {
   );
 }
 
-export function SiteHeader() {
-  const [open, setOpen] = useState(false);
-  const menu = useRef<HTMLDivElement>(null);
-  const menuId = useId();
-  const close = useCallback(() => setOpen(false), []);
-  usePopover(open, menu, close);
+export function SiteHeader({ sticky = false, getStartedHref }: { sticky?: boolean; getStartedHref?: string }) {
+  const header = useRef<HTMLElement>(null);
+  const getStartedLabel = <>Get Started <LinkArrow /></>;
+
+  useEffect(() => {
+    if (!sticky || !header.current) return;
+    const element = header.current;
+    function update() {
+      element.toggleAttribute("data-floating", window.scrollY > 8);
+    }
+    update();
+    window.addEventListener("scroll", update, { passive: true });
+    return () => window.removeEventListener("scroll", update);
+  }, [sticky]);
+
   return (
-    <ViewTransition name="canter-site-header" default="none" share="canter-anchor"><header className={styles.header}>
+    <ViewTransition name="canter-site-header" default="none" share="canter-anchor"><header ref={header} className={sticky ? `${styles.header} ${styles.sticky}` : styles.header}>
       <Link href="/" className={`wordmark ${styles.wordmark}`} aria-label="Canter home">canter</Link>
-      <nav className={styles.navigation} aria-label="Main navigation">
-        <Link href="/pricing" className={styles.secondaryLink}>Pricing</Link>
-      </nav>
-      <div ref={menu} className={styles.mobileMenu}>
-        <button type="button" className={styles.mobileTrigger} aria-label="Site navigation" aria-haspopup="menu" aria-expanded={open} aria-controls={open ? menuId : undefined} onClick={() => setOpen(!open)}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d={open ? "M6 6l12 12M6 18L18 6" : "M4 7h16M4 12h16M4 17h16"} /></svg></button>
-        <MotionPresence open={open}><div id={menuId} className={styles.mobileLinks} role="menu" aria-label="Site navigation" onKeyDown={moveMenuFocus}><Link role="menuitem" tabIndex={-1} href="/pricing" onNavigate={close}>Pricing</Link><Link role="menuitem" tabIndex={-1} href="/sign-in" onNavigate={close}>Sign in</Link></div></MotionPresence>
-      </div>
+      <SiteProductMenu bookingURL={bookingURL} />
       <div className={styles.actions}>
         <Link href="/sign-in" className={styles.signIn}>Sign in</Link>
-        <Link href="/create-account" className={styles.getStarted}>Get Started <LinkArrow /></Link>
+        <a href={bookingURL} className={styles.bookCall}>Book a call</a>
+        {getStartedHref
+          ? <a href={getStartedHref} className={styles.getStarted}>{getStartedLabel}</a>
+          : <Link href="/create-account" className={styles.getStarted}>{getStartedLabel}</Link>}
       </div>
     </header></ViewTransition>
   );

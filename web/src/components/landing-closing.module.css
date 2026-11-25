@@ -1,0 +1,126 @@
+.section,
+.footer {
+  --closing-forest: #234c1c;
+  margin-inline: calc(-1 * var(--landing-gutter));
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+.section {
+  position: relative;
+  isolation: isolate;
+  overflow: clip;
+  display: grid;
+  place-items: center;
+  min-height: clamp(520px, 52vw, 780px);
+  margin-block-start: -40px;
+  padding: 108px 20px 96px;
+  background: linear-gradient(var(--landing-paper) 10%, #dff4d0 59%, #98cc78 78%, var(--closing-forest) 100%);
+  color: #254b1d;
+  text-align: center;
+}
+
+.section::before {
+  position: absolute;
+  z-index: -1;
+  inset: 0 -5%;
+  background: url("/landing/closing-dither.webp") center / max(100%, 850px) 100% no-repeat;
+  mask-image: linear-gradient(transparent 3%, #000 19%, #000 94%, transparent 100%);
+  pointer-events: none;
+  content: "";
+}
+
+.content {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  align-items: center;
+}
+
+.content h2 {
+  margin: 0;
+  font: 400 clamp(42px, 5.6vw, 82px) / 1.02 "Canter Display", Arial, sans-serif;
+  letter-spacing: -.062em;
+  text-wrap: balance;
+}
+
+.content .onboarding {
+  width: min(100%, clamp(520px, 46.5vw, 720px));
+  margin-top: clamp(22px, 2.6vw, 40px);
+}
+
+.onboarding textarea { font-size: clamp(12px, 1vw, 15px); }
+.onboarding button { min-height: clamp(48px, 4.4vw, 66px); font-size: clamp(15px, 1.45vw, 21px); }
+
+.account {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  margin-top: clamp(10px, 1.2vw, 18px);
+  padding-inline: 5px;
+  font-size: clamp(16px, 1.5vw, 22px);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.account svg { flex: none; }
+.account:hover { color: #183312; }
+
+.footer {
+  padding: 28px clamp(24px, 6.7vw, 104px) clamp(34px, 4.5vw, 64px);
+  background: var(--closing-forest);
+  color: #f7faef;
+}
+
+.footerInner {
+  display: grid;
+  grid-template-columns: minmax(140px, 1.65fr) minmax(0, .5fr) minmax(0, .46fr) minmax(0, .55fr);
+  gap: clamp(22px, 3vw, 46px);
+  max-width: 1330px;
+  margin-inline: auto;
+}
+
+.wordmark { justify-self: start; align-self: start; font-size: clamp(31px, 3vw, 45px); line-height: 1.1; }
+
+.footer nav {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.footer nav h2 {
+  margin: 0 0 8px;
+  color: #cadebf;
+  font: 400 12px/1.5 "Canter Mono", ui-monospace, monospace;
+}
+
+.footer nav a { padding-block: 3px; }
+.footer nav a:hover { text-decoration: underline; text-underline-offset: 4px; }
+.footer a:focus-visible { outline-color: #eaf7df; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .section::before { animation: closing-wave-drift 18s ease-in-out infinite alternate; }
+}
+
+@keyframes closing-wave-drift {
+  from { transform: translateX(-2%); }
+  to { transform: translateX(2%); }
+}
+
+@media (max-width: 620px) {
+  .section { min-height: 510px; padding-block: 105px 96px; }
+  .footerInner { grid-template-columns: .95fr .75fr 1.35fr; gap: 24px 15px; }
+  .wordmark { grid-column: 1 / -1; }
+  .footer nav a { padding-block: 5px; }
+}
+
+@media (max-width: 480px) {
+  .onboarding textarea { font-size: 11px; }
+  .onboarding button { padding-inline: 12px; }
+}
+
+@media (max-width: 359px) {
+  .onboarding button { font-size: 13px; }
+}
