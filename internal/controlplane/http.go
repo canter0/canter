@@ -112,14 +112,34 @@ type HTTPServer struct {
 	mcpLargeBodies chan struct{}
 	// ciEvidenceSlots bounds concurrent runner-evidence uploads globally.
 	ciEvidenceSlots chan struct{}
+	metricsOnce     sync.Once
+	metrics         *httpMetrics
 }
 
 func NewHTTPServer(service *Service, config HTTPConfig) http.Handler {
 	passkeys, _ := newPasskeys(config.PublicURL)
-	return &HTTPServer{passkeys: passkeys, service: service, config: config, limits: newRequestLimiter(), oauth: newOAuthProviders(config), artifactUploads: make(chan struct{}, 2), audioUploads: make(chan struct{}, 2), mcpRequests: make(chan struct{}, 8), mcpLargeBodies: make(chan struct{}, 1), ciEvidenceSlots: make(chan struct{}, ciEvidenceHTTPConcurrency)}
+	return &HTTPServer{passkeys: passkeys, service: service, config: config, limits: newRequestLimiter(), oauth: newOAuthProviders(config), artifactUploads: make(chan struct{}, 2), audioUploads: make(chan struct{}, 2), mcpRequests: make(chan struct{}, 8), mcpLargeBodies: make(chan struct{}, 1), ciEvidenceSlots: make(chan struct{}, ciEvidenceHTTPConcurrency), metrics: newHTTPMetrics()}
 }
 
 func (h *HTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	metrics := h.httpMetrics()
+	if r.URL.Path == "/metrics" {
+		metrics.serve(w, r)
+		return
+	}
+	metrics.observe(w, r, metricsRoute(h, r), http.HandlerFunc(h.serveHTTP))
+}
+
+func (h *HTTPServer) httpMetrics() *httpMetrics {
+	h.metricsOnce.Do(func() {
+		if h.metrics == nil {
+			h.metrics = newHTTPMetrics()
+		}
+	})
+	return h.metrics
+}
+
+func (h *HTTPServer) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	// Preview hosts are dispatched before any Canter auth/cookie handling.
 	if h.isPreviewHost(r) {
 		h.servePreview(w, r)
