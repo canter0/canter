@@ -17,6 +17,7 @@ class MonitoringConfigurationTests(unittest.TestCase):
         self.assertIn('grafana_version=', script)
         self.assertIn('Dpkg::Options::=--force-confold', script)
         self.assertIn('systemctl restart prometheus prometheus-node-exporter grafana-server', script)
+        self.assertIn('wait_for_url grafana http://127.0.0.1:3001/api/health 120', script)
         self.assertNotIn('tailscale funnel', script)
 
     def test_prometheus_scrapes_only_loopback_targets_with_bounded_retention(self):

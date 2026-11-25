@@ -94,8 +94,9 @@ systemctl restart prometheus prometheus-node-exporter grafana-server
 wait_for_url() {
   name=$1
   url=$2
+  attempts=$3
   attempt=0
-  while [ "$attempt" -lt 30 ]; do
+  while [ "$attempt" -lt "$attempts" ]; do
     if curl -fsS --max-time 2 "$url" >/dev/null 2>&1; then
       return 0
     fi
@@ -109,8 +110,8 @@ wait_for_url() {
 systemctl is-active --quiet prometheus
 systemctl is-active --quiet prometheus-node-exporter
 systemctl is-active --quiet grafana-server
-wait_for_url prometheus http://127.0.0.1:9090/-/ready
-wait_for_url node-exporter http://127.0.0.1:9100/metrics
-wait_for_url grafana http://127.0.0.1:3001/api/health
+wait_for_url prometheus http://127.0.0.1:9090/-/ready 30
+wait_for_url node-exporter http://127.0.0.1:9100/metrics 30
+wait_for_url grafana http://127.0.0.1:3001/api/health 120
 
 echo "Monitoring is active. Grafana listens only on 127.0.0.1:3001; credentials remain in root-only /etc/canter-monitoring/grafana.env."
