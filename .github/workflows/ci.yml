@@ -57,8 +57,9 @@ jobs:
     timeout-minutes: 30
     services:
       postgres:
-        # Docker's official distribution avoids shared-runner Docker Hub limits.
-        image: public.ecr.aws/docker/library/postgres:17-alpine
+        # Google's mirror serves the same digest-pinned Docker Hub image without
+        # ECR Public's anonymous shared-IP data limit.
+        image: mirror.gcr.io/library/postgres:17-alpine@sha256:f9cf3e1f0066f0eb0c48707d864f0ac5941e9ff454a072077d97a4d278d07d73
         env:
           POSTGRES_PASSWORD: postgres
         ports: ["5432:5432"]
