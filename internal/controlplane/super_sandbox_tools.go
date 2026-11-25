@@ -15,6 +15,9 @@ func superSandboxTools() []mcpTool {
 		return map[string]any{"type": "integer", "minimum": min, "maximum": max}
 	}
 	object := func(properties map[string]any, required ...string) map[string]any {
+		if required == nil {
+			required = []string{}
+		}
 		return map[string]any{"type": "object", "properties": properties, "required": required, "additionalProperties": false}
 	}
 	return []mcpTool{
