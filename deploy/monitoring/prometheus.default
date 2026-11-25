@@ -1,0 +1,1 @@
+ARGS="--config.file=/etc/prometheus/prometheus.yml --storage.tsdb.path=/var/lib/prometheus/metrics2 --storage.tsdb.retention.time=7d --storage.tsdb.retention.size=1GB --web.listen-address=127.0.0.1:9090 --web.console.libraries=/etc/prometheus/console_libraries --web.console.templates=/etc/prometheus/consoles"

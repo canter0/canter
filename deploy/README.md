@@ -69,6 +69,47 @@ Investigate `journalctl -u canter-deploy.service` before removing that marker.
 Release backups are retained under `/opt/canter/releases/actions-<commit>`;
 monitor disk capacity and prune old releases only after verifying backup retention.
 
+
+## Production metrics with Prometheus and Grafana
+
+The control plane exposes Prometheus metrics at `/metrics` on its loopback
+listener. Caddy does not proxy that path, and the handler also rejects forwarded
+or non-loopback peers. Metrics include Go/process data and normalized HTTP
+request rates, latency histograms, and in-flight requests. Route labels are
+limited to static API families so user, workspace, execution, and token values
+cannot create unbounded time-series cardinality.
+
+`deploy/install-monitoring.sh` is the repeatable one-time host setup. It
+installs Ubuntu's Prometheus and node-exporter packages, installs Grafana OSS
+from Grafana Labs' signed APT repository after checking the pinned repository
+key fingerprint, binds every listener to loopback, provisions the Prometheus
+datasource and operations dashboard, and limits Prometheus retention to seven
+days or 1 GiB. Grafana runs on `127.0.0.1:3001`; Prometheus on
+`127.0.0.1:9090`; node-exporter on `127.0.0.1:9100`. None is publicly routed
+through Caddy.
+
+To install or update the monitoring stack, copy `deploy/install-monitoring.sh`
+and the sibling `deploy/monitoring/` directory to a private temporary directory
+on `canter-production` over the approved Tailscale SSH path, then run the script
+as root. The script preserves an existing `/etc/canter-monitoring/grafana.env`;
+on first installation it generates a random admin password and Grafana secret
+key there with root ownership and no world-readable access. Do not copy that
+file into the repository or print it in automation logs.
+
+For dashboard access, forward the loopback port through the existing private
+SSH connection:
+
+```sh
+ssh -N -L 3001:127.0.0.1:3001 canter-production
+```
+
+Then open `http://127.0.0.1:3001` and sign in as `admin` using the protected
+password file. Grafana usage reporting and update checks are disabled. The
+monitoring installation does not open firewall rules, enable
+Tailscale Funnel, or expose Grafana publicly. Prometheus scrapes the control
+plane directly on `127.0.0.1:8081`; application metrics become available after
+the release containing the `/metrics` endpoint is activated.
+
 ## Private production access with Tailscale
 
 Tailscale is the default administrative network. Both this Mac and the
