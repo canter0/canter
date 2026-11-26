@@ -11,6 +11,8 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+var ErrAgentPairingCancelled = errors.New("workspace pairing was cancelled; ask the user for a fresh connection prompt")
+
 // Pairing invitations carry no workspace authority. Claiming one produces a
 // separate device secret that is useful only after the initiating human approves.
 type AgentPairing struct {
@@ -229,7 +231,7 @@ func (h *HTTPServer) agentPairings(w http.ResponseWriter, r *http.Request, parts
 		base := strings.TrimRight(h.config.PublicURL, "/") + "/api/canter"
 		writeJSON(w, http.StatusOK, map[string]any{"apiBaseURL": base, "steps": []string{
 			"POST " + base + "/agent-pairings/claim with JSON {token: the invitation code supplied by the user, name: your recognizable agent name, harness: your agent software}. The invitation is single-use and expires after 10 minutes. Do not send it to another service.",
-			"Keep the returned deviceCode private. Poll POST " + base + "/device/token with JSON {deviceCode, clientInstance: a unique name for this conversation} every intervalSeconds until the user clicks Connect in their existing Canter window. Retry only HTTP 428 when error.message is device authorization pending. Stop on denied, expired, or conflict. Do not open another approval page or approve yourself.",
+			"Keep the returned deviceCode private. Poll POST " + base + "/device/token with JSON {deviceCode, clientInstance: a unique name for this conversation} every intervalSeconds until the user clicks Connect in their existing Canter window. Retry only HTTP 428 when error.message is device authorization pending. Stop on cancellation, denial, expiry, or conflict. If the workspace pairing was cancelled, ask the user for a fresh connection prompt. Do not open another approval page or approve yourself.",
 			"The successful response contains accessToken, refreshToken, installation, and session. Keep credentials in process memory or a local file with mode 0600; never put them in chat, source control, task text, or logs. Access tokens expire at session.expiresAt. Before expiry POST " + base + "/agent/token/refresh with {refreshToken,clientInstance} and replace both credentials; each refresh token is single-use. Installation expiresAt, when present, is a hard deadline.",
 			"Use Authorization: Bearer <accessToken> for GET " + base + "/agent/bootstrap and subsequent Canter API requests, or connect Streamable HTTP MCP at " + base + "/mcp. Begin by reading bootstrap and inspecting available tasks. Task preferences are requests, not proof of which model executes. Check installation.authority: inspect grants reads, draft grants writes, and applyMode automatic permits canter_apply_change and canter_apply_initial_deployment with the exact proposal digest without another human approval. With human-approval-required, request human approval; with never, do not apply. Permissions may change during the session.",
 			"For subagents, POST " + base + "/agent/workers with {name,clientInstance,draft:false} using the orchestrator's access token. Give each worker only its returned accessToken. Set draft:true only if the worker must prepare changes. Workers cannot delegate, refresh, claim, or finish tasks. They share the parent installation's current task for activity attribution. Their access expires with the parent session; reissue after refreshing. Never pass the orchestrator's refresh credential to workers.",

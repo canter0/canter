@@ -1597,7 +1597,7 @@ func writeStoreError(w http.ResponseWriter, err error) {
 		status = http.StatusTooManyRequests
 	case errors.Is(err, ErrDevicePending):
 		status = http.StatusPreconditionRequired
-	case errors.Is(err, ErrDeviceDenied):
+	case errors.Is(err, ErrDeviceDenied), errors.Is(err, ErrAgentPairingCancelled):
 		status = http.StatusForbidden
 	case errors.Is(err, ErrDeviceExpired):
 		status = http.StatusGone
