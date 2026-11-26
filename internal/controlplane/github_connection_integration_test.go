@@ -49,6 +49,8 @@ func TestGitHubConnectionOAuthRepositoryAccessAndIsolation(t *testing.T) {
 		case "/repos/octocat/private-site":
 			body = `{"description":"Private website","default_branch":"main"}`
 		case "/repos/octocat/private-site/commits/main":
+			body = `aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`
+		case "/repos/octocat/private-site/git/commits/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa":
 			body = `{"sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}`
 		case "/repos/octocat/private-site/git/trees/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa":
 			body = `{"tree":[{"path":"index.html","type":"blob"}]}`
@@ -236,6 +238,8 @@ func TestGitHubAppOAuthRepositoryAccessAndIsolation(t *testing.T) {
 		case "/repos/octocat/private-site":
 			body = `{"description":"Private website","default_branch":"main"}`
 		case "/repos/octocat/private-site/commits/main":
+			body = `aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`
+		case "/repos/octocat/private-site/git/commits/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa":
 			body = `{"sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}`
 		case "/repos/octocat/private-site/git/trees/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa":
 			body = `{"tree":[{"path":"index.html","type":"blob"}]}`

@@ -247,24 +247,30 @@ func TestAgentPairingExpiryCancellationAndClaimRace(t *testing.T) {
 	}
 	var wg sync.WaitGroup
 	wg.Add(2)
-	results := make(chan error, 2)
+	type claimResult struct {
+		device DeviceAuthorization
+		err    error
+	}
+	results := make(chan claimResult, 2)
 	for range 2 {
 		go func() {
 			defer wg.Done()
-			_, err := store.ClaimAgentPairing(ctx, invite.Token, "Racing agent", "test", "http://canter.test")
-			results <- err
+			device, err := store.ClaimAgentPairing(ctx, invite.Token, "Racing agent", "test", "http://canter.test")
+			results <- claimResult{device, err}
 		}()
 	}
 	wg.Wait()
 	close(results)
 	successes, conflicts := 0, 0
-	for err := range results {
-		if err == nil {
+	var winner DeviceAuthorization
+	for result := range results {
+		if result.err == nil {
 			successes++
-		} else if errors.Is(err, ErrConflict) {
+			winner = result.device
+		} else if errors.Is(result.err, ErrConflict) {
 			conflicts++
 		} else {
-			t.Fatal(err)
+			t.Fatal(result.err)
 		}
 	}
 	if successes != 1 || conflicts != 1 {
@@ -272,6 +278,11 @@ func TestAgentPairingExpiryCancellationAndClaimRace(t *testing.T) {
 	}
 	if err := store.CancelAgentPairing(ctx, invite.ID, owner.ID); err != nil {
 		t.Fatal(err)
+	}
+	handler := NewHTTPServer(&Service{Store: store}, HTTPConfig{PublicURL: "http://canter.test"})
+	cancelled := requestJSON(t, handler, http.MethodPost, "/v1/device/token", map[string]string{"deviceCode": winner.DeviceCode, "clientInstance": "cancelled-session"}, nil)
+	if cancelled.Code != http.StatusForbidden || !strings.Contains(cancelled.Body.String(), ErrAgentPairingCancelled.Error()) {
+		t.Fatalf("cancelled exchange: %d %s", cancelled.Code, cancelled.Body.String())
 	}
 	if _, err := store.ApproveAgentPairing(ctx, invite.ID, owner.ID, true); !errors.Is(err, ErrDeviceDenied) {
 		t.Fatalf("cancelled approval: %v", err)
@@ -283,6 +294,10 @@ func TestAgentPairingExpiryCancellationAndClaimRace(t *testing.T) {
 	now = now.Add(11 * time.Minute)
 	if _, err := store.ClaimAgentPairing(ctx, fresh.Token, "Late agent", "test", "http://canter.test"); !errors.Is(err, ErrDeviceExpired) {
 		t.Fatalf("expired claim: %v", err)
+	}
+	expired := requestJSON(t, handler, http.MethodPost, "/v1/device/token", map[string]string{"deviceCode": winner.DeviceCode, "clientInstance": "expired-session"}, nil)
+	if expired.Code != http.StatusGone {
+		t.Fatalf("expired cancelled exchange: %d %s", expired.Code, expired.Body.String())
 	}
 	temp, err := store.CreateAgentPairing(ctx, owner.ID, workspace.ID)
 	if err != nil {

@@ -42,6 +42,10 @@ func normalizeRepository(value string) (string, error) {
 	return value, nil
 }
 func githubBytes(ctx context.Context, address string, max int64) ([]byte, error) {
+	return githubBytesWithAccept(ctx, address, max, "application/vnd.github+json")
+}
+
+func githubBytesWithAccept(ctx context.Context, address string, max int64, accept string) ([]byte, error) {
 	u, err := url.Parse(address)
 	if err != nil || u.Scheme != "https" || u.User != nil || (u.Host != "api.github.com" && u.Host != "codeload.github.com") {
 		return nil, fmt.Errorf("unsupported GitHub URL")
@@ -50,7 +54,7 @@ func githubBytes(ctx context.Context, address string, max int64) ([]byte, error)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("Accept", accept)
 	req.Header.Set("User-Agent", "Canter-Workspace-Operator")
 	if token, _ := ctx.Value(githubTokenKey{}).(string); token != "" && u.Host == "api.github.com" {
 		req.Header.Set("Authorization", "Bearer "+token)
@@ -125,12 +129,19 @@ func inspectRepository(ctx context.Context, repo, ref string) (RepositoryInspect
 		ref = metadata.DefaultBranch
 	}
 	out.Branch = ref
-	data, err = githubBytes(ctx, "https://api.github.com/repos/"+repo+"/commits/"+url.PathEscape(ref), 1<<20)
+	data, err = githubBytesWithAccept(ctx, "https://api.github.com/repos/"+repo+"/commits/"+url.PathEscape(ref), 256, "application/vnd.github.sha")
 	if err != nil {
 		return out, fmt.Errorf("repository exists, but revision %q could not be resolved: %w; if no revision was requested, retry inspection with ref omitted to use the default branch %q", ref, err, metadata.DefaultBranch)
 	}
+	out.Commit = strings.TrimSpace(string(data))
+	if !repositoryCommit.MatchString(out.Commit) {
+		return out, fmt.Errorf("GitHub did not return an immutable commit")
+	}
+	data, err = githubBytes(ctx, "https://api.github.com/repos/"+repo+"/git/commits/"+out.Commit, 256<<10)
+	if err != nil {
+		return out, fmt.Errorf("could not read GitHub commit metadata: %w", err)
+	}
 	var commit struct {
-		SHA     string `json:"sha"`
 		Parents []struct {
 			SHA string `json:"sha"`
 		} `json:"parents"`
@@ -138,14 +149,10 @@ func inspectRepository(ctx context.Context, repo, ref string) (RepositoryInspect
 	if err = json.Unmarshal(data, &commit); err != nil {
 		return out, err
 	}
-	if !repositoryCommit.MatchString(commit.SHA) {
-		return out, fmt.Errorf("GitHub did not return an immutable commit")
-	}
-	out.Commit = commit.SHA
 	if len(commit.Parents) > 0 && repositoryCommit.MatchString(commit.Parents[0].SHA) {
 		out.Parent = commit.Parents[0].SHA
 	}
-	data, err = githubBytes(ctx, "https://api.github.com/repos/"+repo+"/git/trees/"+commit.SHA+"?recursive=1", 4<<20)
+	data, err = githubBytes(ctx, "https://api.github.com/repos/"+repo+"/git/trees/"+out.Commit+"?recursive=1", 4<<20)
 	if err != nil {
 		return out, err
 	}

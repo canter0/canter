@@ -1374,6 +1374,13 @@ func (s *Store) ExchangeDevice(ctx context.Context, deviceCode, clientInstance s
 		return TokenPair{}, ErrDeviceExpired
 	}
 	if d.DeniedAt != nil {
+		var pairingCancelled bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM agent_pairings WHERE device_id=$1 AND cancelled_at IS NOT NULL)`, d.ID).Scan(&pairingCancelled); err != nil {
+			return TokenPair{}, err
+		}
+		if pairingCancelled {
+			return TokenPair{}, ErrAgentPairingCancelled
+		}
 		return TokenPair{}, ErrDeviceDenied
 	}
 	if d.AuthorizedAt == nil || d.InstallationID == nil {

@@ -56,6 +56,53 @@ func TestRepositoryCodeRoutesRequireWorkspaceMembership(t *testing.T) {
 	}
 }
 
+func TestRepositoryInspectionUsesLightweightCommitResolution(t *testing.T) {
+	old := githubHTTPClient
+	t.Cleanup(func() { githubHTTPClient = old })
+	commit := strings.Repeat("c", 40)
+	parent := strings.Repeat("d", 40)
+	var order []string
+	githubHTTPClient = &http.Client{Transport: githubRoundTrip(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Host != "api.github.com" || r.Header.Get("Authorization") != "Bearer scoped-token" {
+			t.Error("inspection lost scoped bearer")
+		}
+		status, body := 200, ""
+		switch r.URL.Path {
+		case "/repos/o/r":
+			body = `{"default_branch":"main"}`
+		case "/repos/o/r/commits/main":
+			if r.Header.Get("Accept") != "application/vnd.github.sha" {
+				body = strings.Repeat("x", 1<<20+1)
+				break
+			}
+			body = commit
+		case "/repos/o/r/git/commits/" + commit:
+			body = `{"sha":"` + commit + `","parents":[{"sha":"` + parent + `"}]}`
+		case "/repos/o/r/git/trees/" + commit:
+			if r.URL.Query().Get("recursive") != "1" {
+				t.Error("tree request dropped recursive listing")
+			}
+			body = `{"tree":[{"path":"frontend/package.json","type":"blob"}]}`
+		default:
+			t.Errorf("unexpected GitHub path %s", r.URL.Path)
+		}
+		order = append(order, r.URL.Path)
+		return &http.Response{StatusCode: status, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(body)), Request: r}, nil
+	})}
+	ctx := context.WithValue(context.Background(), githubTokenKey{}, "scoped-token")
+	inspection, err := inspectRepository(ctx, "o/r", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"/repos/o/r", "/repos/o/r/commits/main", "/repos/o/r/git/commits/" + commit, "/repos/o/r/git/trees/" + commit}
+	if strings.Join(order, ",") != strings.Join(want, ",") {
+		t.Fatalf("unexpected call order: %v", order)
+	}
+	if inspection.Commit != commit || inspection.Parent != parent || len(inspection.Files) != 1 || inspection.Files[0] != "frontend/package.json" {
+		t.Fatalf("inspection lost pinned commit, parent, or files: %+v", inspection)
+	}
+}
+
 func TestRepositoryRevisionErrorKeepsValidRepositoryContext(t *testing.T) {
 	old := githubHTTPClient
 	t.Cleanup(func() { githubHTTPClient = old })

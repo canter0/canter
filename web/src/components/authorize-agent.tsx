@@ -15,6 +15,8 @@ export function AuthorizeAgent({ code }: { code: string }) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const [signInRequired, setSignInRequired] = useState(false);
+  const [reauthRequired, setReauthRequired] = useState(false);
+  const reviewPath = `/onboarding/authorize?code=${encodeURIComponent(code)}`;
 
   useEffect(() => {
     let cancelled = false;
@@ -38,7 +40,7 @@ export function AuthorizeAgent({ code }: { code: string }) {
   }, [code]);
 
   async function decide(decision: "approve" | "deny") {
-    if (!workspaceId && decision === "approve") return;
+    if (pending || !request || request.status !== "pending" || (decision === "approve" && (!workspaceId || reauthRequired))) return;
     setPending(true);
     setError("");
     try {
@@ -49,7 +51,20 @@ export function AuthorizeAgent({ code }: { code: string }) {
       router.push(decision === "approve" ? "/app/agents" : "/onboarding/agent");
       router.refresh();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Canter could not record that decision.");
+      if (cause instanceof CanterAPIError && decision === "approve" && cause.status === 428) {
+        setReauthRequired(true);
+      } else if (cause instanceof CanterAPIError && cause.status === 410) {
+        setRequest(current => current ? { ...current, status: "expired" } : current);
+      } else if (cause instanceof CanterAPIError && cause.status === 409) {
+        const latest = await canterFetch<DeviceAuthorization>(`/device/authorizations/${encodeURIComponent(code)}`).catch(() => null);
+        if (latest && latest.status !== "pending") {
+          setRequest(latest);
+        } else {
+          setError(cause instanceof Error ? cause.message : "Canter could not record that decision.");
+        }
+      } else {
+        setError(cause instanceof Error ? cause.message : "Canter could not record that decision.");
+      }
       setPending(false);
     }
   }
@@ -61,7 +76,6 @@ export function AuthorizeAgent({ code }: { code: string }) {
   ] : [];
 
   if (signInRequired) {
-    const reviewPath = `/onboarding/authorize?code=${encodeURIComponent(code)}`;
     return (
       <>
         <AuthTitle title="Sign in to review." description="This agent request is waiting for a human-authenticated decision." />
@@ -74,6 +88,18 @@ export function AuthorizeAgent({ code }: { code: string }) {
     );
   }
 
+  const ready = request?.status === "pending";
+  if (request && !ready) {
+    return (
+      <>
+        <AuthTitle title={request.status === "expired" ? "This authorization request expired." : "This authorization request has ended."} description="Ask your agent to start a new authorization request, then open its new link." />
+        <div className="mt-10">
+          <Link href="/onboarding/agent" className="flex h-11 items-center justify-center border border-[var(--ink)]">Back to agent setup</Link>
+        </div>
+      </>
+    );
+  }
+
   return (
     <>
       <AuthTitle title={`Authorize ${request?.name ?? "agent"}.`} description={request ? `${request.name} (${request.harness}) is asking to operate Canter in ${workspaceName}.` : "Loading the agent's request."} />
@@ -81,8 +107,11 @@ export function AuthorizeAgent({ code }: { code: string }) {
       <div className="mt-10 border-t border-[var(--ink)]">
         {authority.map(([permission, value]) => <div key={permission} className="flex h-14 items-center justify-between border-b border-[var(--rule)]"><span>{permission}</span><span className="text-[var(--muted)]">{value}</span></div>)}
       </div>
+      {reauthRequired ? <p role="status" className="mt-8 text-[var(--muted)]">Confirm your identity to continue. Canter will return you here to review and authorize this request.</p> : null}
       <div className="mt-10 grid grid-cols-2 gap-3">
-        <button onClick={() => void decide("approve")} disabled={pending || !request || !workspaceId} className="h-11 bg-[var(--ink)] text-[var(--paper)] disabled:opacity-60">{pending ? "Recording…" : "Authorize"}</button>
+        {reauthRequired
+          ? <Link href={`/sign-in?reauth=1&next=${encodeURIComponent(reviewPath)}`} className="flex h-11 items-center justify-center bg-[var(--ink)] text-[var(--paper)]">Confirm your identity</Link>
+          : <button onClick={() => void decide("approve")} disabled={pending || !request || !workspaceId} className="h-11 bg-[var(--ink)] text-[var(--paper)] disabled:opacity-60">{pending ? "Recording…" : "Authorize"}</button>}
         <button onClick={() => void decide("deny")} disabled={pending || !request} className="h-11 border border-[var(--ink)] disabled:opacity-60">Deny</button>
       </div>
       <button onClick={() => router.push("/onboarding/agent")} className="rule-link mt-7 text-[var(--muted)]">This is not your agent? ↗</button>

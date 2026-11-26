@@ -29,7 +29,9 @@ export function AgentConnectionDialog({ workspaceId, defaultAuthority, onClose, 
   const authority = override ?? defaultAuthority;
   const [remember, setRemember] = useState(false);
   const [pending, setPending] = useState(false);
+  const [confirmCancel, setConfirmCancel] = useState(false);
   const [error, setError] = useState("");
+  const keepConnecting = useRef<HTMLButtonElement>(null);
   const id = pairing?.id;
   const terminal = pairing && ["connected", "expired", "cancelled", "disconnected"].includes(pairing.status);
 
@@ -72,11 +74,17 @@ export function AgentConnectionDialog({ workspaceId, defaultAuthority, onClose, 
     finally { setPending(false); }
   }
 
-  async function close() {
+  useEffect(() => { if (confirmCancel) keepConnecting.current?.focus(); }, [confirmCancel]);
+
+  async function close(cancel = false) {
     if (pending) return;
+    if (pairing && !terminal && !cancel) {
+      setConfirmCancel(true);
+      return;
+    }
     setPending(true); setError("");
     try {
-      if (pairing && !["connected", "disconnected", "cancelled", "expired"].includes(pairing.status)) await canterFetch(`/agent-pairings/${encodeURIComponent(pairing.id)}`, { method: "DELETE" });
+      if (cancel && pairing && !terminal) await canterFetch(`/agent-pairings/${encodeURIComponent(pairing.id)}`, { method: "DELETE" });
       dismiss(() => callbacks.current.onClose());
     } catch { setError("Couldn’t cancel the connection. Try again."); setPending(false); }
   }
@@ -93,11 +101,15 @@ export function AgentConnectionDialog({ workspaceId, defaultAuthority, onClose, 
 
   const name = pairing?.name || "Your agent";
   const ended = pairing && ["expired", "cancelled", "disconnected"].includes(pairing.status);
-  return <dialog ref={dialog} className={styles.dialog} aria-labelledby="connect-agent-title" onCancel={event => { event.preventDefault(); void close(); }}>
+  return <dialog ref={dialog} className={styles.dialog} aria-labelledby="connect-agent-title" onCancel={event => { event.preventDefault(); if (pending) return; if (confirmCancel) setConfirmCancel(false); else void close(); }}>
     <button className={styles.close} aria-label="Close agent connection" disabled={pending} onClick={() => void close()}><WorkspaceIcon name="close" width="17" height="17" /></button>
     <div className={styles.icon}><WorkspaceIcon name={pairing?.status === "connected" ? "check" : "terminal"} width="23" height="23" /></div>
-    <h2 id="connect-agent-title"><MorphLabel text={pairing?.status === "connected" ? `${name} connected` : pairing?.status === "ready" ? `${name} is ready to connect` : ended ? "Connection ended" : "Connect your agent"} /></h2>
-    {!pairing || pairing.status === "waiting" ? <>
+    <h2 id="connect-agent-title"><MorphLabel text={confirmCancel && pairing && !terminal ? "Cancel this connection?" : pairing?.status === "connected" ? `${name} connected` : pairing?.status === "ready" ? `${name} is ready to connect` : ended ? "Connection ended" : "Connect your agent"} /></h2>
+    {confirmCancel && pairing && !terminal ? <>
+      <p>Cancelling ends this invitation. To connect later, copy a new connection prompt.</p>
+      <button ref={keepConnecting} type="button" className={styles.primary} disabled={pending} onClick={() => setConfirmCancel(false)}>Keep connecting</button>
+      <button type="button" disabled={pending} onClick={() => void close(true)}>Cancel connection</button>
+    </> : (!pairing || pairing.status === "waiting") ? <>
       <p>Paste this message into your agent.</p>
       <p>{override ? "Custom permissions for this agent." : "Using workspace defaults."}{override ? <button type="button" onClick={() => setOverride(null)} disabled={pending}> Use workspace defaults</button> : null}</p>
       <AgentPermissions value={authority} onChange={setOverride} disabled={pending} />
@@ -111,7 +123,7 @@ export function AgentConnectionDialog({ workspaceId, defaultAuthority, onClose, 
       <label className={styles.remember}><input type="checkbox" checked={remember} onChange={event => setRemember(event.target.checked)} disabled={pending} />Remember this agent</label>
       <details className={styles.details}><summary>Connection details</summary><p>{remember ? "This agent can reconnect until you disconnect it." : "Access ends after its task, or after 8 hours."} Workers stay under this connection.</p></details>
       <button className={styles.primary} disabled={pending} onClick={() => void approve()}>{pending ? "Connecting…" : "Connect"}</button>
-    </> : pairing.status === "approved" ? <p className={styles.waiting} role="status"><span />Finishing the connection…</p> : pairing.status === "connected" ? <><p>You’ll see its actions in Activity.</p><button className={styles.primary} onClick={() => void close()}>Done</button></> : <><p>{pairing.status === "expired" ? "The invitation expired. Copy a new one to try again." : "Start again whenever you’re ready."}</p><button className={styles.primary} onClick={() => { setPairing(null); setPrompt(""); setCopied(false); setManualCopy(false); setRemember(false); setError(""); }}>Start again</button></>}
+    </> : pairing.status === "approved" ? <p className={styles.waiting} role="status"><span />Finishing the connection…</p> : pairing.status === "connected" ? <><p>You’ll see its actions in Activity.</p><button className={styles.primary} onClick={() => void close()}>Done</button></> : <><p>{pairing.status === "expired" ? "The invitation expired. Copy a new one to try again." : "Start again whenever you’re ready."}</p><button className={styles.primary} onClick={() => { setPairing(null); setPrompt(""); setCopied(false); setManualCopy(false); setRemember(false); setConfirmCancel(false); setError(""); }}>Start again</button></>}
     {error ? <p className={styles.error} role="alert">{error}</p> : null}
   </dialog>;
 }
